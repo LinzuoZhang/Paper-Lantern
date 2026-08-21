@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Moonlight Paper Reader</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="libraryView" class="library-view" aria-label="Literature library">
+      <header class="library-header">
+        <div>
+          <h1>Literature Library</h1>
+          <p id="libraryRoot">Manage papers, PDFs, highlights, and method notes by folder.</p>
+        </div>
+        <form id="uploadForm" class="upload-form">
+          <input id="paperTitleInput" type="text" placeholder="Paper title (optional)" />
+          <input id="categoryInput" type="text" placeholder="Category / folder" value="Uncategorized" />
+          <label class="file-button">
+            <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
+            Upload PDF
+          </label>
+        </form>
+      </header>
+      <div class="library-layout">
+        <aside class="category-panel">
+          <h2>Categories</h2>
+          <div id="categoryTree" class="category-tree"></div>
+        </aside>
+        <section class="paper-list-panel">
+          <div class="paper-list-header">
+            <h2 id="currentCategoryName">All Papers</h2>
+            <p id="libraryStatus" role="status"></p>
+          </div>
+          <div id="paperList" class="paper-list"></div>
+        </section>
+      </div>
+    </main>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

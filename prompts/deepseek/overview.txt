@@ -1,0 +1,25 @@
+Read the paper content below and return strict JSON only. Do not return Markdown.
+All user-facing JSON values must be in Chinese.
+
+JSON schema:
+{{
+  "keywords": ["keyword or technical term"],
+  "paperTitle": "paper title in original language when available",
+  "methodPoints": [
+    {{"title": "method point name", "description": "one sentence about its role"}}
+  ],
+  "threeLineSummary": {{
+    "challenges": "one Chinese sentence about the challenge addressed by the paper",
+    "conclusion": "one Chinese sentence about the main conclusion, results, or limitations"
+  }}
+}}
+
+Requirements:
+- Return 8 to 14 keyword strings only.
+- Return paperTitle as the paper's real title, not the PDF file name. If the title is unclear, return an empty string.
+- Return 3 to 5 methodPoints in logical order.
+- Method point order should follow the paper: representation/problem setup, architecture or algorithm, training/inference/optimization, then evaluation/deployment if relevant.
+- Each method point must be concrete enough to support a separate technical explanation.
+
+Paper content:
+{paper_text}
