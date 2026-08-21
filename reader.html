@@ -4,14 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Open Moonlight Paper Reader</title>
+    <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./vendor/katex/katex.min.js"></script>
   </head>
   <body>
+    <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
+      <div class="reader-library-header">
+        <button id="backToLibraryButton" class="ghost" type="button">Back to Library</button>
+        <button id="closeLibraryDrawerButton" class="icon-button drawer-close-button" type="button" aria-label="Close library"></button>
+      </div>
+      <section class="reader-library-section">
+        <h2>Library</h2>
+        <div id="readerCategoryList" class="reader-category-list"></div>
+      </section>
+      <section class="reader-library-section reader-paper-section">
+        <h2 id="readerLibraryTitle">Papers</h2>
+        <div id="readerPaperList" class="reader-paper-list"></div>
+      </section>
+    </aside>
+    <button id="openLibraryDrawerButton" class="reader-drawer-tab" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">Library</button>
     <main class="app-shell">
       <section class="reader-pane" aria-label="Paper reader">
         <header class="toolbar">
           <h1 id="fileName" class="paper-title">Loading paper...</h1>
-          <button id="backToLibraryButton" class="ghost" type="button">Back to Library</button>
         </header>
         <div class="paper-frame">
           <div id="pageIndicator" class="page-indicator" hidden>0 / 0</div>
@@ -30,44 +46,79 @@
 
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
-      <aside class="summary-pane" aria-label="AI summary">
-        <header class="summary-header">
-          <div>
-            <h2>AI Summary</h2>
-            <p>DeepSeek / keyword dictionary / three-line summary</p>
+      <aside class="summary-pane" aria-label="AI summary and discussion">
+        <section class="summary-card summary-group collapsible-card" data-collapsible-card>
+          <div class="summary-group-header">
+            <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="aiSummaryContent">
+              <span>AI Summary</span>
+              <span class="collapse-icon" aria-hidden="true"></span>
+            </button>
+            <button id="summarizeButton" class="icon-button refresh-button" type="button" aria-label="Regenerate summary" title="Regenerate summary">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 6v5h-5"></path>
+                <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+              </svg>
+            </button>
           </div>
-          <select id="modelSelect" aria-label="DeepSeek model">
-            <option value="deepseek-chat">deepseek-chat</option>
-            <option value="deepseek-reasoner">deepseek-reasoner</option>
-          </select>
-        </header>
 
-        <div class="actions">
-          <button id="summarizeButton" type="button">Regenerate</button>
-          <button id="clearButton" class="ghost" type="button">Clear</button>
-        </div>
-        <p id="status" class="status" role="status"></p>
+          <div id="aiSummaryContent" class="summary-group-content">
+            <p id="status" class="status" role="status"></p>
 
-        <section class="summary-card">
-          <h3>Keywords</h3>
-          <div id="keywords" class="keywords"></div>
+            <section class="summary-card collapsible-card" data-collapsible-card>
+              <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
+                <span>Keywords</span>
+                <span class="collapse-icon" aria-hidden="true"></span>
+              </button>
+              <div id="keywords" class="keywords"></div>
+            </section>
+
+            <section class="summary-card collapsible-card" data-collapsible-card>
+              <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
+                <span>Three-Line Summary</span>
+                <span class="collapse-icon" aria-hidden="true"></span>
+              </button>
+              <dl id="threeLineSummary" class="three-lines">
+                <dt>Challenges</dt>
+                <dd id="challenges">Waiting</dd>
+                <dt>Core Method And Technical Details</dt>
+                <dd id="method">Waiting</dd>
+                <dt>Conclusion</dt>
+                <dd id="conclusion">Waiting</dd>
+              </dl>
+            </section>
+
+            <section class="summary-card method-card collapsible-card" data-collapsible-card>
+              <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
+                <span>Method Breakdown</span>
+                <span class="collapse-icon" aria-hidden="true"></span>
+              </button>
+              <div id="methodSections" class="method-sections"></div>
+            </section>
+          </div>
         </section>
 
-        <section class="summary-card">
-          <h3>Three-Line Summary</h3>
-          <dl class="three-lines">
-            <dt>Challenges</dt>
-            <dd id="challenges">Waiting</dd>
-            <dt>Core Method And Technical Details</dt>
-            <dd id="method">Waiting</dd>
-            <dt>Conclusion</dt>
-            <dd id="conclusion">Waiting</dd>
-          </dl>
-        </section>
-
-        <section class="summary-card method-card">
-          <h3>Method Breakdown</h3>
-          <div id="methodSections" class="method-sections"></div>
+        <section class="summary-card discussion-card collapsible-card" data-collapsible-card>
+          <div class="summary-group-header">
+            <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="discussionContent">
+              <span>Discussion</span>
+              <span class="collapse-icon" aria-hidden="true"></span>
+            </button>
+            <button id="clearDiscussionButton" class="icon-button refresh-button" type="button" aria-label="Clear discussion" title="Clear discussion">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 6v5h-5"></path>
+                <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+              </svg>
+            </button>
+          </div>
+          <div id="discussionContent" class="discussion-content">
+            <div id="discussionMessages" class="discussion-messages" aria-live="polite">
+              <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
+            </div>
+            <form id="discussionForm" class="discussion-form">
+              <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
+              <button id="sendDiscussionButton" type="submit">Send</button>
+            </form>
+          </div>
         </section>
       </aside>
     </main>

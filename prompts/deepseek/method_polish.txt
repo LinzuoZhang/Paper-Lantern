@@ -4,6 +4,7 @@ All user-facing JSON values must be in Chinese.
 JSON schema:
 {{
   "method": "short overall method overview in 120 to 220 Chinese characters",
+  "methodOverview": "opening overview for Method Breakdown in 80 to 140 Chinese characters",
   "methodSections": [
     {{
       "title": "method point title",
@@ -12,7 +13,8 @@ JSON schema:
       "bullets": ["technical detail bullet"],
       "formulas": ["important formula or notation and explanation"]
     }}
-  ]
+  ],
+  "methodConclusion": "closing synthesis for Method Breakdown in 80 to 140 Chinese characters"
 }}
 
 Task:
@@ -26,6 +28,8 @@ Draft details for each point:
 
 Hard requirements:
 - Return 3 to 5 methodSections, preserving logical order unless paper evidence indicates a better order.
+- methodOverview should briefly state the whole method pipeline, main design idea, and how the sections connect.
+- methodConclusion should synthesize what the method achieves, its key tradeoff, and any stated limitation or dependency.
 - Each section should have one clear title, one plain motivation sentence, one summary sentence, 2 to 4 compact bullets, and formulas/notations only when useful.
 - Motivation should be modest and factual. Do not style it rhetorically; explain the specific limitation, bottleneck, or design need.
 - Make formulas readable: keep notation such as "L = ...", "d_i = ...", "p_{{current}}", "G=(V,E)", "O(n)", "\frac{{a}}{{b}}" if present, and explain what the variables mean.

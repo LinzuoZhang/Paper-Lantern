@@ -3,6 +3,12 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
 const backToLibraryButton = document.querySelector("#backToLibraryButton");
+const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
+const closeLibraryDrawerButton = document.querySelector("#closeLibraryDrawerButton");
+const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
+const readerCategoryList = document.querySelector("#readerCategoryList");
+const readerPaperList = document.querySelector("#readerPaperList");
+const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
@@ -13,15 +19,18 @@ const translateButton = document.querySelector("#translateButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
 const pageIndicator = document.querySelector("#pageIndicator");
-const modelSelect = document.querySelector("#modelSelect");
 const summarizeButton = document.querySelector("#summarizeButton");
-const clearButton = document.querySelector("#clearButton");
 const statusText = document.querySelector("#status");
 const challenges = document.querySelector("#challenges");
 const method = document.querySelector("#method");
 const conclusion = document.querySelector("#conclusion");
 const keywords = document.querySelector("#keywords");
 const methodSections = document.querySelector("#methodSections");
+const discussionMessages = document.querySelector("#discussionMessages");
+const discussionForm = document.querySelector("#discussionForm");
+const discussionInput = document.querySelector("#discussionInput");
+const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
+const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -40,6 +49,10 @@ let apiBaseUrl = "";
 let translationDragState = null;
 let commentDraftHighlights = [];
 let activeHighlightGroupId = null;
+let readerLibraryTree = null;
+let readerSelectedCategoryId = "";
+let discussionHistory = [];
+let discussionIsBusy = false;
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -49,11 +62,104 @@ const highlightColors = {
 };
 
 initPaneResizer();
+initCollapsibleSummaryCards();
+initReaderLibraryDrawer();
 openReaderFromUrl();
 
 backToLibraryButton?.addEventListener("click", () => {
   window.location.href = "./index.html";
 });
+
+function initReaderLibraryDrawer() {
+  openLibraryDrawerButton?.addEventListener("click", () => openReaderLibraryDrawer());
+  closeLibraryDrawerButton?.addEventListener("click", () => closeReaderLibraryDrawer());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeReaderLibraryDrawer();
+  });
+  loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
+}
+
+async function openReaderLibraryDrawer() {
+  readerLibraryDrawer.classList.add("open");
+  readerLibraryDrawer.setAttribute("aria-hidden", "false");
+  openLibraryDrawerButton.setAttribute("aria-expanded", "true");
+  await loadReaderLibrary();
+}
+
+function closeReaderLibraryDrawer() {
+  readerLibraryDrawer.classList.remove("open");
+  readerLibraryDrawer.setAttribute("aria-hidden", "true");
+  openLibraryDrawerButton.setAttribute("aria-expanded", "false");
+}
+
+async function loadReaderLibrary() {
+  const response = await apiFetch("/api/library");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load library.");
+  readerLibraryTree = data.tree;
+  if (!readerSelectedCategoryId && currentPaper?.category) readerSelectedCategoryId = currentPaper.category;
+  renderReaderLibrary();
+}
+
+function renderReaderLibrary() {
+  if (!readerLibraryTree) return;
+  const categories = flattenReaderCategories(readerLibraryTree);
+  readerCategoryList.innerHTML = "";
+  categories.forEach((category) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reader-category-item";
+    button.classList.toggle("active", category.id === readerSelectedCategoryId);
+    button.style.paddingLeft = `${10 + category.depth * 14}px`;
+    button.textContent = `${category.name} (${category.paperCount})`;
+    button.addEventListener("click", () => {
+      readerSelectedCategoryId = category.id;
+      renderReaderLibrary();
+    });
+    readerCategoryList.appendChild(button);
+  });
+
+  const selected = categories.find((category) => category.id === readerSelectedCategoryId) || categories[0];
+  const papers = readerSelectedCategoryId ? selected?.papers || [] : collectReaderPapers(readerLibraryTree);
+  readerLibraryTitle.textContent = selected?.id ? selected.name : "All Papers";
+  readerPaperList.innerHTML = "";
+  if (!papers.length) {
+    const empty = document.createElement("div");
+    empty.className = "reader-library-empty";
+    empty.textContent = "No papers here.";
+    readerPaperList.appendChild(empty);
+    return;
+  }
+  papers.forEach((paper) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reader-paper-item";
+    button.classList.toggle("active", currentPaper?.id === paper.id);
+    button.textContent = paper.title;
+    button.addEventListener("click", () => {
+      const params = new URLSearchParams({ id: paper.id });
+      window.location.href = `./reader.html?${params.toString()}`;
+    });
+    readerPaperList.appendChild(button);
+  });
+}
+
+function flattenReaderCategories(node, depth = 0) {
+  if (!node) return [];
+  const current = {
+    id: node.id || "",
+    name: node.name || "Library",
+    depth,
+    paperCount: collectReaderPapers(node).length,
+    papers: node.papers || [],
+  };
+  return [current, ...(node.folders || []).flatMap((folder) => flattenReaderCategories(folder, depth + 1))];
+}
+
+function collectReaderPapers(node) {
+  if (!node) return [];
+  return [...(node.papers || []), ...(node.folders || []).flatMap(collectReaderPapers)];
+}
 
 async function openReaderFromUrl() {
   const params = new URLSearchParams(window.location.search);
@@ -75,10 +181,13 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 
   currentPaper = data.paper;
+  readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
+  renderDiscussionHistory(currentPaper.discussion || []);
   renderSummary(paperToSummary(currentPaper));
   fileName.textContent = currentPaper.title;
   fileName.title = currentPaper.title;
+  renderReaderLibrary();
 
   const pdfResponse = await apiFetch(currentPaper.pdfUrl);
   const blob = await pdfResponse.blob();
@@ -86,7 +195,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   showPdf(file, currentPaper.title);
   lastExtractedText = "";
   setBusy(true);
-  setStatus("Reading PDF text...");
+  clearStatus();
   if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
     renderSummaryLoading("解析论文并生成总结中...");
   }
@@ -106,10 +215,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     }
 
     if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
-      setStatus(`Extracted about ${extractedText.length.toLocaleString()} characters. Running multi-step method analysis...`);
       await summarizeText(extractedText);
-    } else {
-      setStatus(`Extracted about ${extractedText.length.toLocaleString()} characters. Saved analysis loaded.`);
     }
   } catch (error) {
     console.error(error);
@@ -119,12 +225,6 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     setBusy(false);
   }
 }
-
-clearButton.addEventListener("click", () => {
-  lastExtractedText = "";
-  statusText.textContent = "";
-  renderSummary(null);
-});
 
 document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
@@ -158,6 +258,11 @@ translateButton.addEventListener("mousedown", (event) => event.preventDefault())
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
+discussionForm?.addEventListener("submit", handleDiscussionSubmit);
+clearDiscussionButton?.addEventListener("click", () => {
+  clearDiscussion();
+  saveDiscussionHistory();
+});
 
 summarizeButton.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -167,7 +272,7 @@ summarizeButton.addEventListener("click", async () => {
   }
 
   setBusy(true);
-  setStatus("Calling DeepSeek for multi-step method analysis...");
+  clearStatus();
   renderSummaryLoading("重新生成总结中...");
   try {
     await summarizeText(text);
@@ -180,14 +285,253 @@ summarizeButton.addEventListener("click", async () => {
   }
 });
 
+function initCollapsibleSummaryCards() {
+  document.querySelectorAll("[data-collapsible-card]").forEach((card) => {
+    const toggle = card.querySelector(".summary-card-toggle");
+    if (!toggle) return;
+
+    const contentId = toggle.getAttribute("aria-controls");
+    const content = contentId ? document.getElementById(contentId) : null;
+    const storageKey = `summaryCardCollapsed:${contentId || toggle.textContent.trim()}`;
+    const isCollapsed = localStorage.getItem(storageKey) === "true";
+    setSummaryCardCollapsed(card, toggle, content, isCollapsed);
+
+    toggle.addEventListener("click", () => {
+      const nextCollapsed = toggle.getAttribute("aria-expanded") === "true";
+      setSummaryCardCollapsed(card, toggle, content, nextCollapsed);
+      localStorage.setItem(storageKey, String(nextCollapsed));
+    });
+  });
+}
+
+function setSummaryCardCollapsed(card, toggle, content, isCollapsed) {
+  card.classList.toggle("collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", String(!isCollapsed));
+  if (content) content.hidden = isCollapsed;
+}
+
 function paperToSummary(paper) {
   if (!paper) return null;
   return {
     paperTitle: paper.title,
     keywords: paper.keywords || [],
     threeLineSummary: paper.threeLineSummary || {},
+    methodOverview: paper.methodOverview || "",
     methodSections: paper.methodSections || [],
+    methodConclusion: paper.methodConclusion || "",
   };
+}
+
+async function handleDiscussionSubmit(event) {
+  event.preventDefault();
+  if (discussionIsBusy) return;
+
+  const question = discussionInput.value.trim();
+  if (!question) return;
+
+  const paperText = lastExtractedText.trim();
+  if (paperText.length < 80) {
+    appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再开始讨论。");
+    return;
+  }
+
+  appendDiscussionMessage("user", question);
+  discussionInput.value = "";
+  setDiscussionBusy(true);
+  const pending = appendDiscussionMessage("assistant", "Thinking...");
+  pending.classList.add("pending");
+
+  try {
+    const response = await apiFetch("/api/discuss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperText,
+        question,
+        summary: paperToSummary(currentPaper),
+        history: discussionHistory.slice(-8),
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
+
+    pending.classList.remove("pending");
+    setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), data.answer || "No response", "assistant");
+    discussionHistory.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    await saveDiscussionHistory();
+  } catch (error) {
+    console.error(error);
+    pending.classList.remove("pending");
+    pending.classList.add("error");
+    setDiscussionMessageContent(
+      pending.querySelector(".discussion-message-body"),
+      error.message || "讨论失败，请稍后重试。",
+      "assistant",
+    );
+  } finally {
+    setDiscussionBusy(false);
+  }
+}
+
+function appendDiscussionMessage(role, content) {
+  discussionMessages.querySelector(".discussion-empty")?.remove();
+
+  const message = document.createElement("div");
+  message.className = `discussion-message ${role === "user" ? "user" : "assistant"}`;
+
+  const label = document.createElement("div");
+  label.className = "discussion-message-label";
+  label.textContent = role === "user" ? "You" : "AI";
+
+  const body = document.createElement("div");
+  body.className = "discussion-message-body";
+  setDiscussionMessageContent(body, content, role);
+
+  message.append(label, body);
+  discussionMessages.appendChild(message);
+  message.scrollIntoView({ block: "nearest" });
+  return message;
+}
+
+function setDiscussionMessageContent(body, content, role) {
+  if (!body) return;
+  if (role === "assistant") {
+    body.classList.add("markdown-body");
+    body.innerHTML = renderDiscussionMarkdown(content);
+  } else {
+    body.classList.remove("markdown-body");
+    body.textContent = content;
+  }
+}
+
+function renderDiscussionMarkdown(content) {
+  const text = escapeHtml(String(content || ""));
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  let inCodeBlock = false;
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${formatDiscussionInline(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    blocks.push(`<ul>${list.map((item) => `<li>${formatDiscussionInline(item)}</li>`).join("")}</ul>`);
+    list = [];
+  };
+  const flushCode = () => {
+    blocks.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
+    codeLines = [];
+  };
+
+  lines.forEach((line) => {
+    if (/^\s*```/.test(line)) {
+      if (inCodeBlock) {
+        flushCode();
+        inCodeBlock = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      return;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length + 3;
+      blocks.push(`<h${level}>${formatDiscussionInline(heading[2])}</h${level}>`);
+      return;
+    }
+
+    const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      list.push(bullet[1]);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    flushList();
+    paragraph.push(line.trim());
+  });
+
+  if (inCodeBlock) flushCode();
+  flushParagraph();
+  flushList();
+  return blocks.join("") || "<p>No response</p>";
+}
+
+function formatDiscussionInline(text) {
+  return text
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function clearDiscussion() {
+  discussionHistory = [];
+  discussionMessages.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = "discussion-empty";
+  empty.textContent = "Ask a question about the method, assumptions, experiments, or limitations.";
+  discussionMessages.appendChild(empty);
+}
+
+function renderDiscussionHistory(history) {
+  clearDiscussion();
+  discussionHistory = normalizeDiscussionHistory(history);
+  discussionHistory.forEach((message) => appendDiscussionMessage(message.role, message.content));
+}
+
+function normalizeDiscussionHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .map((message) => ({
+      role: message?.role === "user" ? "user" : "assistant",
+      content: String(message?.content || "").trim(),
+    }))
+    .filter((message) => message.content);
+}
+
+async function saveDiscussionHistory() {
+  if (!currentPaper) return;
+  try {
+    await saveCurrentPaper({ discussion: discussionHistory });
+  } catch (error) {
+    console.error("Failed to save discussion.", error);
+  }
+}
+
+function setDiscussionBusy(isBusy) {
+  discussionIsBusy = isBusy;
+  sendDiscussionButton.disabled = isBusy;
+  discussionInput.disabled = isBusy;
 }
 
 async function saveCurrentPaper(extra = {}) {
@@ -405,7 +749,6 @@ async function extractPdfText(file) {
   const metadataTitle = await getPdfMetadataTitle(pdf);
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    setStatus(`Extracting PDF text: page ${pageNumber}/${pdf.numPages}...`);
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
     const text = content.items
@@ -428,7 +771,7 @@ async function summarizeText(text) {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperText: text, model: modelSelect.value }),
+    body: JSON.stringify({ paperText: text }),
   });
   const data = await readJsonResponse(response);
 
@@ -442,7 +785,7 @@ async function summarizeText(text) {
     fileName.textContent = data.summary.paperTitle;
     fileName.title = data.summary.paperTitle;
   }
-  setStatus("Summary generated.");
+  clearStatus();
 }
 
 async function getPdfMetadataTitle(pdf) {
@@ -631,7 +974,7 @@ async function translateSelection() {
     const response = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, model: modelSelect.value }),
+      body: JSON.stringify({ text }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
@@ -1169,7 +1512,11 @@ function renderSummary(summary) {
   });
   keywords.appendChild(fragment);
 
-  renderMethodSections(summary.methodSections || [], summary.threeLineSummary?.method || "");
+  renderMethodSections(summary.methodSections || [], {
+    fallbackText: summary.threeLineSummary?.method || "",
+    overview: summary.methodOverview || "",
+    conclusion: summary.methodConclusion || summary.threeLineSummary?.conclusion || "",
+  });
 }
 
 function renderSummaryLoading(message = "Loading...") {
@@ -1190,7 +1537,11 @@ function renderSummaryLoading(message = "Loading...") {
   methodSections.appendChild(methodLoading);
 }
 
-function renderMethodSections(sections, fallbackText = "") {
+function renderMethodSections(sections, options = {}) {
+  const fallbackText = typeof options === "string" ? options : options.fallbackText || "";
+  const overviewText = typeof options === "object" ? options.overview || "" : "";
+  const conclusionText = typeof options === "object" ? options.conclusion || "" : "";
+
   if ((!Array.isArray(sections) || !sections.length) && fallbackText) {
     sections = splitMethodFallback(fallbackText);
   }
@@ -1201,6 +1552,9 @@ function renderMethodSections(sections, fallbackText = "") {
   }
 
   const fragment = document.createDocumentFragment();
+  const overview = createMethodBoundary("概括", overviewText || fallbackText);
+  if (overview) fragment.appendChild(overview);
+
   sections.forEach((section, index) => {
     const article = document.createElement("article");
     article.className = "method-section";
@@ -1251,7 +1605,7 @@ function renderMethodSections(sections, fallbackText = "") {
       formulas.forEach((formula) => {
         const formulaNode = document.createElement("div");
         formulaNode.className = "formula-display";
-        formulaNode.append(...formatMathText(String(formula)));
+        renderFormula(formulaNode, String(formula), true);
         formulaBox.appendChild(formulaNode);
       });
       article.appendChild(formulaBox);
@@ -1259,7 +1613,27 @@ function renderMethodSections(sections, fallbackText = "") {
 
     fragment.appendChild(article);
   });
+
+  const conclusion = createMethodBoundary("总结", conclusionText);
+  if (conclusion) fragment.appendChild(conclusion);
   methodSections.appendChild(fragment);
+}
+
+function createMethodBoundary(label, text) {
+  const content = String(text || "").trim();
+  if (!content) return null;
+
+  const section = document.createElement("section");
+  section.className = "method-boundary";
+
+  const title = document.createElement("h4");
+  title.textContent = label;
+
+  const body = document.createElement("p");
+  body.append(...formatInlineTechnicalText(content));
+
+  section.append(title, body);
+  return section;
 }
 
 function splitMethodFallback(text) {
@@ -1307,7 +1681,7 @@ function formatInlineTechnicalText(text) {
     const mark = document.createElement("mark");
     mark.className = looksLikeFormula(match[0]) ? "formula-inline" : "term-inline";
     if (looksLikeFormula(match[0])) {
-      mark.append(...formatMathText(match[0]));
+      renderFormula(mark, match[0], false);
     } else {
       mark.textContent = match[0];
     }
@@ -1325,171 +1699,37 @@ function looksLikeFormula(value) {
   return /=|\(|\)|\+|-|\*|\/|\^|_/.test(value);
 }
 
-function normalizeFormulaText(value) {
-  const greek = {
-    "\\alpha": "α",
-    "\\beta": "β",
-    "\\gamma": "γ",
-    "\\delta": "δ",
-    "\\epsilon": "ε",
-    "\\lambda": "λ",
-    "\\mu": "μ",
-    "\\sigma": "σ",
-    "\\theta": "θ",
-    "\\phi": "φ",
-    "\\omega": "ω",
-  };
-
-  let normalized = value
-    .replace(/\\\(|\\\)|\$/g, "")
-    .replace(/\\left|\\right/g, "")
-    .replace(/\\nabla/g, "∇")
-    .replace(/\\partial/g, "∂")
-    .replace(/\\lVert|\\rVert|\\\|/g, "‖")
-    .replace(/\\leq|<=/g, "≤")
-    .replace(/\\geq|>=/g, "≥")
-    .replace(/\\cdot/g, "·")
-    .replace(/\\times/g, "×")
-    .replace(/\\infty/g, "∞")
-    .replace(/\\sum/g, "Σ")
-    .replace(/\\sqrt/g, "√")
-    .replace(/\\cot/g, "cot")
-    .replace(/\\sin/g, "sin")
-    .replace(/\\cos/g, "cos")
-    .replace(/\\tan/g, "tan")
-    .replace(/\\log/g, "log")
-    .replace(/\\exp/g, "exp");
-
-  Object.entries(greek).forEach(([source, target]) => {
-    normalized = normalized.replaceAll(source, target);
-  });
-
-  return rewritePartialDerivatives(normalized)
-    .replace(/Σ([A-Za-z0-9α-ωΑ-Ω]+)/g, "Σ_$1")
-    .replace(/\s*=\s*/g, " = ")
-    .replace(/\s*\+\s*/g, " + ")
-    .replace(/\s+-\s+/g, " - ")
+function normalizeFormulaSource(value) {
+  return String(value || "")
+    .replace(/^\s*(?:\$\$|\\\[|\\\()/, "")
+    .replace(/(?:\$\$|\\\]|\\\))\s*$/, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function rewritePartialDerivatives(value) {
-  const variablePattern = "[A-Za-zα-ωΑ-Ω][A-Za-z0-9_{}α-ωΑ-Ω]*";
-  const partialPair = new RegExp(`∂\\s*(${variablePattern})\\s*∂\\s*(${variablePattern})`, "g");
-  return value.replace(partialPair, "\\frac{∂ $1}{∂ $2}");
-}
-
-function formatMathText(value) {
-  const text = normalizeFormulaText(value);
-  const nodes = [];
-  let buffer = "";
-
-  for (let index = 0; index < text.length; index += 1) {
-    if (text.startsWith("\\frac", index)) {
-      if (buffer) {
-        nodes.push(document.createTextNode(buffer));
-        buffer = "";
-      }
-
-      const parsedFraction = readFraction(text, index);
-      if (parsedFraction) {
-        nodes.push(createFractionNode(parsedFraction.numerator, parsedFraction.denominator));
-        index = parsedFraction.endIndex;
-        continue;
-      }
-    }
-
-    const char = text[index];
-    if (char !== "_" && char !== "^") {
-      buffer += char;
-      continue;
-    }
-
-    if (buffer) {
-      nodes.push(document.createTextNode(buffer));
-      buffer = "";
-    }
-
-    const parsed = readScript(text, index + 1);
-    if (!parsed.value) {
-      buffer += char;
-      continue;
-    }
-
-    const script = document.createElement(char === "_" ? "sub" : "sup");
-    script.textContent = parsed.value;
-    nodes.push(script);
-    index = parsed.endIndex;
+function renderFormula(node, source, displayMode = false) {
+  const formula = normalizeFormulaSource(source);
+  if (!formula) {
+    node.textContent = "";
+    return;
   }
 
-  if (buffer) nodes.push(document.createTextNode(buffer));
-  return nodes.length ? nodes : [document.createTextNode(text)];
-}
-
-function createFractionNode(numerator, denominator) {
-  const fraction = document.createElement("span");
-  fraction.className = "math-frac";
-
-  const numeratorNode = document.createElement("span");
-  numeratorNode.className = "math-frac-num";
-  numeratorNode.append(...formatMathText(numerator));
-
-  const denominatorNode = document.createElement("span");
-  denominatorNode.className = "math-frac-den";
-  denominatorNode.append(...formatMathText(denominator));
-
-  fraction.append(numeratorNode, denominatorNode);
-  return fraction;
-}
-
-function readFraction(text, startIndex) {
-  let cursor = startIndex + "\\frac".length;
-  const numerator = readBraceGroup(text, cursor);
-  if (!numerator) return null;
-
-  cursor = numerator.endIndex + 1;
-  const denominator = readBraceGroup(text, cursor);
-  if (!denominator) return null;
-
-  return {
-    numerator: numerator.value,
-    denominator: denominator.value,
-    endIndex: denominator.endIndex,
-  };
-}
-
-function readBraceGroup(text, startIndex) {
-  while (text[startIndex] === " ") startIndex += 1;
-  if (text[startIndex] !== "{") return null;
-
-  let depth = 0;
-  for (let index = startIndex; index < text.length; index += 1) {
-    if (text[index] === "{") depth += 1;
-    if (text[index] === "}") depth -= 1;
-    if (depth === 0) {
-      return {
-        value: text.slice(startIndex + 1, index),
-        endIndex: index,
-      };
-    }
-  }
-  return null;
-}
-
-function readScript(text, startIndex) {
-  if (text[startIndex] === "{") {
-    const endIndex = text.indexOf("}", startIndex + 1);
-    if (endIndex !== -1) {
-      return { value: text.slice(startIndex + 1, endIndex), endIndex };
-    }
+  if (!window.katex) {
+    node.textContent = formula;
+    return;
   }
 
-  const match = text.slice(startIndex).match(/^[A-Za-z0-9α-ωΑ-Ω]+/);
-  if (!match) return { value: "", endIndex: startIndex - 1 };
-  return {
-    value: match[0],
-    endIndex: startIndex + match[0].length - 1,
-  };
+  try {
+    window.katex.render(formula, node, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      trust: false,
+    });
+  } catch (error) {
+    console.warn("Failed to render formula.", error);
+    node.textContent = formula;
+  }
 }
 
 function setBusy(isBusy) {
@@ -1499,5 +1739,9 @@ function setBusy(isBusy) {
 function setStatus(message, isError = false) {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+}
+
+function clearStatus() {
+  setStatus("");
 }
 

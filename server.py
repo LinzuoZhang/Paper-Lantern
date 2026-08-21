@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import tempfile
 from datetime import datetime, timezone
 import urllib.error
 import urllib.request
@@ -63,6 +64,28 @@ def clean_folder_name(value):
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", str(value)).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned[:120] or "Untitled paper"
+
+
+def normalize_arxiv_id(value):
+    text = str(value or "").strip().replace("http://", "https://")
+    text = re.sub(r"^https://(?:www\.)?arxiv\.org/(?:abs|pdf)/", "", text, flags=re.I)
+    text = text.split("?", 1)[0].split("#", 1)[0].strip("/")
+    text = re.sub(r"\.pdf$", "", text, flags=re.I)
+    pattern = r"^(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|[a-z-]+/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?$"
+    return text if re.match(pattern, text, re.I) else ""
+
+
+def download_arxiv_pdf(arxiv_id):
+    request = urllib.request.Request(
+        f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+        headers={"User-Agent": "OpenMoonlight/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=45) as response:
+        content_type = response.headers.get("Content-Type", "")
+        data = response.read()
+    if b"%PDF" not in data[:1024] and "pdf" not in content_type.lower():
+        raise ValueError("arXiv did not return a PDF.")
+    return data
 
 
 def clean_category_path(value):
@@ -128,7 +151,9 @@ def default_metadata(title, category):
         "uploadedAt": datetime.now(timezone.utc).isoformat(),
         "keywords": [],
         "threeLineSummary": {},
+        "methodOverview": "",
         "methodSections": [],
+        "methodConclusion": "",
     }
 
 
@@ -175,7 +200,9 @@ def read_paper(paper_id):
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
         "threeLineSummary": metadata.get("threeLineSummary", {}),
+        "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
+        "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
     }
 
 
@@ -390,6 +417,7 @@ def read_paper(paper_id, db=None):
         return None
     metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
     highlights = read_json(paper_dir / "highlights.json", [])
+    discussion = normalize_discussion_history(read_json(paper_dir / "discussion.json", []), limit=200)
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
     return {
         "id": record["id"],
@@ -401,7 +429,10 @@ def read_paper(paper_id, db=None):
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
         "threeLineSummary": metadata.get("threeLineSummary", {}),
+        "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
+        "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
+        "discussion": discussion,
     }
 
 
@@ -454,6 +485,54 @@ def delete_category(category_id):
     save_library_db(db)
 
 
+def rename_category(category_id, name):
+    db = load_library_db()
+    category_id = str(category_id or "")
+    category = db["categories"].get(category_id)
+    if not category:
+        raise FileNotFoundError("Category not found.")
+    if category.get("locked"):
+        raise PermissionError("This category cannot be renamed.")
+
+    new_name = clean_folder_name(name)
+    if not new_name:
+        raise ValueError("Category name is required.")
+
+    parent_id = category.get("parentId", "")
+    new_id = f"{parent_id}/{new_name}".strip("/")
+    if new_id != category_id and new_id in db["categories"]:
+        raise FileExistsError("Category already exists.")
+
+    descendants = category_descendants(db, category_id)
+    id_map = {}
+    for old_id in sorted(descendants, key=len):
+        suffix = old_id[len(category_id):].lstrip("/")
+        id_map[old_id] = f"{new_id}/{suffix}".strip("/") if suffix else new_id
+
+    for old_id in sorted(descendants, key=len, reverse=True):
+        record = db["categories"].pop(old_id)
+        next_id = id_map[old_id]
+        record["id"] = next_id
+        if old_id == category_id:
+            record["name"] = new_name
+            record["parentId"] = parent_id
+        elif record.get("parentId") in id_map:
+            record["parentId"] = id_map[record["parentId"]]
+        db["categories"][next_id] = record
+
+    for paper in db["papers"].values():
+        old_category = paper.get("categoryId")
+        if old_category in id_map:
+            paper["categoryId"] = id_map[old_category]
+            metadata_path = paper_dir_from_record(paper) / "metadata.json"
+            metadata = read_json(metadata_path, default_metadata(paper.get("title", paper["id"]), paper["categoryId"]))
+            metadata["category"] = paper["categoryId"]
+            write_json(metadata_path, metadata)
+
+    save_library_db(db)
+    return new_id
+
+
 def move_paper(paper_id, category_id):
     db = load_library_db()
     record = db["papers"].get(str(paper_id))
@@ -494,6 +573,7 @@ def add_paper_to_db(title, category, pdf_file):
     metadata = default_metadata(title, category_id)
     write_json(paper_dir / "metadata.json", metadata)
     write_json(paper_dir / "highlights.json", [])
+    write_json(paper_dir / "discussion.json", [])
     db["papers"][paper_id] = {
         "id": paper_id,
         "title": title,
@@ -529,6 +609,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/upload":
             self._handle_library_upload()
             return
+        if request_path == "/api/library/arxiv":
+            self._handle_library_arxiv_upload()
+            return
         if request_path == "/api/library/paper":
             self._handle_library_save()
             return
@@ -536,7 +619,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_library_category()
             return
 
-        if request_path not in {"/api/summarize", "/api/translate"}:
+        if request_path not in {"/api/summarize", "/api/translate", "/api/discuss"}:
             self.send_error(404, "Not found")
             return
 
@@ -548,7 +631,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            model = str(payload.get("model", "deepseek-chat")).strip() or "deepseek-chat"
+            model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
         except (ValueError, json.JSONDecodeError):
             self._send_json(400, {"error": "Invalid JSON request."})
             return
@@ -566,6 +649,32 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(exc.code, {"error": "DeepSeek API request failed.", "detail": detail})
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to translate text.", "detail": str(exc)})
+            return
+
+        if request_path == "/api/discuss":
+            paper_text = str(payload.get("paperText", "")).strip()
+            question = str(payload.get("question", "")).strip()
+            if len(paper_text) < 80:
+                self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
+                return
+            if not question:
+                self._send_json(400, {"error": "Please enter a discussion question."})
+                return
+            try:
+                answer = discuss_paper(
+                    api_key,
+                    model,
+                    paper_text,
+                    question,
+                    payload.get("summary", {}),
+                    payload.get("history", []),
+                )
+                self._send_json(200, {"answer": answer})
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(exc.code, {"error": "DeepSeek API request failed.", "detail": detail})
+            except Exception as exc:
+                self._send_json(500, {"error": "Failed to discuss paper.", "detail": str(exc)})
             return
 
         try:
@@ -655,6 +764,33 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         paper = add_paper_to_db(title, category, pdf_item.file)
         self._send_json(200, {"paper": paper, "tree": read_library_tree()})
 
+    def _handle_library_arxiv_upload(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+            return
+
+        arxiv_id = normalize_arxiv_id(payload.get("arxivId", ""))
+        if not arxiv_id:
+            self._send_json(400, {"error": "Please provide a valid arXiv ID or URL."})
+            return
+
+        category = str(payload.get("category", "")).strip() or UNCATEGORIZED_NAME
+        title = clean_folder_name(payload.get("title", "") or f"arXiv {arxiv_id}")
+        try:
+            data = download_arxiv_pdf(arxiv_id)
+            with tempfile.TemporaryFile() as pdf_file:
+                pdf_file.write(data)
+                pdf_file.seek(0)
+                paper = add_paper_to_db(title, category, pdf_file)
+            self._send_json(200, {"paper": paper, "tree": read_library_tree()})
+        except urllib.error.HTTPError as exc:
+            self._send_json(exc.code, {"error": "Failed to download arXiv PDF.", "detail": str(exc)})
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            self._send_json(400, {"error": "Failed to download arXiv PDF.", "detail": str(exc)})
+
     def _handle_library_save(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -697,9 +833,13 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             record["title"] = metadata["title"]
             metadata["keywords"] = normalize_keywords(summary.get("keywords", []))
             metadata["threeLineSummary"] = summary.get("threeLineSummary", {})
+            metadata["methodOverview"] = str(summary.get("methodOverview", "")).strip()
             metadata["methodSections"] = normalize_method_sections(summary.get("methodSections", []))
+            metadata["methodConclusion"] = str(summary.get("methodConclusion", "")).strip()
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
+        if isinstance(payload.get("discussion"), list):
+            write_json(paper_dir / "discussion.json", normalize_discussion_history(payload["discussion"], limit=200))
         write_json(paper_dir / "metadata.json", metadata)
         save_library_db(db)
         self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree()})
@@ -716,6 +856,10 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         try:
             if action == "create":
                 category_id = create_category(str(payload.get("parentId", "")), str(payload.get("name", "")))
+                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree()})
+                return
+            if action == "rename":
+                category_id = rename_category(str(payload.get("id", "")), str(payload.get("name", "")))
                 self._send_json(200, {"categoryId": category_id, "tree": read_library_tree()})
                 return
             if action == "delete":
@@ -776,7 +920,9 @@ def summarize_paper(api_key, model, paper_text):
             "method": method_text,
             "conclusion": three_line.get("conclusion", ""),
         },
+        "methodOverview": str(polished.get("methodOverview", "")).strip(),
         "methodSections": method_sections,
+        "methodConclusion": str(polished.get("methodConclusion", "")).strip(),
     }
     raw = {
         "overview": overview_raw,
@@ -817,6 +963,53 @@ def translate_text(api_key, model, text):
         return raw["choices"][0]["message"]["content"].strip()
 
 
+def discuss_paper(api_key, model, paper_text, question, summary=None, history=None):
+    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
+    summary_context = json.dumps(summary or {}, ensure_ascii=False)
+    history_messages = normalize_discussion_history(history)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a research paper discussion assistant. Answer in the user's language, "
+                "ground every claim in the provided paper context, and say when the paper does not provide enough evidence. "
+                "Prefer concise, technical explanations with concrete method details."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Paper context:\n"
+                f"{paper_excerpt}\n\n"
+                "Existing AI summary JSON:\n"
+                f"{summary_context}\n\n"
+                "Use this context for the following discussion."
+            ),
+        },
+        *history_messages,
+        {"role": "user", "content": question},
+    ]
+    upstream_payload = {
+        "model": model,
+        "temperature": 0.18,
+        "messages": messages,
+    }
+
+    request = urllib.request.Request(
+        DEEPSEEK_URL,
+        data=json.dumps(upstream_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=90) as response:
+        raw = json.loads(response.read().decode("utf-8"))
+        return raw["choices"][0]["message"]["content"].strip()
+
+
 def call_deepseek(api_key, model, prompt):
     upstream_payload = {
         "model": model,
@@ -845,6 +1038,22 @@ def call_deepseek(api_key, model, prompt):
         raw = json.loads(response.read().decode("utf-8"))
         content = raw["choices"][0]["message"]["content"]
         return json.loads(content), raw
+
+
+def normalize_discussion_history(history, limit=8):
+    if not isinstance(history, list):
+        return []
+
+    messages = []
+    for item in history[-limit:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip()
+        content = str(item.get("content", "")).strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append({"role": role, "content": content[:2000]})
+    return messages
 
 
 def normalize_list(items):

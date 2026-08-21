@@ -14,17 +14,41 @@
           <p id="libraryRoot">Manage papers, PDFs, highlights, and method notes by folder.</p>
         </div>
         <form id="uploadForm" class="upload-form">
-          <input id="paperTitleInput" type="text" placeholder="Paper title (optional)" />
-          <input id="categoryInput" type="text" placeholder="Category / folder" value="Uncategorized" />
-          <label class="file-button">
-            <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
-            Upload PDF
-          </label>
+          <div class="upload-menu-wrap">
+            <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
+              <span class="upload-button-text">
+                <span>Upload PDF</span>
+                <small>Click, drop, or import arXiv</small>
+              </span>
+              <span class="upload-button-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="uploadMenu" class="upload-menu library-menu" role="menu" hidden>
+              <label class="upload-menu-item" role="menuitem">
+                <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
+                <span class="upload-menu-icon upload-menu-icon-file" aria-hidden="true"></span>
+                <span>
+                  <strong>Drag or click upload</strong>
+                  <small>Choose a local PDF, or drop it here</small>
+                </span>
+              </label>
+              <button id="arxivUploadButton" type="button" role="menuitem">
+                <span class="upload-menu-icon upload-menu-icon-arxiv" aria-hidden="true">ar</span>
+                <span>
+                  <strong>arXiv upload</strong>
+                  <small>Enter an arXiv ID or URL</small>
+                </span>
+              </button>
+            </div>
+          </div>
         </form>
       </header>
       <div class="library-layout">
         <aside class="category-panel">
           <h2>Categories</h2>
+          <label class="category-search">
+            <span>Search</span>
+            <input id="librarySearchInput" type="search" placeholder="Search title or category" autocomplete="off" />
+          </label>
           <div id="categoryTree" class="category-tree"></div>
         </aside>
         <section class="paper-list-panel">
