@@ -8,10 +8,27 @@ const uploadForm = document.querySelector("#uploadForm");
 const libraryPdfInput = document.querySelector("#libraryPdfInput");
 const uploadMenuButton = document.querySelector("#uploadMenuButton");
 const uploadMenu = document.querySelector("#uploadMenu");
+const arxivUploadInput = document.querySelector("#arxivUploadInput");
 const arxivUploadButton = document.querySelector("#arxivUploadButton");
+const cloudSyncStatus = document.querySelector("#cloudSyncStatus");
+const settingsButton = document.querySelector("#settingsButton");
+const cloudSyncButton = document.querySelector("#cloudSyncButton");
+const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
+const cloudConfigForm = document.querySelector("#cloudConfigForm");
+const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
+const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
+const aiModelInput = document.querySelector("#aiModelInput");
+const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
+const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
+const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
+const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
+const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
+const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 
 const RECENT_CATEGORY_ID = "__recent";
-const RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
+const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
+const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
 
 let libraryTree = null;
@@ -20,6 +37,9 @@ let apiBaseUrl = "";
 let searchQuery = "";
 
 loadLibrary();
+loadCloudSyncStatus();
+loadSettings();
+migrateLegacyRecentPapers();
 
 libraryPdfInput.addEventListener("change", async () => {
   const file = libraryPdfInput.files && libraryPdfInput.files[0];
@@ -34,15 +54,33 @@ uploadMenuButton.addEventListener("click", () => {
 });
 
 arxivUploadButton.addEventListener("click", async () => {
-  closeUploadMenu();
-  const arxivId = window.prompt("Enter arXiv ID or URL");
+  const arxivId = arxivUploadInput.value;
   if (!arxivId?.trim()) return;
+  closeUploadMenu();
   await uploadArxivPaper(arxivId.trim());
+  arxivUploadInput.value = "";
 });
 
 librarySearchInput.addEventListener("input", () => {
   searchQuery = librarySearchInput.value.trim().toLowerCase();
   renderLibrary();
+});
+
+settingsButton.addEventListener("click", () => {
+  openCloudConfig();
+});
+
+cloudSyncButton.addEventListener("click", async () => {
+  await runCloudSync();
+});
+
+cloudConfigCloseButton.addEventListener("click", closeCloudConfig);
+cloudConfigOverlay.addEventListener("pointerdown", (event) => {
+  if (event.target === cloudConfigOverlay) closeCloudConfig();
+});
+cloudConfigForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveCloudSyncConfig();
 });
 
 uploadForm.addEventListener("dragenter", handleUploadDrag);
@@ -65,7 +103,7 @@ uploadForm.addEventListener("drop", async (event) => {
 document.addEventListener("pointerdown", (event) => {
   if (!uploadForm.contains(event.target)) closeUploadMenu();
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
-    document.querySelector(".library-menu")?.remove();
+    document.querySelectorAll(".category-menu, .paper-menu").forEach((menu) => menu.remove());
   }
 });
 
@@ -105,6 +143,7 @@ async function uploadPdfToLibrary(file, title, category) {
       setLibraryStatus(data.error || "Upload failed.", true);
       return;
     }
+    reportSyncResult(data.sync);
     openPaperReader(data.paper.id, true);
   } catch (error) {
     console.error(error);
@@ -125,6 +164,7 @@ async function uploadArxivPaper(arxivId) {
       setLibraryStatus(data.detail || data.error || "arXiv upload failed.", true);
       return;
     }
+    reportSyncResult(data.sync);
     openPaperReader(data.paper.id, true);
   } catch (error) {
     console.error(error);
@@ -153,6 +193,7 @@ async function loadLibrary(focusPaperId = "") {
     if (focusPaperId) selectedCategoryId = findPaperCategory(libraryTree, focusPaperId) || selectedCategoryId;
     renderLibrary();
     setLibraryStatus("");
+    reportSyncResult(data.sync);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Failed to load library.", true);
@@ -449,6 +490,7 @@ async function updateCategory(payload) {
     if (payload.action === "delete" && selectedCategoryId === payload.id) selectedCategoryId = "";
     renderLibrary();
     setLibraryStatus("");
+    reportSyncResult(data.sync);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Category operation failed.", true);
@@ -473,6 +515,7 @@ async function updatePaper(payload) {
     }
     renderLibrary();
     setLibraryStatus("");
+    reportSyncResult(data.sync);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Paper operation failed.", true);
@@ -537,6 +580,12 @@ function getRecentPaperRecords() {
   }
 }
 
+function migrateLegacyRecentPapers() {
+  if (localStorage.getItem(RECENT_PAPERS_KEY)) return;
+  const legacy = localStorage.getItem(LEGACY_RECENT_PAPERS_KEY);
+  if (legacy) localStorage.setItem(RECENT_PAPERS_KEY, legacy);
+}
+
 function saveRecentPaperRecords(records) {
   localStorage.setItem(RECENT_PAPERS_KEY, JSON.stringify(records.slice(0, 100)));
 }
@@ -575,6 +624,159 @@ function findPaperCategory(node, paperId) {
 function setLibraryStatus(message, isError = false) {
   libraryStatus.textContent = message;
   libraryStatus.classList.toggle("error", isError);
+}
+
+async function loadCloudSyncStatus() {
+  try {
+    const response = await apiFetch("/api/cloud-sync");
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to load cloud sync status.");
+    renderCloudSyncStatus(data);
+  } catch (error) {
+    console.error(error);
+    cloudSyncStatus.textContent = "Unavailable";
+    cloudSyncButton.disabled = true;
+  }
+}
+
+function openCloudConfig() {
+  cloudConfigOverlay.hidden = false;
+  aiBaseUrlInput.focus();
+}
+
+function closeCloudConfig() {
+  cloudConfigOverlay.hidden = true;
+}
+
+async function loadSettings() {
+  try {
+    const response = await apiFetch("/api/settings");
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+    renderSettings(data);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function saveCloudSyncConfig() {
+  setCloudSyncBusy(true, "Saving...");
+  try {
+    const response = await apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput.value.trim(),
+          model: aiModelInput.value.trim(),
+          apiKey: aiApiKeyInput.value,
+        },
+        sync: {
+          provider: cloudProviderSelect.value,
+          localDir: cloudLocalDirInput.value.trim(),
+          webdavUrl: cloudWebdavUrlInput.value.trim(),
+          username: cloudUsernameInput.value.trim(),
+          password: cloudPasswordInput.value,
+          autoSync: cloudAutoPushInput.checked,
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      setLibraryStatus(data.error || "Settings save failed.", true);
+      return;
+    }
+    renderSettings(data.settings);
+    renderCloudSyncStatus(data.sync);
+    aiApiKeyInput.value = "";
+    cloudPasswordInput.value = "";
+    closeCloudConfig();
+    setLibraryStatus("Settings saved.");
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Settings save failed.", true);
+  } finally {
+    setCloudSyncBusy(false);
+  }
+}
+
+async function runCloudSync() {
+  setCloudSyncBusy(true, "Syncing...");
+  try {
+    const response = await apiFetch("/api/cloud-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sync" }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      renderCloudSyncStatus(data);
+      setLibraryStatus(data.error || "Cloud sync failed.", true);
+      return;
+    }
+    renderCloudSyncStatus(data);
+    if (data.tree) {
+      libraryTree = data.tree;
+      selectedCategoryId = "";
+      renderLibrary();
+    }
+    setLibraryStatus(
+      `Cloud synced. Downloaded ${data.downloaded || 0}, uploaded ${data.uploaded || 0}, merged highlights ${data.highlightsMerged || 0}.`,
+    );
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Cloud sync failed.", true);
+  } finally {
+    setCloudSyncBusy(false);
+  }
+}
+
+function renderCloudSyncStatus(status) {
+  const configured = Boolean(status?.configured);
+  cloudSyncButton.disabled = !configured;
+  if (!configured) {
+    cloudSyncStatus.textContent = "Not configured";
+    return;
+  }
+  cloudProviderSelect.value = status.provider === "webdav" ? "webdav" : "local";
+  if (status.provider === "local") cloudLocalDirInput.value = status.target || cloudLocalDirInput.value;
+  if (status.provider === "webdav") cloudWebdavUrlInput.value = status.target || cloudWebdavUrlInput.value;
+  cloudAutoPushInput.checked = Boolean(status.autoPush);
+  const provider = status.provider === "webdav" ? "WebDAV" : status.provider === "local" ? "Folder" : status.provider;
+  const auto = status.autoPush ? " · Auto" : "";
+  cloudSyncStatus.textContent = status.syncedAt
+    ? `${provider}${auto} · ${formatViewedDate(status.syncedAt)}`
+    : `${provider}${auto}`;
+}
+
+function setCloudSyncBusy(isBusy, label = "") {
+  cloudSyncButton.disabled = isBusy;
+  settingsButton.disabled = isBusy;
+  if (label) cloudSyncStatus.textContent = label;
+}
+
+function renderSettings(settings) {
+  const ai = settings?.ai || {};
+  const sync = settings?.sync || {};
+  aiBaseUrlInput.value = ai.baseUrl || "";
+  aiModelInput.value = ai.model || "";
+  aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
+  cloudLocalDirInput.value = sync.localDir || "";
+  cloudWebdavUrlInput.value = sync.webdavUrl || "";
+  cloudUsernameInput.value = sync.username || "";
+  cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
+  cloudAutoPushInput.checked = Boolean(sync.autoSync);
+}
+
+function maskSecretTail(tail) {
+  return `****${tail || "****"}`;
+}
+
+function reportSyncResult(sync) {
+  if (!sync) return;
+  renderCloudSyncStatus(sync);
+  if (sync.error) setLibraryStatus(`Cloud auto sync failed: ${sync.error}`, true);
 }
 
 async function readJsonResponse(response) {

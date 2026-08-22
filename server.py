@@ -13,11 +13,16 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
+from config_store import get_secret, load_config, public_config, save_config
+from cloud_sync import auto_sync_library, get_sync_config, public_status, save_sync_config, sync_library, update_paper_sync_hash
+
 
 BASE_DIR = Path(__file__).resolve().parent
-DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-ENV_FILE = BASE_DIR / ".env" / "deepseek.env"
-PROMPT_DIR = BASE_DIR / "prompts" / "deepseek"
+DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
+CONFIG_FILE = BASE_DIR / ".env" / "paperlantern_config.json"
+LEGACY_AI_ENV_FILE = BASE_DIR / ".env" / "ai.env"
+LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
+PROMPT_DIR = BASE_DIR / "prompts" / "ai"
 MAX_PAPER_CHARS = 30000
 MAX_TRANSLATE_CHARS = 4000
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
@@ -41,6 +46,19 @@ def load_env_file(path):
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def get_ai_config():
+    config = load_config(BASE_DIR)
+    api_key = get_secret(config, "ai", "apiKey").strip()
+    model = str(config.get("ai", {}).get("model", "")).strip() or "gpt-4o-mini"
+    base_url = str(config.get("ai", {}).get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    base_url = base_url.rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        chat_completions_url = base_url
+    else:
+        chat_completions_url = f"{base_url}/chat/completions"
+    return api_key, model, chat_completions_url
 
 
 def parse_query_value(path, name):
@@ -78,7 +96,7 @@ def normalize_arxiv_id(value):
 def download_arxiv_pdf(arxiv_id):
     request = urllib.request.Request(
         f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-        headers={"User-Agent": "OpenMoonlight/1.0"},
+        headers={"User-Agent": "PaperLantern/1.0"},
     )
     with urllib.request.urlopen(request, timeout=45) as response:
         content_type = response.headers.get("Content-Type", "")
@@ -142,6 +160,14 @@ def read_json(path, fallback):
 
 def write_json(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_cloud_sync_config():
+    return get_sync_config(BASE_DIR)
+
+
+def maybe_auto_sync_library():
+    return auto_sync_library(LIBRARY_DIR, get_cloud_sync_config())
 
 
 def default_metadata(title, category):
@@ -574,6 +600,7 @@ def add_paper_to_db(title, category, pdf_file):
     write_json(paper_dir / "metadata.json", metadata)
     write_json(paper_dir / "highlights.json", [])
     write_json(paper_dir / "discussion.json", [])
+    update_paper_sync_hash(paper_dir)
     db["papers"][paper_id] = {
         "id": paper_id,
         "title": title,
@@ -618,20 +645,28 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/category":
             self._handle_library_category()
             return
+        if request_path == "/api/cloud-sync":
+            self._handle_cloud_sync()
+            return
+        if request_path == "/api/cloud-sync/config":
+            self._handle_cloud_sync_config()
+            return
+        if request_path == "/api/settings":
+            self._handle_settings_save()
+            return
 
         if request_path not in {"/api/summarize", "/api/translate", "/api/discuss"}:
             self.send_error(404, "Not found")
             return
 
-        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-        if not api_key or api_key == "sk-your-deepseek-api-key":
-            self._send_json(500, {"error": "Missing DEEPSEEK_API_KEY. Put your real key in .env/deepseek.env."})
+        api_key, model, chat_completions_url = get_ai_config()
+        if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
+            self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
 
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
         except (ValueError, json.JSONDecodeError):
             self._send_json(400, {"error": "Invalid JSON request."})
             return
@@ -642,11 +677,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
             try:
-                translation = translate_text(api_key, model, selected_text)
+                translation = translate_text(api_key, model, chat_completions_url, selected_text)
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
-                self._send_json(exc.code, {"error": "DeepSeek API request failed.", "detail": detail})
+                self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to translate text.", "detail": str(exc)})
             return
@@ -664,6 +699,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 answer = discuss_paper(
                     api_key,
                     model,
+                    chat_completions_url,
                     paper_text,
                     question,
                     payload.get("summary", {}),
@@ -672,7 +708,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"answer": answer})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
-                self._send_json(exc.code, {"error": "DeepSeek API request failed.", "detail": detail})
+                self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to discuss paper.", "detail": str(exc)})
             return
@@ -682,11 +718,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
-            summary, raw = summarize_paper(api_key, model, paper_text)
+            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text)
             self._send_json(200, {"summary": summary, "raw": raw})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            self._send_json(exc.code, {"error": "DeepSeek API request failed.", "detail": detail})
+            self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
         except Exception as exc:
             self._send_json(500, {"error": "Failed to summarize paper.", "detail": str(exc)})
 
@@ -694,6 +730,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         request_path = urlparse(self.path).path
         if request_path == "/api/library":
             self._send_json(200, {"root": str(LIBRARY_DIR), "tree": read_library_tree()})
+            return
+        if request_path == "/api/cloud-sync":
+            self._send_json(200, public_status(get_cloud_sync_config()))
+            return
+        if request_path == "/api/settings":
+            self._send_json(200, public_config(load_config(BASE_DIR)))
             return
         if request_path == "/api/library/paper":
             paper_id = parse_query_value(self.path, "id")
@@ -762,7 +804,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         title = clean_folder_name(field_value(form, "title") or Path(pdf_item.filename).stem)
         category = field_value(form, "category") or UNCATEGORIZED_NAME
         paper = add_paper_to_db(title, category, pdf_item.file)
-        self._send_json(200, {"paper": paper, "tree": read_library_tree()})
+        sync = maybe_auto_sync_library()
+        self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
 
     def _handle_library_arxiv_upload(self):
         try:
@@ -785,7 +828,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 pdf_file.write(data)
                 pdf_file.seek(0)
                 paper = add_paper_to_db(title, category, pdf_file)
-            self._send_json(200, {"paper": paper, "tree": read_library_tree()})
+            sync = maybe_auto_sync_library()
+            self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
         except urllib.error.HTTPError as exc:
             self._send_json(exc.code, {"error": "Failed to download arXiv PDF.", "detail": str(exc)})
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -803,7 +847,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if action == "move":
             try:
                 paper = move_paper(str(payload.get("id", "")), str(payload.get("category", "")))
-                self._send_json(200, {"paper": paper, "tree": read_library_tree()})
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
             except FileNotFoundError as exc:
                 self._send_json(404, {"error": str(exc)})
             except (OSError, ValueError) as exc:
@@ -812,7 +857,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if action == "delete":
             try:
                 delete_paper(str(payload.get("id", "")))
-                self._send_json(200, {"tree": read_library_tree()})
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
             except FileNotFoundError as exc:
                 self._send_json(404, {"error": str(exc)})
             except OSError as exc:
@@ -838,11 +884,13 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata["methodConclusion"] = str(summary.get("methodConclusion", "")).strip()
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
+            update_paper_sync_hash(paper_dir)
         if isinstance(payload.get("discussion"), list):
             write_json(paper_dir / "discussion.json", normalize_discussion_history(payload["discussion"], limit=200))
         write_json(paper_dir / "metadata.json", metadata)
         save_library_db(db)
-        self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree()})
+        sync = maybe_auto_sync_library()
+        self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree(), "sync": sync})
 
     def _handle_library_category(self):
         try:
@@ -856,15 +904,18 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         try:
             if action == "create":
                 category_id = create_category(str(payload.get("parentId", "")), str(payload.get("name", "")))
-                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree()})
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree(), "sync": sync})
                 return
             if action == "rename":
                 category_id = rename_category(str(payload.get("id", "")), str(payload.get("name", "")))
-                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree()})
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree(), "sync": sync})
                 return
             if action == "delete":
                 delete_category(str(payload.get("id", "")))
-                self._send_json(200, {"tree": read_library_tree()})
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
                 return
             self._send_json(400, {"error": "Unknown category action."})
         except FileExistsError:
@@ -876,10 +927,51 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError) as exc:
             self._send_json(400, {"error": str(exc)})
 
+    def _handle_cloud_sync(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            action = str(payload.get("action", "")).strip().lower()
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+            return
 
-def summarize_paper(api_key, model, paper_text):
+        try:
+            config = get_cloud_sync_config()
+            if action in {"sync", ""}:
+                result = sync_library(LIBRARY_DIR, config)
+                self._send_json(200, {**result, "tree": read_library_tree()})
+                return
+            self._send_json(400, {"error": "Unknown cloud sync action."})
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._send_json(400, {"error": str(exc), **public_status(get_cloud_sync_config())})
+
+    def _handle_cloud_sync_config(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            status = save_sync_config(BASE_DIR, payload)
+            self._send_json(200, status)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except OSError as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_settings_save(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            config = save_config(BASE_DIR, payload)
+            self._send_json(200, {"settings": public_config(config), "sync": public_status(get_cloud_sync_config())})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except OSError as exc:
+            self._send_json(500, {"error": str(exc)})
+
+
+def summarize_paper(api_key, model, chat_completions_url, paper_text):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = call_deepseek(api_key, model, build_overview_prompt(paper_excerpt))
+    overview, overview_raw = call_chat_completions(api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt))
     method_points = normalize_method_points(overview.get("methodPoints", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
@@ -887,9 +979,10 @@ def summarize_paper(api_key, model, paper_text):
     point_details = []
     point_raws = []
     for index, point in enumerate(method_points, start=1):
-        detail, detail_raw = call_deepseek(
+        detail, detail_raw = call_chat_completions(
             api_key,
             model,
+            chat_completions_url,
             build_method_point_prompt(paper_excerpt, point, index, len(method_points)),
         )
         point_details.append(
@@ -903,9 +996,10 @@ def summarize_paper(api_key, model, paper_text):
         )
         point_raws.append(detail_raw)
 
-    polished, polished_raw = call_deepseek(
+    polished, polished_raw = call_chat_completions(
         api_key,
         model,
+        chat_completions_url,
         build_method_polish_prompt(paper_excerpt, method_points, point_details),
     )
 
@@ -934,7 +1028,7 @@ def summarize_paper(api_key, model, paper_text):
     return summary, raw
 
 
-def translate_text(api_key, model, text):
+def translate_text(api_key, model, chat_completions_url, text):
     source_text = text[:MAX_TRANSLATE_CHARS]
     upstream_payload = {
         "model": model,
@@ -948,22 +1042,11 @@ def translate_text(api_key, model, text):
         ],
     }
 
-    request = urllib.request.Request(
-        DEEPSEEK_URL,
-        data=json.dumps(upstream_payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
-    with urllib.request.urlopen(request, timeout=60) as response:
-        raw = json.loads(response.read().decode("utf-8"))
-        return raw["choices"][0]["message"]["content"].strip()
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
+    return raw["choices"][0]["message"]["content"].strip()
 
 
-def discuss_paper(api_key, model, paper_text, question, summary=None, history=None):
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
     history_messages = normalize_discussion_history(history)
@@ -995,22 +1078,11 @@ def discuss_paper(api_key, model, paper_text, question, summary=None, history=No
         "messages": messages,
     }
 
-    request = urllib.request.Request(
-        DEEPSEEK_URL,
-        data=json.dumps(upstream_payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
-    with urllib.request.urlopen(request, timeout=90) as response:
-        raw = json.loads(response.read().decode("utf-8"))
-        return raw["choices"][0]["message"]["content"].strip()
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
+    return raw["choices"][0]["message"]["content"].strip()
 
 
-def call_deepseek(api_key, model, prompt):
+def call_chat_completions(api_key, model, chat_completions_url, prompt):
     upstream_payload = {
         "model": model,
         "temperature": 0.12,
@@ -1024,9 +1096,32 @@ def call_deepseek(api_key, model, prompt):
         ],
     }
 
+    raw = post_chat_completion(
+        api_key,
+        chat_completions_url,
+        upstream_payload,
+        timeout=120,
+        retry_without_response_format=True,
+    )
+    content = raw["choices"][0]["message"]["content"]
+    return json.loads(content), raw
+
+
+def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False):
+    try:
+        return send_chat_completion(api_key, chat_completions_url, payload, timeout)
+    except urllib.error.HTTPError as exc:
+        if not retry_without_response_format or exc.code != 400 or "response_format" not in payload:
+            raise
+        fallback_payload = dict(payload)
+        fallback_payload.pop("response_format", None)
+        return send_chat_completion(api_key, chat_completions_url, fallback_payload, timeout)
+
+
+def send_chat_completion(api_key, chat_completions_url, payload, timeout):
     request = urllib.request.Request(
-        DEEPSEEK_URL,
-        data=json.dumps(upstream_payload).encode("utf-8"),
+        chat_completions_url,
+        data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -1034,10 +1129,8 @@ def call_deepseek(api_key, model, prompt):
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=120) as response:
-        raw = json.loads(response.read().decode("utf-8"))
-        content = raw["choices"][0]["message"]["content"]
-        return json.loads(content), raw
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def normalize_discussion_history(history, limit=8):
@@ -1161,9 +1254,12 @@ def build_method_polish_prompt(paper_text, method_points, point_details):
 if __name__ == "__main__":
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/javascript", ".mjs")
-    load_env_file(ENV_FILE)
+    load_env_file(LEGACY_AI_ENV_FILE)
+    load_env_file(LEGACY_CLOUD_SYNC_ENV_FILE)
+    if not CONFIG_FILE.exists():
+        save_config(BASE_DIR, {})
     port = int(os.environ.get("PORT", "8000"))
     server = ThreadingHTTPServer(("127.0.0.1", port), PaperReaderHandler)
     print(f"Paper reader running at http://127.0.0.1:{port}")
-    print(f"DeepSeek env file: {ENV_FILE}")
+    print(f"Config file: {CONFIG_FILE}")
     server.serve_forever()

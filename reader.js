@@ -12,6 +12,7 @@ const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
+const toggleSummaryPaneButton = document.querySelector("#toggleSummaryPaneButton");
 const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
@@ -53,6 +54,8 @@ let readerLibraryTree = null;
 let readerSelectedCategoryId = "";
 let discussionHistory = [];
 let discussionIsBusy = false;
+let commentAutoSaveTimer = null;
+let annotationAutoSaveTimer = null;
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -62,6 +65,7 @@ const highlightColors = {
 };
 
 initPaneResizer();
+initSummaryPaneToggle();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 openReaderFromUrl();
@@ -599,6 +603,23 @@ function initPaneResizer() {
   });
 }
 
+function initSummaryPaneToggle() {
+  const isCollapsed = localStorage.getItem("summaryPaneCollapsed") === "true";
+  setSummaryPaneCollapsed(isCollapsed, false);
+  toggleSummaryPaneButton?.addEventListener("click", () => {
+    const nextCollapsed = !appShell.classList.contains("summary-pane-collapsed");
+    setSummaryPaneCollapsed(nextCollapsed);
+  });
+}
+
+function setSummaryPaneCollapsed(isCollapsed, shouldRefreshPdf = true) {
+  appShell.classList.toggle("summary-pane-collapsed", isCollapsed);
+  toggleSummaryPaneButton?.setAttribute("aria-expanded", String(!isCollapsed));
+  toggleSummaryPaneButton?.setAttribute("aria-label", isCollapsed ? "Expand summary pane" : "Collapse summary pane");
+  localStorage.setItem("summaryPaneCollapsed", String(isCollapsed));
+  if (shouldRefreshPdf) refreshPdfAfterPaneResize();
+}
+
 function resizePanesToClientX(clientX) {
   const shellRect = appShell.getBoundingClientRect();
   const width = ((clientX - shellRect.left) / shellRect.width) * 100;
@@ -1037,13 +1058,12 @@ function showCommentWindow(text) {
       </header>
       <textarea class="translation-text comment-text" placeholder="Add a comment..." spellcheck="false"></textarea>
       <footer class="comment-actions">
-        <button class="ghost comment-cancel" type="button">Cancel</button>
-        <button class="comment-save" type="button">Save</button>
+        <button class="ghost comment-cancel" type="button">Close</button>
       </footer>
     `;
     pdfViewer.parentElement.appendChild(bubble);
     initTranslationWindow(bubble, hideCommentBubble);
-    bubble.querySelector(".comment-save").addEventListener("click", saveComment);
+    bubble.querySelector(".comment-text").addEventListener("input", scheduleCommentAutoSave);
     bubble.querySelector(".comment-cancel").addEventListener("click", hideCommentBubble);
   }
 
@@ -1058,22 +1078,46 @@ function showCommentWindow(text) {
   bubble.style.top = `${top}px`;
 }
 
-function saveComment() {
+function scheduleCommentAutoSave() {
+  window.clearTimeout(commentAutoSaveTimer);
+  commentAutoSaveTimer = window.setTimeout(() => {
+    saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
+  }, 450);
+}
+
+async function saveCommentDraft() {
   const bubble = document.querySelector("#commentBubble");
   const comment = bubble?.querySelector(".comment-text")?.value.trim() || "";
-  if (!comment || !commentDraftHighlights.length) return;
+  if (!commentDraftHighlights.length) return;
 
-  commentDraftHighlights.forEach((highlight) => {
-    const annotation = { ...highlight, comment };
-    savedHighlights.push(annotation);
-    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
-    if (pageNode) drawHighlight(pageNode, annotation);
-  });
+  const draftGroupId = commentDraftHighlights[0].groupId;
+  const hasSavedDraft = savedHighlights.some((highlight) => isSameHighlightGroup(highlight, draftGroupId));
+  if (!comment) {
+    if (hasSavedDraft) {
+      savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, draftGroupId));
+      redrawHighlights();
+      await saveCurrentPaper();
+    }
+    return;
+  }
 
-  commentDraftHighlights = [];
-  hideCommentBubble();
+  if (hasSavedDraft) {
+    savedHighlights = savedHighlights.map((highlight) => {
+      if (!isSameHighlightGroup(highlight, draftGroupId)) return highlight;
+      return { ...highlight, comment, type: highlight.translation ? "comment-translation" : "comment" };
+    });
+    redrawHighlights();
+  } else {
+    commentDraftHighlights.forEach((highlight) => {
+      const annotation = { ...highlight, comment };
+      savedHighlights.push(annotation);
+      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
+      if (pageNode) drawHighlight(pageNode, annotation);
+    });
+  }
+
   window.getSelection()?.removeAllRanges();
-  saveCurrentPaper().catch((error) => console.error("Failed to save comment.", error));
+  await saveCurrentPaper();
 }
 
 function handlePdfClick(event) {
@@ -1124,19 +1168,27 @@ function showAnnotationEditor(highlight, clientX, clientY) {
     editor.innerHTML = `
       <header class="translation-window-header">
         <span>Annotation</span>
-        <button class="translation-close" type="button" aria-label="Close annotation editor">×</button>
+        <div class="annotation-header-actions">
+          <button class="annotation-delete icon-button" type="button" aria-label="Delete annotation" title="Delete annotation">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M3 6h18"></path>
+              <path d="M8 6V4h8v2"></path>
+              <path d="M6 6l1 15h10l1-15"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+            </svg>
+          </button>
+          <button class="translation-close" type="button" aria-label="Close annotation editor">×</button>
+        </div>
       </header>
       <textarea class="translation-text annotation-comment" placeholder="Add or edit comment..." spellcheck="false"></textarea>
       <textarea class="translation-text annotation-translation" placeholder="Translation..." spellcheck="false"></textarea>
       <div class="annotation-colors" aria-label="Highlight color"></div>
-      <footer class="comment-actions">
-        <button class="danger annotation-delete" type="button">Delete</button>
-        <button class="annotation-save" type="button">Save</button>
-      </footer>
     `;
     pdfViewer.parentElement.appendChild(editor);
     initTranslationWindow(editor, hideAnnotationEditor);
-    editor.querySelector(".annotation-save").addEventListener("click", saveAnnotationEdit);
+    editor.querySelector(".annotation-comment").addEventListener("input", scheduleAnnotationAutoSave);
+    editor.querySelector(".annotation-translation").addEventListener("input", scheduleAnnotationAutoSave);
     editor.querySelector(".annotation-delete").addEventListener("click", deleteActiveHighlight);
     const colorHost = editor.querySelector(".annotation-colors");
     Object.entries(highlightColors).forEach(([key, value]) => {
@@ -1149,6 +1201,7 @@ function showAnnotationEditor(highlight, clientX, clientY) {
       button.addEventListener("click", () => {
         colorHost.querySelectorAll(".color-swatch").forEach((swatch) => swatch.classList.remove("active"));
         button.classList.add("active");
+        scheduleAnnotationAutoSave();
       });
       colorHost.appendChild(button);
     });
@@ -1173,7 +1226,14 @@ function showAnnotationEditor(highlight, clientX, clientY) {
   editor.style.top = `${top}px`;
 }
 
-function saveAnnotationEdit() {
+function scheduleAnnotationAutoSave() {
+  window.clearTimeout(annotationAutoSaveTimer);
+  annotationAutoSaveTimer = window.setTimeout(() => {
+    saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
+  }, 450);
+}
+
+async function saveAnnotationEdit() {
   if (!activeHighlightGroupId) return;
   const editor = document.querySelector("#annotationEditor");
   const comment = editor?.querySelector(".annotation-comment")?.value.trim() || "";
@@ -1198,8 +1258,7 @@ function saveAnnotationEdit() {
     return next;
   });
   redrawHighlights();
-  hideAnnotationEditor();
-  saveCurrentPaper().catch((error) => console.error("Failed to save annotation.", error));
+  await saveCurrentPaper();
 }
 
 function deleteActiveHighlight() {
@@ -1215,7 +1274,7 @@ function initTranslationWindow(bubble, closeHandler = hideTranslationBubble) {
   const closeButton = bubble.querySelector(".translation-close");
   closeButton.addEventListener("click", closeHandler);
   header.addEventListener("pointerdown", (event) => {
-    if (event.target === closeButton) return;
+    if (event.target.closest("button")) return;
     event.preventDefault();
     const rect = bubble.getBoundingClientRect();
     const frameRect = pdfViewer.parentElement.getBoundingClientRect();
@@ -1252,11 +1311,15 @@ function hideTranslationBubble() {
 }
 
 function hideCommentBubble() {
+  window.clearTimeout(commentAutoSaveTimer);
+  saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
   document.querySelector("#commentBubble")?.remove();
   commentDraftHighlights = [];
 }
 
 function hideAnnotationEditor() {
+  window.clearTimeout(annotationAutoSaveTimer);
+  saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
   document.querySelector("#annotationEditor")?.remove();
   activeHighlightGroupId = null;
 }
@@ -1298,21 +1361,37 @@ function normalizeHighlights(highlights) {
     ) {
       return false;
     }
+    normalized.hash = normalized.hash || createHighlightHash(normalized);
     Object.assign(highlight, normalized);
-    const key = [
-      normalized.pageNumber,
-      normalized.left.toFixed(5),
-      normalized.top.toFixed(5),
-      normalized.width.toFixed(5),
-      normalized.height.toFixed(5),
-      normalized.comment || "",
-      normalized.translation || "",
-      normalized.color || "",
-    ].join(":");
+    const key = normalized.hash;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function createHighlightHash(highlight) {
+  const stable = {
+    pageNumber: Number(highlight.pageNumber),
+    left: Number(highlight.left).toFixed(5),
+    top: Number(highlight.top).toFixed(5),
+    width: Number(highlight.width).toFixed(5),
+    height: Number(highlight.height).toFixed(5),
+    color: highlight.color || "",
+    comment: highlight.comment || "",
+    translation: highlight.translation || "",
+    groupId: highlight.groupId || "",
+  };
+  return simpleHash(JSON.stringify(stable));
+}
+
+function simpleHash(value) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `h${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function drawHighlight(pageNode, highlight) {

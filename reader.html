@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Open Moonlight Paper Reader</title>
+    <title>PaperLantern Paper Reader</title>
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./styles.css" />
     <script defer src="./vendor/katex/katex.min.js"></script>
@@ -39,7 +39,7 @@
           </div>
           <div id="emptyState" class="empty-state">
             <strong>The PDF will appear here</strong>
-            <span>After upload, text extraction and DeepSeek summary run automatically.</span>
+            <span>After upload, text extraction and AI summary run automatically.</span>
           </div>
         </div>
       </section>
@@ -47,7 +47,8 @@
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="summary-pane" aria-label="AI summary and discussion">
-        <section class="summary-card summary-group collapsible-card" data-collapsible-card>
+        <div class="summary-scroll">
+          <section class="summary-card summary-group collapsible-card" data-collapsible-card>
           <div class="summary-group-header">
             <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="aiSummaryContent">
               <span>AI Summary</span>
@@ -95,9 +96,9 @@
               <div id="methodSections" class="method-sections"></div>
             </section>
           </div>
-        </section>
+          </section>
 
-        <section class="summary-card discussion-card collapsible-card" data-collapsible-card>
+          <section class="summary-card discussion-card collapsible-card" data-collapsible-card>
           <div class="summary-group-header">
             <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="discussionContent">
               <span>Discussion</span>
@@ -114,13 +115,18 @@
             <div id="discussionMessages" class="discussion-messages" aria-live="polite">
               <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
             </div>
-            <form id="discussionForm" class="discussion-form">
-              <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
-              <button id="sendDiscussionButton" type="submit">Send</button>
-            </form>
           </div>
-        </section>
+          </section>
+        </div>
+
+        <form id="discussionForm" class="discussion-form">
+          <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
+          <button id="sendDiscussionButton" type="submit">Send</button>
+        </form>
       </aside>
+      <button id="toggleSummaryPaneButton" class="summary-pane-tab" type="button" aria-label="Collapse summary pane" aria-expanded="true">
+        <span class="summary-pane-tab-icon" aria-hidden="true"></span>
+      </button>
     </main>
     <script src="./reader.js" type="module"></script>
   </body>

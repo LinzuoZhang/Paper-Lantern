@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Open Moonlight Paper Reader</title>
+    <title>PaperLantern Paper Reader</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -13,34 +13,48 @@
           <h1>Literature Library</h1>
           <p id="libraryRoot">Manage papers, PDFs, highlights, and method notes by folder.</p>
         </div>
-        <form id="uploadForm" class="upload-form">
-          <div class="upload-menu-wrap">
-            <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
-              <span class="upload-button-text">
-                <span>Upload PDF</span>
-                <small>Click, drop, or import arXiv</small>
-              </span>
-              <span class="upload-button-chevron" aria-hidden="true"></span>
-            </button>
-            <div id="uploadMenu" class="upload-menu library-menu" role="menu" hidden>
-              <label class="upload-menu-item" role="menuitem">
-                <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
-                <span class="upload-menu-icon upload-menu-icon-file" aria-hidden="true"></span>
-                <span>
-                  <strong>Drag or click upload</strong>
-                  <small>Choose a local PDF, or drop it here</small>
-                </span>
-              </label>
-              <button id="arxivUploadButton" type="button" role="menuitem">
-                <span class="upload-menu-icon upload-menu-icon-arxiv" aria-hidden="true">ar</span>
-                <span>
-                  <strong>arXiv upload</strong>
-                  <small>Enter an arXiv ID or URL</small>
-                </span>
+        <div class="library-header-actions">
+          <form id="uploadForm" class="upload-form">
+            <div class="upload-menu-wrap">
+              <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
+                <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12" />
+                  <path d="m7 8 5-5 5 5" />
+                  <path d="M5 15v4h14v-4" />
+                </svg>
               </button>
+              <div id="uploadMenu" class="upload-menu" role="menu" hidden>
+                <label class="upload-drop-option" role="menuitem">
+                  <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
+                  <span class="upload-drop-box">
+                    <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
+                      <path d="M24 34V12" />
+                      <path d="m14 22 10-10 10 10" />
+                      <path d="M12 36h24" />
+                    </svg>
+                    <strong>Upload PDF</strong>
+                    <small>Drop a file here or click to choose</small>
+                  </span>
+                </label>
+                <div class="arxiv-upload-panel" role="menuitem">
+                  <label for="arxivUploadInput">arXiv ID or URL</label>
+                  <div class="arxiv-upload-row">
+                    <input id="arxivUploadInput" type="text" placeholder="2401.12345 or arxiv.org/abs/..." autocomplete="off" />
+                    <button id="arxivUploadButton" type="button">Upload</button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </form>
+          </form>
+          <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
+              <path d="M4 5v4h4" />
+              <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
+              <path d="M20 19v-4h-4" />
+            </svg>
+          </button>
+        </div>
       </header>
       <div class="library-layout">
         <aside class="category-panel">
@@ -60,6 +74,62 @@
         </section>
       </div>
     </main>
+    <div class="settings-dock">
+      <button id="settingsButton" class="settings-trigger" type="button">
+        <span>Settings</span>
+        <small id="cloudSyncStatus">Checking...</small>
+      </button>
+    </div>
+    <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
+      <form id="cloudConfigForm" class="cloud-config-card">
+        <div class="cloud-config-header">
+          <h2>Settings</h2>
+          <button id="cloudConfigCloseButton" class="drawer-close-button" type="button" aria-label="Close"></button>
+        </div>
+        <div class="settings-section-title">AI API</div>
+        <label>
+          <span>API Base URL</span>
+          <input id="aiBaseUrlInput" type="url" placeholder="https://api.openai.com/v1" />
+        </label>
+        <label>
+          <span>Model</span>
+          <input id="aiModelInput" type="text" placeholder="gpt-4o-mini" />
+        </label>
+        <label>
+          <span>API Key</span>
+          <input id="aiApiKeyInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" />
+        </label>
+        <div class="settings-section-title">Cloud Sync</div>
+        <label>
+          <span>Sync Provider</span>
+          <select id="cloudProviderSelect">
+            <option value="local">Google Drive / local sync folder</option>
+            <option value="webdav">Jianguoyun / WebDAV</option>
+          </select>
+        </label>
+        <label>
+          <span>Local Sync Folder</span>
+          <input id="cloudLocalDirInput" type="text" placeholder="C:\Users\you\Google Drive\PaperLantern" />
+        </label>
+        <label>
+          <span>WebDAV URL</span>
+          <input id="cloudWebdavUrlInput" type="url" placeholder="https://dav.jianguoyun.com/dav/PaperLantern" />
+        </label>
+        <label>
+          <span>Account</span>
+          <input id="cloudUsernameInput" type="text" autocomplete="username" />
+        </label>
+        <label>
+          <span>Password / App Password</span>
+          <input id="cloudPasswordInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
+        </label>
+        <label class="cloud-auto-sync-row">
+          <input id="cloudAutoPushInput" type="checkbox" />
+          <span>Auto sync after library changes</span>
+        </label>
+        <button type="submit">Save Settings</button>
+      </form>
+    </div>
     <script src="./app.js" type="module"></script>
   </body>
 </html>

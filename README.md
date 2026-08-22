@@ -11,12 +11,12 @@
 - 文献库首页：按分类管理论文，支持搜索、最近阅读、拖拽上传 PDF。
 - arXiv 导入：输入 arXiv ID 或 URL，自动下载 PDF 并加入文献库。
 - PDF 阅读器：基于本地 `vendor/pdfjs/` 渲染 PDF，不依赖外部 CDN。
-- AI 总结：调用 DeepSeek 生成关键词、三行摘要、方法拆解和结论。
+- AI 总结：生成关键词、三行摘要、方法拆解和结论。
 - 论文问答：围绕当前论文内容进行讨论，支持保留对话历史。
 - 划词工具：选中文本后可高亮、评论或翻译。
 - 批注保存：高亮、评论、翻译、摘要、讨论历史会写回本地文献库。
 - 分类操作：支持新增、重命名、删除分类，以及移动、删除、下载论文。
-- Prompt 可编辑：DeepSeek prompt 模板集中放在 `prompts/deepseek/`。
+- Prompt 可编辑：prompt 模板集中放在 `prompts/ai/`。
 
 ## 项目结构
 
@@ -28,7 +28,7 @@
 ├── reader.js               # 阅读器、批注、总结、问答逻辑
 ├── server.py               # 本地 HTTP 服务与 API
 ├── styles.css              # 页面样式
-├── prompts/deepseek/       # DeepSeek 提示词模板
+├── prompts/ai/             # 提示词模板
 ├── vendor/pdfjs/           # 本地 PDF.js
 ├── vendor/katex/           # 本地 KaTeX，用于公式渲染
 └── literature_library/     # 本地文献库数据，默认被 .gitignore 忽略
@@ -38,17 +38,18 @@
 
 - Python 3.9+
 - 浏览器
-- DeepSeek API Key
+- AI API Key
 
 当前后端只使用 Python 标准库，不需要安装额外 Python 依赖。
 
 ## 配置
 
-创建 `.env/deepseek.env`：
+创建 `.env/ai.env`：
 
 ```text
-DEEPSEEK_API_KEY=sk-your-real-deepseek-api-key
-DEEPSEEK_MODEL=deepseek-chat
+AI_API_KEY=sk-your-real-api-key
+AI_MODEL=gpt-4o-mini
+AI_API_BASE_URL=https://api.openai.com/v1
 ```
 
 可选环境变量：
@@ -60,7 +61,7 @@ PAPER_LIBRARY_DIR=E:\your\paper_library
 
 说明：
 
-- `DEEPSEEK_MODEL` 默认是 `deepseek-chat`。
+- `AI_MODEL` 默认是 `gpt-4o-mini`。
 - `PAPER_LIBRARY_DIR` 不设置时，文献数据会保存在项目内的 `literature_library/`。
 - `.env/` 和 `literature_library/` 已在 `.gitignore` 中忽略，避免误提交密钥和私人论文。
 
@@ -113,5 +114,5 @@ http://127.0.0.1:8000/
 ## 注意事项
 
 - PDF 文本抽取在浏览器端完成，扫描版 PDF 可能无法正确提取文字。
-- AI 能力依赖 DeepSeek API，调用会产生你自己账号下的费用。
+- AI 能力依赖你配置的 API，调用会产生你自己账号下的费用。
 - 当前项目适合个人本地使用，没有做多用户鉴权、权限隔离或公网部署加固。
