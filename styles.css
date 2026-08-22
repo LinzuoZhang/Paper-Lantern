@@ -1811,6 +1811,84 @@ select {
   padding-bottom: 0;
 }
 
+.discussion-content,
+.discussion-list-view,
+.discussion-thread-view {
+  display: grid;
+  gap: 10px;
+}
+
+.discussion-list-view[hidden],
+.discussion-thread-view[hidden] {
+  display: none;
+}
+
+.discussion-thread-list {
+  display: grid;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.discussion-thread-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.discussion-thread-item:hover {
+  background: var(--soft);
+}
+
+.discussion-thread-item-title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discussion-thread-item-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.discussion-thread-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0 6px;
+  background: var(--panel);
+}
+
+.discussion-back-button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.discussion-thread-title {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .discussion-messages {
   display: grid;
   gap: 10px;

@@ -27,6 +27,11 @@ const method = document.querySelector("#method");
 const conclusion = document.querySelector("#conclusion");
 const keywords = document.querySelector("#keywords");
 const methodSections = document.querySelector("#methodSections");
+const discussionListView = document.querySelector("#discussionListView");
+const discussionThreadView = document.querySelector("#discussionThreadView");
+const discussionThreadList = document.querySelector("#discussionThreadList");
+const backToDiscussionsButton = document.querySelector("#backToDiscussionsButton");
+const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
 const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
@@ -52,7 +57,8 @@ let commentDraftHighlights = [];
 let activeHighlightGroupId = null;
 let readerLibraryTree = null;
 let readerSelectedCategoryId = "";
-let discussionHistory = [];
+let discussionThreads = [];
+let activeDiscussionId = null;
 let discussionIsBusy = false;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
@@ -263,10 +269,11 @@ highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
+discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
 clearDiscussionButton?.addEventListener("click", () => {
-  clearDiscussion();
-  saveDiscussionHistory();
+  clearActiveDiscussion();
 });
+backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
 
 summarizeButton.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -326,6 +333,12 @@ function paperToSummary(paper) {
   };
 }
 
+function handleDiscussionInputKeydown(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  discussionForm?.requestSubmit();
+}
+
 async function handleDiscussionSubmit(event) {
   event.preventDefault();
   if (discussionIsBusy) return;
@@ -334,6 +347,7 @@ async function handleDiscussionSubmit(event) {
   if (!question) return;
 
   const paperText = lastExtractedText.trim();
+  const thread = ensureActiveDiscussion(question);
   if (paperText.length < 80) {
     appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再开始讨论。");
     return;
@@ -353,7 +367,7 @@ async function handleDiscussionSubmit(event) {
         paperText,
         question,
         summary: paperToSummary(currentPaper),
-        history: discussionHistory.slice(-8),
+        history: thread.messages,
       }),
     });
     const data = await readJsonResponse(response);
@@ -361,8 +375,13 @@ async function handleDiscussionSubmit(event) {
 
     pending.classList.remove("pending");
     setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), data.answer || "No response", "assistant");
-    discussionHistory.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
-    await saveDiscussionHistory();
+    thread.messages.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    thread.updatedAt = new Date().toISOString();
+    if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
+    thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
   } catch (error) {
     console.error(error);
     pending.classList.remove("pending");
@@ -375,6 +394,79 @@ async function handleDiscussionSubmit(event) {
   } finally {
     setDiscussionBusy(false);
   }
+}
+
+function createDiscussionThread(initialQuestion = "", shouldSave = false) {
+  const thread = {
+    id: makeDiscussionId(),
+    title: initialQuestion ? makeDiscussionTitle(initialQuestion) : "New discussion",
+    messages: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  discussionThreads.unshift(thread);
+  activeDiscussionId = thread.id;
+  renderDiscussionThreadList();
+  showDiscussionThread(thread.id);
+  if (shouldSave) saveDiscussionThreads();
+  return thread;
+}
+
+function ensureActiveDiscussion(initialQuestion = "") {
+  let thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) thread = createDiscussionThread(initialQuestion);
+  return thread;
+}
+
+function showDiscussionList() {
+  activeDiscussionId = null;
+  discussionListView.hidden = false;
+  discussionThreadView.hidden = true;
+  renderDiscussionThreadList();
+}
+
+function showDiscussionThread(threadId) {
+  const thread = discussionThreads.find((item) => item.id === threadId);
+  if (!thread) return showDiscussionList();
+  activeDiscussionId = thread.id;
+  discussionListView.hidden = true;
+  discussionThreadView.hidden = false;
+  renderDiscussionThreadHeader(thread);
+  renderDiscussionMessages(thread.messages);
+}
+
+function renderDiscussionThreadHeader(thread) {
+  if (!discussionThreadTitle) return;
+  discussionThreadTitle.textContent = thread?.title || "New discussion";
+  discussionThreadTitle.title = thread?.title || "New discussion";
+}
+
+function renderDiscussionThreadList() {
+  if (!discussionThreadList) return;
+  discussionThreadList.innerHTML = "";
+  if (!discussionThreads.length) {
+    const empty = document.createElement("div");
+    empty.className = "discussion-empty";
+    empty.textContent = "Start typing below to begin a discussion.";
+    discussionThreadList.appendChild(empty);
+    return;
+  }
+  discussionThreads.forEach((thread) => {
+    const button = document.createElement("button");
+    button.className = "discussion-thread-item";
+    button.type = "button";
+    button.dataset.threadId = thread.id;
+    const title = document.createElement("span");
+    title.className = "discussion-thread-item-title";
+    title.textContent = thread.title || "New discussion";
+    const meta = document.createElement("span");
+    meta.className = "discussion-thread-item-meta";
+    const turnCount = Math.ceil((thread.messages || []).length / 2);
+    meta.textContent = `${turnCount || 0} turns`;
+    button.append(title, meta);
+    button.addEventListener("click", () => showDiscussionThread(thread.id));
+    discussionThreadList.appendChild(button);
+  });
 }
 
 function appendDiscussionMessage(role, content) {
@@ -498,8 +590,7 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function clearDiscussion() {
-  discussionHistory = [];
+function clearDiscussionMessages() {
   discussionMessages.innerHTML = "";
   const empty = document.createElement("div");
   empty.className = "discussion-empty";
@@ -507,10 +598,28 @@ function clearDiscussion() {
   discussionMessages.appendChild(empty);
 }
 
-function renderDiscussionHistory(history) {
-  clearDiscussion();
-  discussionHistory = normalizeDiscussionHistory(history);
-  discussionHistory.forEach((message) => appendDiscussionMessage(message.role, message.content));
+async function clearActiveDiscussion() {
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) return false;
+  thread.messages = [];
+  thread.updatedAt = new Date().toISOString();
+  thread.hash = await makeDiscussionThreadHash(thread);
+  renderDiscussionMessages(thread.messages);
+  renderDiscussionThreadList();
+  await saveDiscussionThreads();
+  return true;
+}
+
+function renderDiscussionHistory(discussion) {
+  discussionThreads = normalizeDiscussionThreads(discussion);
+  activeDiscussionId = null;
+  renderDiscussionThreadList();
+  showDiscussionList();
+}
+
+function renderDiscussionMessages(history) {
+  clearDiscussionMessages();
+  normalizeDiscussionHistory(history).forEach((message) => appendDiscussionMessage(message.role, message.content));
 }
 
 function normalizeDiscussionHistory(history) {
@@ -523,10 +632,63 @@ function normalizeDiscussionHistory(history) {
     .filter((message) => message.content);
 }
 
-async function saveDiscussionHistory() {
+function normalizeDiscussionThreads(discussion) {
+  if (Array.isArray(discussion)) {
+    const messages = normalizeDiscussionHistory(discussion);
+    if (!messages.length) return [];
+    return [
+      {
+        id: makeDiscussionId(),
+        title: makeDiscussionTitle(messages.find((message) => message.role === "user")?.content || "Discussion"),
+        messages,
+        hash: "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  }
+  if (!discussion || !Array.isArray(discussion.threads)) return [];
+  return discussion.threads
+    .map((thread, index) => ({
+      id: String(thread?.id || makeDiscussionId(index)),
+      title: String(thread?.title || "").trim() || "New discussion",
+      messages: normalizeDiscussionHistory(thread?.messages || []),
+      hash: String(thread?.hash || ""),
+      createdAt: String(thread?.createdAt || new Date().toISOString()),
+      updatedAt: String(thread?.updatedAt || thread?.createdAt || new Date().toISOString()),
+    }))
+    .filter((thread) => thread.messages.length || thread.title)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function makeDiscussionId(seed = "") {
+  return `discussion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${seed}`;
+}
+
+function makeDiscussionTitle(text) {
+  const title = String(text || "Discussion").replace(/\s+/g, " ").trim();
+  return title.length > 42 ? `${title.slice(0, 39)}...` : title;
+}
+
+async function makeDiscussionThreadHash(thread) {
+  const stable = {
+    id: thread.id,
+    title: thread.title,
+    messages: normalizeDiscussionHistory(thread.messages || []),
+    createdAt: thread.createdAt || "",
+    updatedAt: thread.updatedAt || "",
+  };
+  const json = JSON.stringify(stable);
+  if (!crypto?.subtle) return String(Date.now());
+  const bytes = new TextEncoder().encode(json);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function saveDiscussionThreads() {
   if (!currentPaper) return;
   try {
-    await saveCurrentPaper({ discussion: discussionHistory });
+    await saveCurrentPaper({ discussion: { threads: discussionThreads } });
   } catch (error) {
     console.error("Failed to save discussion.", error);
   }

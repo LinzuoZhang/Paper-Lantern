@@ -112,8 +112,17 @@
             </button>
           </div>
           <div id="discussionContent" class="discussion-content">
-            <div id="discussionMessages" class="discussion-messages" aria-live="polite">
-              <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
+            <div id="discussionListView" class="discussion-list-view">
+              <div id="discussionThreadList" class="discussion-thread-list" aria-label="Discussion list"></div>
+            </div>
+            <div id="discussionThreadView" class="discussion-thread-view" hidden>
+              <div class="discussion-thread-header">
+                <button id="backToDiscussionsButton" class="discussion-back-button" type="button" aria-label="Back to discussions">Back</button>
+                <div id="discussionThreadTitle" class="discussion-thread-title"></div>
+              </div>
+              <div id="discussionMessages" class="discussion-messages" aria-live="polite">
+                <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
+              </div>
             </div>
           </div>
           </section>

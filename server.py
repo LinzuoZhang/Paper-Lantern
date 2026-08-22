@@ -25,6 +25,10 @@ LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
 PROMPT_DIR = BASE_DIR / "prompts" / "ai"
 MAX_PAPER_CHARS = 30000
 MAX_TRANSLATE_CHARS = 4000
+MAX_DISCUSSION_HISTORY_ITEMS = 200
+DISCUSSION_RECENT_MESSAGE_COUNT = 24
+MAX_DISCUSSION_MESSAGE_CHARS = 3000
+MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
@@ -443,7 +447,7 @@ def read_paper(paper_id, db=None):
         return None
     metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
     highlights = read_json(paper_dir / "highlights.json", [])
-    discussion = normalize_discussion_history(read_json(paper_dir / "discussion.json", []), limit=200)
+    discussion = normalize_discussion_payload(read_json(paper_dir / "discussion.json", []))
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
     return {
         "id": record["id"],
@@ -599,7 +603,7 @@ def add_paper_to_db(title, category, pdf_file):
     metadata = default_metadata(title, category_id)
     write_json(paper_dir / "metadata.json", metadata)
     write_json(paper_dir / "highlights.json", [])
-    write_json(paper_dir / "discussion.json", [])
+    write_json(paper_dir / "discussion.json", default_discussion_payload())
     update_paper_sync_hash(paper_dir)
     db["papers"][paper_id] = {
         "id": paper_id,
@@ -885,8 +889,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
             update_paper_sync_hash(paper_dir)
-        if isinstance(payload.get("discussion"), list):
-            write_json(paper_dir / "discussion.json", normalize_discussion_history(payload["discussion"], limit=200))
+        if isinstance(payload.get("discussion"), (list, dict)):
+            write_json(paper_dir / "discussion.json", normalize_discussion_payload(payload["discussion"]))
+            update_paper_sync_hash(paper_dir)
         write_json(paper_dir / "metadata.json", metadata)
         save_library_db(db)
         sync = maybe_auto_sync_library()
@@ -1049,7 +1054,7 @@ def translate_text(api_key, model, chat_completions_url, text):
 def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
-    history_messages = normalize_discussion_history(history)
+    history_messages = build_discussion_context_messages(history)
     messages = [
         {
             "role": "system",
@@ -1080,6 +1085,47 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
     return raw["choices"][0]["message"]["content"].strip()
+
+
+def build_discussion_context_messages(history):
+    history_messages = normalize_discussion_history(history, limit=MAX_DISCUSSION_HISTORY_ITEMS)
+    if len(history_messages) <= DISCUSSION_RECENT_MESSAGE_COUNT:
+        return history_messages
+
+    earlier_messages = history_messages[:-DISCUSSION_RECENT_MESSAGE_COUNT]
+    recent_messages = history_messages[-DISCUSSION_RECENT_MESSAGE_COUNT:]
+    earlier_context = format_earlier_discussion_context(earlier_messages)
+    if not earlier_context:
+        return recent_messages
+
+    return [
+        {
+            "role": "user",
+            "content": (
+                "Earlier discussion context, preserved for multi-turn continuity:\n"
+                f"{earlier_context}\n\n"
+                "Use this as background. The recent turns below are the active conversation."
+            ),
+        },
+        *recent_messages,
+    ]
+
+
+def format_earlier_discussion_context(messages):
+    lines = []
+    total_chars = 0
+    for item in messages:
+        label = "User" if item["role"] == "user" else "Assistant"
+        content = item["content"].strip()
+        line = f"{label}: {content}"
+        remaining = MAX_DISCUSSION_EARLIER_CONTEXT_CHARS - total_chars
+        if remaining <= 0:
+            break
+        if len(line) > remaining:
+            line = line[:remaining].rstrip()
+        lines.append(line)
+        total_chars += len(line) + 1
+    return "\n".join(lines)
 
 
 def call_chat_completions(api_key, model, chat_completions_url, prompt):
@@ -1133,7 +1179,7 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
         return json.loads(response.read().decode("utf-8"))
 
 
-def normalize_discussion_history(history, limit=8):
+def normalize_discussion_history(history, limit=DISCUSSION_RECENT_MESSAGE_COUNT):
     if not isinstance(history, list):
         return []
 
@@ -1145,8 +1191,74 @@ def normalize_discussion_history(history, limit=8):
         content = str(item.get("content", "")).strip()
         if role not in {"user", "assistant"} or not content:
             continue
-        messages.append({"role": role, "content": content[:2000]})
+        messages.append({"role": role, "content": content[:MAX_DISCUSSION_MESSAGE_CHARS]})
     return messages
+
+
+def default_discussion_payload():
+    return {"threads": []}
+
+
+def make_discussion_title(messages):
+    for message in messages:
+        if message.get("role") == "user":
+            title = " ".join(message.get("content", "").split())
+            return (title[:117] + "...") if len(title) > 120 else title
+    return "Discussion"
+
+
+def make_discussion_thread_hash(thread):
+    stable = {key: value for key, value in thread.items() if key != "hash"}
+    normalized = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def normalize_discussion_payload(discussion):
+    if isinstance(discussion, list):
+        messages = normalize_discussion_history(discussion, limit=200)
+        if not messages:
+            return default_discussion_payload()
+        thread = {
+            "id": "discussion-legacy",
+            "title": make_discussion_title(messages),
+            "messages": messages,
+            "createdAt": "",
+            "updatedAt": "",
+        }
+        thread["hash"] = make_discussion_thread_hash(thread)
+        return {
+            "threads": [
+                thread
+            ]
+        }
+    if not isinstance(discussion, dict):
+        return default_discussion_payload()
+
+    threads = []
+    raw_threads = discussion.get("threads", [])
+    if not isinstance(raw_threads, list):
+        return default_discussion_payload()
+
+    for index, item in enumerate(raw_threads[:100]):
+        if not isinstance(item, dict):
+            continue
+        messages = normalize_discussion_history(item.get("messages", []), limit=200)
+        title = str(item.get("title", "")).strip()[:120] or "New discussion"
+        thread_id = str(item.get("id", "")).strip()[:80] or f"discussion-{index}"
+        created_at = str(item.get("createdAt", "")).strip()
+        updated_at = str(item.get("updatedAt", "")).strip() or created_at
+        if not messages and title == "New discussion":
+            continue
+        thread = {
+            "id": thread_id,
+            "title": title,
+            "messages": messages,
+            "createdAt": created_at,
+            "updatedAt": updated_at,
+        }
+        thread["hash"] = make_discussion_thread_hash(thread)
+        threads.append(thread)
+    return {"threads": threads}
 
 
 def normalize_list(items):

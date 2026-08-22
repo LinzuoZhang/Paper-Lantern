@@ -12,10 +12,12 @@ from config_store import get_secret, load_config, public_config, save_config
 
 
 MANIFEST_NAME = "paperlantern-library.json"
+SYNC_INDEX_NAME = "paperlantern-sync-index.json"
 REMOTE_PAPERS_DIR = "papers"
 PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json")
 PAPER_SYNC_HASH_FILE = "sync_hash.json"
 SYNCED_PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
+ROOT_SYNCED_FILES = (MANIFEST_NAME,)
 
 
 def utc_now():
@@ -89,27 +91,26 @@ def sync_library(library_dir, config):
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     remote_db = read_remote_manifest(config)
     merged_db = merge_dbs(local_db, remote_db)
-    ensure_local_sync_hashes(library_dir, local_db)
-    stats = {"downloaded": 0, "uploaded": 0, "highlightsMerged": 0, "mergedPapers": len(merged_db.get("papers", {}))}
-    for paper_id, record in merged_db.get("papers", {}).items():
-        local_paper_dir = library_dir / record.get("folder", f"papers/{paper_id}")
-        remote_has = paper_id in remote_db.get("papers", {})
-        local_has = (local_paper_dir / "paper.pdf").exists()
-        if remote_has and not local_has:
-            download_paper_files(config, paper_id, local_paper_dir)
-            update_paper_sync_hash(local_paper_dir)
-            stats["downloaded"] += 1
-        elif local_has and not remote_has:
-            update_paper_sync_hash(local_paper_dir)
-            upload_paper_files(config, paper_id, local_paper_dir)
-            stats["uploaded"] += 1
-        elif local_has and remote_has and sync_hash_differs(config, paper_id, local_paper_dir):
-            merge_highlights(config, paper_id, local_paper_dir)
-            upload_paper_files(config, paper_id, local_paper_dir)
-            stats["highlightsMerged"] += 1
     write_json(local_db_path, merged_db)
-    write_remote_manifest(config, merged_db)
-    result = {**public_status(config), "action": "sync", "syncedAt": utc_now(), **stats}
+    ensure_local_sync_hashes(library_dir, merged_db)
+
+    local_index = build_local_sync_index(library_dir, merged_db)
+    remote_index = read_remote_sync_index(config)
+    if not remote_index.get("files"):
+        remote_index = build_legacy_remote_sync_index(config, remote_db)
+
+    plan = plan_sync_actions(local_index, remote_index)
+    stats = execute_sync_plan(library_dir, config, plan)
+
+    local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
+    final_db = merge_dbs(local_db, remote_db)
+    write_json(local_db_path, final_db)
+    ensure_local_sync_hashes(library_dir, final_db)
+    final_index = build_local_sync_index(library_dir, final_db)
+    write_local_sync_index(library_dir, final_index)
+    write_remote_sync_index(config, final_index)
+
+    result = {**public_status(config), "action": "sync", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
     write_sync_state(config, result)
     return result
 
@@ -205,11 +206,15 @@ def ensure_local_sync_hashes(library_dir, db):
 def update_paper_sync_hash(paper_dir):
     paper_dir = Path(paper_dir)
     highlights_path = paper_dir / "highlights.json"
+    discussion_path = paper_dir / "discussion.json"
     highlights = normalize_highlights_with_hash(read_json(highlights_path, []))
+    discussion = normalize_discussion_payload(read_json(discussion_path, {}))
     write_json(highlights_path, highlights)
+    write_json(discussion_path, discussion)
     state = {
         "version": 1,
         "highlightsHash": hash_highlights_file(highlights_path),
+        "discussionHash": hash_discussion_file(discussion_path),
         "updatedAt": utc_now(),
     }
     write_json(paper_dir / PAPER_SYNC_HASH_FILE, state)
@@ -218,20 +223,33 @@ def update_paper_sync_hash(paper_dir):
 
 def sync_hash_differs(config, paper_id, local_paper_dir):
     local_state = read_json(Path(local_paper_dir) / PAPER_SYNC_HASH_FILE, {})
-    local_hash = local_state.get("highlightsHash") or hash_highlights_file(Path(local_paper_dir) / "highlights.json")
+    local_highlights_hash = local_state.get("highlightsHash") or hash_highlights_file(Path(local_paper_dir) / "highlights.json")
+    local_discussion_hash = local_state.get("discussionHash") or hash_discussion_file(Path(local_paper_dir) / "discussion.json")
     try:
         remote_state = json.loads(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/{PAPER_SYNC_HASH_FILE}").decode("utf-8"))
-        remote_hash = remote_state.get("highlightsHash", "")
+        remote_highlights_hash = remote_state.get("highlightsHash", "")
+        remote_discussion_hash = remote_state.get("discussionHash", "")
     except (FileNotFoundError, json.JSONDecodeError):
+        remote_highlights_hash = ""
+        remote_discussion_hash = ""
+    if not remote_highlights_hash:
         try:
-            remote_hash = hash_highlights_bytes(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/highlights.json"))
+            remote_highlights_hash = hash_highlights_bytes(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/highlights.json"))
         except FileNotFoundError:
-            remote_hash = ""
-    return bool(local_hash or remote_hash) and local_hash != remote_hash
+            remote_highlights_hash = ""
+    if not remote_discussion_hash:
+        try:
+            remote_discussion_hash = hash_discussion_bytes(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/discussion.json"))
+        except FileNotFoundError:
+            remote_discussion_hash = ""
+    highlights_changed = bool(local_highlights_hash or remote_highlights_hash) and local_highlights_hash != remote_highlights_hash
+    discussion_changed = bool(local_discussion_hash or remote_discussion_hash) and local_discussion_hash != remote_discussion_hash
+    return highlights_changed or discussion_changed
 
 
-def merge_highlights(config, paper_id, local_paper_dir):
+def merge_paper_discussion_files(config, paper_id, local_paper_dir):
     local_paper_dir = Path(local_paper_dir)
+    changed = {"highlights": False, "discussion": False}
     local_highlights = read_json(local_paper_dir / "highlights.json", [])
     try:
         remote_highlights = json.loads(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/highlights.json").decode("utf-8"))
@@ -239,7 +257,18 @@ def merge_highlights(config, paper_id, local_paper_dir):
         remote_highlights = []
     merged = merge_highlight_lists(local_highlights, remote_highlights)
     write_json(local_paper_dir / "highlights.json", merged)
+    changed["highlights"] = hash_highlights_bytes(json.dumps(local_highlights, ensure_ascii=False).encode("utf-8")) != hash_highlights_bytes(json.dumps(merged, ensure_ascii=False).encode("utf-8"))
+
+    local_discussion = read_json(local_paper_dir / "discussion.json", {})
+    try:
+        remote_discussion = json.loads(remote_read(config, f"{REMOTE_PAPERS_DIR}/{paper_id}/discussion.json").decode("utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        remote_discussion = {}
+    merged_discussion = merge_discussion_payloads(local_discussion, remote_discussion)
+    write_json(local_paper_dir / "discussion.json", merged_discussion)
+    changed["discussion"] = hash_discussion_bytes(json.dumps(local_discussion, ensure_ascii=False).encode("utf-8")) != hash_discussion_bytes(json.dumps(merged_discussion, ensure_ascii=False).encode("utf-8"))
     update_paper_sync_hash(local_paper_dir)
+    return changed
 
 
 def merge_highlight_lists(*highlight_lists):
@@ -293,9 +322,122 @@ def hash_highlights_bytes(data):
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def normalize_discussion_payload(discussion):
+    if isinstance(discussion, list):
+        messages = normalize_discussion_messages(discussion)
+        if not messages:
+            return {"threads": []}
+        thread = {
+            "id": "discussion-legacy",
+            "title": make_discussion_title(messages),
+            "messages": messages,
+            "createdAt": "",
+            "updatedAt": "",
+        }
+        thread["hash"] = make_discussion_thread_hash(thread)
+        return {"threads": [thread]}
+    if not isinstance(discussion, dict):
+        return {"threads": []}
+
+    threads = []
+    raw_threads = discussion.get("threads", [])
+    if not isinstance(raw_threads, list):
+        return {"threads": []}
+    for index, item in enumerate(raw_threads[:100]):
+        if not isinstance(item, dict):
+            continue
+        thread = {
+            "id": str(item.get("id", "")).strip()[:80] or f"discussion-{index}",
+            "title": str(item.get("title", "")).strip()[:120] or "New discussion",
+            "messages": normalize_discussion_messages(item.get("messages", [])),
+            "createdAt": str(item.get("createdAt", "")).strip(),
+            "updatedAt": str(item.get("updatedAt", "")).strip() or str(item.get("createdAt", "")).strip(),
+        }
+        if not thread["messages"] and thread["title"] == "New discussion":
+            continue
+        thread["hash"] = make_discussion_thread_hash(thread)
+        threads.append(thread)
+    return {"threads": threads}
+
+
+def normalize_discussion_messages(messages):
+    if not isinstance(messages, list):
+        return []
+    normalized = []
+    for item in messages[-200:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip()
+        content = str(item.get("content", "")).strip()
+        if role in {"user", "assistant"} and content:
+            normalized.append({"role": role, "content": content[:3000]})
+    return normalized
+
+
+def make_discussion_title(messages):
+    for message in messages:
+        if message.get("role") == "user":
+            title = " ".join(message.get("content", "").split())
+            return (title[:117] + "...") if len(title) > 120 else title
+    return "Discussion"
+
+
+def make_discussion_thread_hash(thread):
+    stable = {key: value for key, value in thread.items() if key != "hash"}
+    normalized = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def hash_discussion_file(path):
+    return hash_discussion_bytes(Path(path).read_bytes() if Path(path).exists() else b'{"threads":[]}')
+
+
+def hash_discussion_bytes(data):
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        value = {}
+    normalized_value = normalize_discussion_payload(value)
+    normalized = json.dumps(normalized_value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def merge_discussion_payloads(*payloads):
+    merged_by_id = {}
+    for payload in payloads:
+        discussion = normalize_discussion_payload(payload)
+        for thread in discussion.get("threads", []):
+            key = thread.get("id") or thread.get("hash")
+            existing = merged_by_id.get(key)
+            if not existing or thread_is_newer(thread, existing):
+                if key:
+                    merged_by_id[key] = thread
+    threads = []
+    seen_hashes = set()
+    for thread in merged_by_id.values():
+        thread_hash = thread.get("hash", "")
+        if thread_hash and thread_hash in seen_hashes:
+            continue
+        if thread_hash:
+            seen_hashes.add(thread_hash)
+        threads.append(thread)
+    threads.sort(key=lambda item: item.get("updatedAt", ""), reverse=True)
+    return {"threads": threads}
+
+
+def thread_is_newer(candidate, existing):
+    candidate_time = str(candidate.get("updatedAt", ""))
+    existing_time = str(existing.get("updatedAt", ""))
+    if candidate_time != existing_time:
+        return candidate_time > existing_time
+    return len(candidate.get("messages", [])) >= len(existing.get("messages", []))
+
+
 def default_paper_file_bytes(name):
     if name == "metadata.json" or name == PAPER_SYNC_HASH_FILE:
         return b"{}"
+    if name == "discussion.json":
+        return b'{"threads":[]}'
     return b"[]"
 
 
