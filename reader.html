@@ -46,7 +46,25 @@
 
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
-      <aside class="summary-pane" aria-label="AI summary and discussion">
+      <aside class="summary-pane" aria-label="Paper side panel">
+        <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs">
+          <button id="withAiTab" class="reader-tab active" type="button" role="tab" aria-selected="true" aria-controls="withAiPanel" aria-label="With AI" title="With AI">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"></path>
+              <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"></path>
+            </svg>
+          </button>
+          <button id="basicInfoTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="basicInfoPanel" aria-label="基本信息" title="基本信息">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-13z"></path>
+              <path d="M8 8h8"></path>
+              <path d="M8 12h8"></path>
+              <path d="M8 16h5"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
         <div class="summary-scroll">
           <section class="summary-card summary-group collapsible-card" data-collapsible-card>
           <div class="summary-group-header">
@@ -132,6 +150,32 @@
           <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
           <button id="sendDiscussionButton" type="submit">Send</button>
         </form>
+        </div>
+
+        <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
+          <section class="summary-card basic-info-card">
+            <div class="summary-group-header">
+              <h2>基本信息</h2>
+              <button id="basicInfoButton" class="icon-button refresh-button" type="button" aria-label="重新整理基本信息" title="重新整理基本信息">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M20 6v5h-5"></path>
+                  <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+                </svg>
+              </button>
+            </div>
+            <p id="basicInfoStatus" class="status" role="status"></p>
+            <dl id="basicInfoList" class="basic-info-list">
+              <dt>作者</dt>
+              <dd id="basicInfoAuthors">Waiting</dd>
+              <dt>期刊/会议</dt>
+              <dd id="basicInfoVenue">Waiting</dd>
+              <dt>发表日期</dt>
+              <dd id="basicInfoDate">Waiting</dd>
+              <dt>机构</dt>
+              <dd id="basicInfoInstitutions">Waiting</dd>
+            </dl>
+          </section>
+        </div>
       </aside>
       <button id="toggleSummaryPaneButton" class="summary-pane-tab" type="button" aria-label="Collapse summary pane" aria-expanded="true">
         <span class="summary-pane-tab-icon" aria-hidden="true"></span>

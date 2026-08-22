@@ -37,6 +37,14 @@ const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
 const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
+const readerTabs = document.querySelectorAll(".reader-tab");
+const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
+const basicInfoButton = document.querySelector("#basicInfoButton");
+const basicInfoStatus = document.querySelector("#basicInfoStatus");
+const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
+const basicInfoVenue = document.querySelector("#basicInfoVenue");
+const basicInfoDate = document.querySelector("#basicInfoDate");
+const basicInfoInstitutions = document.querySelector("#basicInfoInstitutions");
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -72,6 +80,7 @@ const highlightColors = {
 
 initPaneResizer();
 initSummaryPaneToggle();
+initReaderTabs();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 openReaderFromUrl();
@@ -195,6 +204,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   renderDiscussionHistory(currentPaper.discussion || []);
   renderSummary(paperToSummary(currentPaper));
+  renderBasicInfo(currentPaper.basicInfo);
   fileName.textContent = currentPaper.title;
   fileName.title = currentPaper.title;
   renderReaderLibrary();
@@ -296,6 +306,47 @@ summarizeButton.addEventListener("click", async () => {
   }
 });
 
+basicInfoButton?.addEventListener("click", async () => {
+  const text = lastExtractedText.trim();
+  if (text.length < 80) {
+    setBasicInfoStatus("请先打开并解析一篇论文。", true);
+    return;
+  }
+
+  setBusy(true);
+  setBasicInfoStatus("正在整理基本信息...");
+  renderBasicInfoLoading();
+  try {
+    await refreshOverviewInfo(text);
+    setBasicInfoStatus("");
+  } catch (error) {
+    console.error(error);
+    renderBasicInfo(currentPaper?.basicInfo);
+    setBasicInfoStatus(error.message || "基本信息整理失败。", true);
+  } finally {
+    setBusy(false);
+  }
+});
+
+function initReaderTabs() {
+  readerTabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActiveReaderTab(tab.id));
+  });
+}
+
+function setActiveReaderTab(activeTabId) {
+  readerTabs.forEach((tab) => {
+    const isActive = tab.id === activeTabId;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  });
+  readerTabPanels.forEach((panel) => {
+    const isActive = panel.getAttribute("aria-labelledby") === activeTabId;
+    panel.classList.toggle("active", isActive);
+    panel.hidden = !isActive;
+  });
+}
+
 function initCollapsibleSummaryCards() {
   document.querySelectorAll("[data-collapsible-card]").forEach((card) => {
     const toggle = card.querySelector(".summary-card-toggle");
@@ -326,6 +377,7 @@ function paperToSummary(paper) {
   return {
     paperTitle: paper.title,
     keywords: paper.keywords || [],
+    basicInfo: paper.basicInfo || {},
     threeLineSummary: paper.threeLineSummary || {},
     methodOverview: paper.methodOverview || "",
     methodSections: paper.methodSections || [],
@@ -963,12 +1015,34 @@ async function summarizeText(text) {
   }
 
   renderSummary(data.summary);
+  renderBasicInfo(data.summary?.basicInfo);
   await saveCurrentPaper({ summary: data.summary });
   if (data.summary?.paperTitle) {
     fileName.textContent = data.summary.paperTitle;
     fileName.title = data.summary.paperTitle;
   }
   clearStatus();
+}
+
+async function refreshOverviewInfo(text) {
+  const response = await apiFetch("/api/overview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paperText: text }),
+  });
+  const data = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(data.detail || data.error || "Overview extraction failed.");
+  }
+
+  renderKeywords(data.overviewInfo?.keywords || []);
+  renderBasicInfo(data.overviewInfo?.basicInfo);
+  await saveCurrentPaper({ overviewInfo: data.overviewInfo });
+  if (data.overviewInfo?.paperTitle) {
+    fileName.textContent = data.overviewInfo.paperTitle;
+    fileName.title = data.overviewInfo.paperTitle;
+  }
 }
 
 async function getPdfMetadataTitle(pdf) {
@@ -1738,26 +1812,58 @@ function renderSummary(summary) {
   keywords.innerHTML = "";
   methodSections.innerHTML = "";
 
-  const items = Array.isArray(summary.keywords) ? summary.keywords : [];
-  if (!items.length) {
-    keywords.textContent = "No keywords returned.";
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  items.forEach((item) => {
-    const node = document.createElement("span");
-    node.className = "keyword-chip";
-    node.textContent = typeof item === "string" ? item : item.term || "Unnamed term";
-    fragment.appendChild(node);
-  });
-  keywords.appendChild(fragment);
+  renderKeywords(summary.keywords || []);
 
   renderMethodSections(summary.methodSections || [], {
     fallbackText: summary.threeLineSummary?.method || "",
     overview: summary.methodOverview || "",
     conclusion: summary.methodConclusion || summary.threeLineSummary?.conclusion || "",
   });
+}
+
+function renderKeywords(items) {
+  keywords.innerHTML = "";
+  const normalized = Array.isArray(items) ? items : [];
+  if (!normalized.length) {
+    keywords.textContent = "No keywords returned.";
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  normalized.forEach((item) => {
+    const node = document.createElement("span");
+    node.className = "keyword-chip";
+    node.textContent = typeof item === "string" ? item : item.term || "Unnamed term";
+    fragment.appendChild(node);
+  });
+  keywords.appendChild(fragment);
+}
+
+function renderBasicInfo(info) {
+  const normalized = info && typeof info === "object" ? info : {};
+  basicInfoAuthors.textContent = formatBasicInfoValue(normalized.authors);
+  basicInfoVenue.textContent = formatBasicInfoValue(normalized.venue);
+  basicInfoDate.textContent = formatBasicInfoValue(normalized.publishedDate);
+  basicInfoInstitutions.textContent = formatBasicInfoValue(normalized.institutions);
+}
+
+function renderBasicInfoLoading() {
+  basicInfoAuthors.textContent = "Loading...";
+  basicInfoVenue.textContent = "Loading...";
+  basicInfoDate.textContent = "Loading...";
+  basicInfoInstitutions.textContent = "Loading...";
+}
+
+function formatBasicInfoValue(value) {
+  if (Array.isArray(value)) return value.length ? value.join("；") : "未识别";
+  const text = String(value || "").trim();
+  return text || "未识别";
+}
+
+function setBasicInfoStatus(message, isError = false) {
+  if (!basicInfoStatus) return;
+  basicInfoStatus.textContent = message;
+  basicInfoStatus.classList.toggle("error", isError);
 }
 
 function renderSummaryLoading(message = "Loading...") {
@@ -1975,6 +2081,7 @@ function renderFormula(node, source, displayMode = false) {
 
 function setBusy(isBusy) {
   summarizeButton.disabled = isBusy;
+  basicInfoButton.disabled = isBusy;
 }
 
 function setStatus(message, isError = false) {

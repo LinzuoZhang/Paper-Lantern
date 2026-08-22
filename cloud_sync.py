@@ -16,7 +16,9 @@ SYNC_INDEX_NAME = "paperlantern-sync-index.json"
 REMOTE_PAPERS_DIR = "papers"
 PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json")
 PAPER_SYNC_HASH_FILE = "sync_hash.json"
-SYNCED_PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
+PAPER_PDF_FILE = "paper.pdf"
+HOT_SYNCED_PAPER_FILES = ("metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
+SYNCED_PAPER_FILES = (PAPER_PDF_FILE, *HOT_SYNCED_PAPER_FILES)
 ROOT_SYNCED_FILES = (MANIFEST_NAME,)
 
 
@@ -84,9 +86,10 @@ def describe_target(config):
     return ""
 
 
-def sync_library(library_dir, config):
+def sync_library(library_dir, config, include_pdf_ids=None, full=False):
     ensure_configured(config)
     library_dir = Path(library_dir)
+    include_pdf_ids = normalize_id_set(include_pdf_ids)
     local_db_path = library_dir / "library_db.json"
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     remote_db = read_remote_manifest(config)
@@ -94,32 +97,38 @@ def sync_library(library_dir, config):
     write_json(local_db_path, merged_db)
     ensure_local_sync_hashes(library_dir, merged_db)
 
-    local_index = build_local_sync_index(library_dir, merged_db)
+    local_index = build_local_sync_index(library_dir, merged_db, include_pdf_ids=include_pdf_ids, full=full)
     remote_index = read_remote_sync_index(config)
     if not remote_index.get("files"):
-        remote_index = build_legacy_remote_sync_index(config, remote_db)
+        remote_index = build_legacy_remote_sync_index(config, remote_db, include_pdf_ids=include_pdf_ids, full=full)
+    plan_remote_index = filter_sync_index_for_scope(remote_index, include_pdf_ids=include_pdf_ids, full=full)
 
-    plan = plan_sync_actions(local_index, remote_index)
+    plan = plan_sync_actions(local_index, plan_remote_index)
     stats = execute_sync_plan(library_dir, config, plan)
 
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     final_db = merge_dbs(local_db, remote_db)
     write_json(local_db_path, final_db)
     ensure_local_sync_hashes(library_dir, final_db)
-    final_index = build_local_sync_index(library_dir, final_db)
+    for paper_id in stats.pop("_downloadedPaperIds", []):
+        record = final_db.get("papers", {}).get(paper_id, {})
+        paper_dir = library_dir / record.get("folder", f"papers/{paper_id}")
+        upload_paper_files(config, paper_id, paper_dir)
+    final_index = build_local_sync_index(library_dir, final_db, include_pdf_ids=include_pdf_ids, full=full)
+    final_index = preserve_out_of_scope_pdf_entries(final_index, remote_index, include_pdf_ids=include_pdf_ids, full=full)
     write_local_sync_index(library_dir, final_index)
     write_remote_sync_index(config, final_index)
 
-    result = {**public_status(config), "action": "sync", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
+    result = {**public_status(config), "action": "sync", "mode": "full" if full else "fast", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
     write_sync_state(config, result)
     return result
 
 
-def auto_sync_library(library_dir, config):
+def auto_sync_library(library_dir, config, include_pdf_ids=None):
     if not config.get("auto_push"):
         return None
     try:
-        return sync_library(library_dir, config)
+        return sync_library(library_dir, config, include_pdf_ids=include_pdf_ids)
     except Exception as exc:
         return {**public_status(config), "action": "auto-sync", "error": str(exc), "syncedAt": utc_now()}
 
@@ -175,6 +184,210 @@ def read_remote_manifest(config):
 
 def write_remote_manifest(config, db):
     remote_write(config, MANIFEST_NAME, json.dumps(db, ensure_ascii=False, indent=2).encode("utf-8"))
+
+
+def read_remote_sync_index(config):
+    try:
+        data = remote_read(config, SYNC_INDEX_NAME)
+    except FileNotFoundError:
+        return default_sync_index()
+    try:
+        return normalize_sync_index(json.loads(data.decode("utf-8")))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return default_sync_index()
+
+
+def write_remote_sync_index(config, index):
+    remote_write(config, SYNC_INDEX_NAME, json.dumps(normalize_sync_index(index), ensure_ascii=False, indent=2).encode("utf-8"))
+
+
+def write_local_sync_index(library_dir, index):
+    write_json(Path(library_dir) / SYNC_INDEX_NAME, normalize_sync_index(index))
+
+
+def default_sync_index():
+    return {"version": 1, "generatedAt": "", "files": {}, "papers": {}}
+
+
+def normalize_sync_index(index):
+    if not isinstance(index, dict):
+        return default_sync_index()
+    files = index.get("files", {})
+    papers = index.get("papers", {})
+    return {
+        "version": 1,
+        "generatedAt": str(index.get("generatedAt", "")).strip(),
+        "files": files if isinstance(files, dict) else {},
+        "papers": papers if isinstance(papers, dict) else {},
+    }
+
+
+def build_local_sync_index(library_dir, db):
+    library_dir = Path(library_dir)
+    index = {"version": 1, "generatedAt": utc_now(), "files": {}, "papers": {}}
+    manifest_path = library_dir / "library_db.json"
+    if manifest_path.exists():
+        index["files"][MANIFEST_NAME] = file_index_entry(manifest_path)
+
+    for paper_id, record in db.get("papers", {}).items():
+        paper_dir = library_dir / record.get("folder", f"papers/{paper_id}")
+        if not paper_dir.exists():
+            continue
+        paper_entry = {}
+        for name in SYNCED_PAPER_FILES:
+            local_path = paper_dir / name
+            if not local_path.exists():
+                continue
+            remote_path = f"{REMOTE_PAPERS_DIR}/{paper_id}/{name}"
+            index["files"][remote_path] = file_index_entry(local_path)
+            if name == "highlights.json":
+                paper_entry["highlightsHash"] = hash_highlights_file(local_path)
+            elif name == "discussion.json":
+                paper_entry["discussionHash"] = hash_discussion_file(local_path)
+            elif name == PAPER_SYNC_HASH_FILE:
+                state = read_json(local_path, {})
+                if isinstance(state, dict):
+                    paper_entry["syncHash"] = state.get("highlightsHash", "")
+                    paper_entry["syncDiscussionHash"] = state.get("discussionHash", "")
+        if paper_entry:
+            index["papers"][paper_id] = paper_entry
+    return index
+
+
+def build_legacy_remote_sync_index(config, remote_db):
+    index = {"version": 1, "generatedAt": "", "files": {}, "papers": {}}
+    try:
+        manifest_data = remote_read(config, MANIFEST_NAME)
+        index["files"][MANIFEST_NAME] = bytes_index_entry(manifest_data, "")
+    except FileNotFoundError:
+        pass
+    for paper_id in remote_db.get("papers", {}):
+        paper_entry = {}
+        for name in SYNCED_PAPER_FILES:
+            remote_path = f"{REMOTE_PAPERS_DIR}/{paper_id}/{name}"
+            try:
+                data = remote_read(config, remote_path)
+            except FileNotFoundError:
+                continue
+            index["files"][remote_path] = bytes_index_entry(data, "")
+            if name == "highlights.json":
+                paper_entry["highlightsHash"] = hash_highlights_bytes(data)
+            elif name == "discussion.json":
+                paper_entry["discussionHash"] = hash_discussion_bytes(data)
+            elif name == PAPER_SYNC_HASH_FILE:
+                try:
+                    state = json.loads(data.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    state = {}
+                paper_entry["syncHash"] = state.get("highlightsHash", "")
+                paper_entry["syncDiscussionHash"] = state.get("discussionHash", "")
+        if paper_entry:
+            index["papers"][paper_id] = paper_entry
+    return index
+
+
+def file_index_entry(path):
+    path = Path(path)
+    stat = path.stat()
+    return {
+        "hash": hash_file(path),
+        "size": stat.st_size,
+        "updatedAt": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def bytes_index_entry(data, updated_at):
+    return {
+        "hash": hashlib.sha256(data).hexdigest(),
+        "size": len(data),
+        "updatedAt": updated_at,
+    }
+
+
+def hash_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def plan_sync_actions(local_index, remote_index):
+    local_files = local_index.get("files", {})
+    remote_files = remote_index.get("files", {})
+    plan = {"upload": [], "download": []}
+    for relative_path in sorted(set(local_files) | set(remote_files)):
+        local_entry = local_files.get(relative_path)
+        remote_entry = remote_files.get(relative_path)
+        if local_entry and not remote_entry:
+            plan["upload"].append(relative_path)
+        elif remote_entry and not local_entry:
+            plan["download"].append(relative_path)
+        elif local_entry and remote_entry and local_entry.get("hash") != remote_entry.get("hash"):
+            if index_entry_is_newer(remote_entry, local_entry):
+                plan["download"].append(relative_path)
+            else:
+                plan["upload"].append(relative_path)
+    return plan
+
+
+def index_entry_is_newer(candidate, existing):
+    candidate_time = str(candidate.get("updatedAt", ""))
+    existing_time = str(existing.get("updatedAt", ""))
+    if candidate_time and existing_time and candidate_time != existing_time:
+        return candidate_time > existing_time
+    return int(candidate.get("size") or 0) >= int(existing.get("size") or 0)
+
+
+def execute_sync_plan(library_dir, config, plan):
+    stats = {
+        "downloaded": 0,
+        "uploaded": 0,
+        "filesDownloaded": len(plan.get("download", [])),
+        "filesUploaded": len(plan.get("upload", [])),
+        "highlightsMerged": 0,
+        "discussionsMerged": 0,
+        "_downloadedPaperIds": [],
+    }
+    for relative_path in plan.get("download", []):
+        download_sync_file(library_dir, config, relative_path)
+        if relative_path.endswith("/paper.pdf"):
+            stats["downloaded"] += 1
+        paper_id = paper_id_from_remote_path(relative_path)
+        if paper_id and paper_id not in stats["_downloadedPaperIds"]:
+            stats["_downloadedPaperIds"].append(paper_id)
+    for relative_path in plan.get("upload", []):
+        upload_sync_file(library_dir, config, relative_path)
+        if relative_path.endswith("/paper.pdf"):
+            stats["uploaded"] += 1
+    return stats
+
+
+def download_sync_file(library_dir, config, relative_path):
+    data = remote_read(config, relative_path)
+    local_path = local_sync_path(library_dir, relative_path)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_bytes(data)
+
+
+def upload_sync_file(library_dir, config, relative_path):
+    local_path = local_sync_path(library_dir, relative_path)
+    if local_path.exists():
+        remote_write(config, relative_path, local_path.read_bytes())
+
+
+def local_sync_path(library_dir, relative_path):
+    library_dir = Path(library_dir)
+    if relative_path == MANIFEST_NAME:
+        return library_dir / "library_db.json"
+    return library_dir / relative_path
+
+
+def paper_id_from_remote_path(relative_path):
+    parts = str(relative_path).replace("\\", "/").split("/")
+    if len(parts) >= 3 and parts[0] == REMOTE_PAPERS_DIR:
+        return parts[1]
+    return ""
 
 
 def download_paper_files(config, paper_id, local_paper_dir):
@@ -543,4 +756,18 @@ def read_sync_state(config):
         data = json.loads(Path(state_file).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return {key: data[key] for key in ("action", "syncedAt", "downloaded", "uploaded", "highlightsMerged", "mergedPapers") if key in data}
+    return {
+        key: data[key]
+        for key in (
+            "action",
+            "syncedAt",
+            "downloaded",
+            "uploaded",
+            "filesDownloaded",
+            "filesUploaded",
+            "highlightsMerged",
+            "discussionsMerged",
+            "mergedPapers",
+        )
+        if key in data
+    }

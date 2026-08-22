@@ -5,6 +5,12 @@ JSON schema:
 {{
   "keywords": ["keyword or technical term"],
   "paperTitle": "paper title in original language when available",
+  "basicInfo": {{
+    "authors": ["author full name"],
+    "venue": "journal, conference, preprint server, or publisher venue; empty string if unknown",
+    "publishedDate": "publication date or year; empty string if unknown",
+    "institutions": ["author affiliation or institution"]
+  }},
   "methodPoints": [
     {{"title": "method point name", "description": "one sentence about its role"}}
   ],
@@ -17,6 +23,9 @@ JSON schema:
 Requirements:
 - Return 8 to 14 keyword strings only.
 - Return paperTitle as the paper's real title, not the PDF file name. If the title is unclear, return an empty string.
+- Extract basicInfo only from evidence in the paper text, especially the title page, header/footer, citation block, DOI metadata-like text, and author affiliation text.
+- Preserve author and institution names in their original spelling. Return up to 30 authors and up to 20 institutions.
+- For venue, prefer a journal or conference name. Use arXiv/preprint only if no formal venue is shown.
 - Return 3 to 5 methodPoints in logical order.
 - Method point order should follow the paper: representation/problem setup, architecture or algorithm, training/inference/optimization, then evaluation/deployment if relevant.
 - Each method point must be concrete enough to support a separate technical explanation.

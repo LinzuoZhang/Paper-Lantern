@@ -393,17 +393,17 @@ function showPaperMenu(paper, anchor) {
     showMovePaperMenu(paper, anchor);
   });
 
-  const downloadLink = document.createElement("a");
-  downloadLink.href = `${apiBaseUrl || ""}${paper.pdfUrl}`;
-  downloadLink.download = `${paper.title || "paper"}.pdf`;
-  downloadLink.textContent = "Download PDF";
-  downloadLink.addEventListener("click", async (event) => {
+  const exportLink = document.createElement("a");
+  exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+  exportLink.download = `${paper.title || "paper"}-export.pdf`;
+  exportLink.textContent = "Export";
+  exportLink.addEventListener("click", async (event) => {
     event.preventDefault();
     menu.remove();
     await ensureApiBase();
     const link = document.createElement("a");
-    link.href = `${apiBaseUrl || ""}${paper.pdfUrl}`;
-    link.download = `${paper.title || "paper"}.pdf`;
+    link.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+    link.download = `${paper.title || "paper"}-export.pdf`;
     link.click();
   });
 
@@ -416,7 +416,7 @@ function showPaperMenu(paper, anchor) {
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton, downloadLink, deleteButton);
+  menu.append(moveButton, exportLink, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
 }
@@ -660,7 +660,7 @@ async function loadSettings() {
 }
 
 async function saveCloudSyncConfig() {
-  setCloudSyncBusy(true, "Saving...");
+  setCloudSyncBusy(true);
   try {
     const response = await apiFetch("/api/settings", {
       method: "POST",
@@ -701,7 +701,7 @@ async function saveCloudSyncConfig() {
 }
 
 async function runCloudSync() {
-  setCloudSyncBusy(true, "Syncing...");
+  setCloudSyncBusy(true);
   try {
     const response = await apiFetch("/api/cloud-sync", {
       method: "POST",
@@ -749,10 +749,11 @@ function renderCloudSyncStatus(status) {
     : `${provider}${auto}`;
 }
 
-function setCloudSyncBusy(isBusy, label = "") {
+function setCloudSyncBusy(isBusy) {
   cloudSyncButton.disabled = isBusy;
+  cloudSyncButton.classList.toggle("syncing", isBusy);
+  cloudSyncButton.setAttribute("aria-busy", String(isBusy));
   settingsButton.disabled = isBusy;
-  if (label) cloudSyncStatus.textContent = label;
 }
 
 function renderSettings(settings) {

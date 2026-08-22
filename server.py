@@ -110,6 +110,122 @@ def download_arxiv_pdf(arxiv_id):
     return data
 
 
+def export_annotated_pdf(pdf_path, highlights):
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError("PyMuPDF is required to export annotated PDFs.") from exc
+
+    normalized = normalize_export_highlights(highlights)
+    doc = fitz.open(str(pdf_path))
+    comments_by_group = {}
+    try:
+        for highlight in normalized:
+            page_index = highlight["pageNumber"] - 1
+            if page_index < 0 or page_index >= doc.page_count:
+                continue
+            page = doc[page_index]
+            rect = normalized_highlight_rect(page, highlight)
+            if rect.is_empty or rect.width <= 0 or rect.height <= 0:
+                continue
+            color = export_highlight_color(highlight.get("color", "yellow"))
+            page.draw_rect(rect, color=None, fill=color, fill_opacity=0.34, overlay=True)
+            note = "\n\n".join(value for value in (highlight.get("comment", ""), highlight.get("translation", "")) if value)
+            if note:
+                group_id = highlight.get("groupId") or highlight["hash"]
+                comments_by_group.setdefault(group_id, {"page": page, "rect": rect, "text": note})
+
+        for index, item in enumerate(comments_by_group.values(), start=1):
+            add_export_comment(item["page"], item["rect"], item["text"], index)
+
+        data = doc.tobytes(deflate=True, garbage=4)
+    finally:
+        doc.close()
+    return data
+
+
+def normalize_export_highlights(highlights):
+    if not isinstance(highlights, list):
+        return []
+    normalized = []
+    for item in highlights:
+        if not isinstance(item, dict):
+            continue
+        try:
+            page_number = int(item.get("pageNumber"))
+            left = clamp_float(item.get("left"), 0, 1)
+            top = clamp_float(item.get("top"), 0, 1)
+            width = clamp_float(item.get("width"), 0, 1)
+            height = clamp_float(item.get("height"), 0, 1)
+        except (TypeError, ValueError):
+            continue
+        if page_number < 1 or width <= 0 or height <= 0:
+            continue
+        normalized.append(
+            {
+                "pageNumber": page_number,
+                "left": left,
+                "top": top,
+                "width": min(width, 1 - left),
+                "height": min(height, 1 - top),
+                "color": str(item.get("color", "yellow")).strip(),
+                "comment": str(item.get("comment", "")).strip(),
+                "translation": str(item.get("translation", "")).strip(),
+                "groupId": str(item.get("groupId", "")).strip(),
+                "hash": str(item.get("hash", "")).strip(),
+            }
+        )
+    return normalized
+
+
+def clamp_float(value, lower, upper):
+    number = float(value)
+    return max(lower, min(upper, number))
+
+
+def normalized_highlight_rect(page, highlight):
+    rect = page.rect
+    x0 = rect.x0 + highlight["left"] * rect.width
+    y0 = rect.y0 + highlight["top"] * rect.height
+    x1 = x0 + highlight["width"] * rect.width
+    y1 = y0 + highlight["height"] * rect.height
+    return fitz_rect(page, x0, y0, x1, y1)
+
+
+def fitz_rect(page, x0, y0, x1, y1):
+    import fitz
+
+    rect = fitz.Rect(x0, y0, x1, y1)
+    return rect & page.rect
+
+
+def export_highlight_color(name):
+    colors = {
+        "yellow": (1.0, 0.84, 0.18),
+        "green": (0.35, 0.78, 0.58),
+        "blue": (0.32, 0.62, 0.86),
+        "pink": (0.92, 0.45, 0.58),
+    }
+    return colors.get(str(name).lower(), colors["yellow"])
+
+
+def add_export_comment(page, anchor_rect, text, index):
+    import fitz
+
+    clean_text = str(text).strip()
+    if not clean_text:
+        return
+    point = fitz.Point(min(anchor_rect.x1 + 4, page.rect.x1 - 16), max(anchor_rect.y0, page.rect.y0 + 8))
+    note = page.add_text_annot(point, clean_text, icon="Comment")
+    note.set_info(title=f"Comment {index}", content=clean_text)
+    note.update()
+
+
+def clean_export_filename(value):
+    name = clean_folder_name(Path(str(value)).stem)
+    return f"{name}.pdf"
+
+
 def clean_category_path(value):
     if str(value).strip() in {"", "Uncategorized"}:
         return Path(UNCATEGORIZED_NAME)
@@ -184,6 +300,7 @@ def default_metadata(title, category):
         "methodOverview": "",
         "methodSections": [],
         "methodConclusion": "",
+        "basicInfo": {},
     }
 
 
@@ -462,6 +579,7 @@ def read_paper(paper_id, db=None):
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
+        "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "discussion": discussion,
     }
 
@@ -659,7 +777,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_settings_save()
             return
 
-        if request_path not in {"/api/summarize", "/api/translate", "/api/discuss"}:
+        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/discuss"}:
             self.send_error(404, "Not found")
             return
 
@@ -717,6 +835,21 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {"error": "Failed to discuss paper.", "detail": str(exc)})
             return
 
+        if request_path == "/api/overview":
+            paper_text = str(payload.get("paperText", "")).strip()
+            if len(paper_text) < 80:
+                self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
+                return
+            try:
+                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text)
+                self._send_json(200, {"overviewInfo": overview, "raw": raw})
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
+            except Exception as exc:
+                self._send_json(500, {"error": "Failed to extract paper overview.", "detail": str(exc)})
+            return
+
         try:
             paper_text = str(payload.get("paperText", "")).strip()
             if len(paper_text) < 80:
@@ -761,6 +894,30 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             data = pdf_path.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if request_path == "/api/library/export":
+            paper_id = parse_query_value(self.path, "id")
+            db = load_library_db()
+            record = db["papers"].get(paper_id)
+            paper_dir = paper_dir_from_record(record) if record else None
+            pdf_path = paper_dir / "paper.pdf" if paper_dir else None
+            if not pdf_path or not pdf_path.exists():
+                self.send_error(404, "PDF not found")
+                return
+            try:
+                title = record.get("title") or paper_id or "paper"
+                highlights = read_json(paper_dir / "highlights.json", [])
+                data = export_annotated_pdf(pdf_path, highlights)
+            except Exception as exc:
+                self._send_json(500, {"error": "Failed to export PDF.", "detail": str(exc)})
+                return
+            filename = clean_export_filename(f"{title}-export.pdf")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -886,6 +1043,15 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata["methodOverview"] = str(summary.get("methodOverview", "")).strip()
             metadata["methodSections"] = normalize_method_sections(summary.get("methodSections", []))
             metadata["methodConclusion"] = str(summary.get("methodConclusion", "")).strip()
+            metadata["basicInfo"] = normalize_basic_info(summary.get("basicInfo", metadata.get("basicInfo", {})))
+        if isinstance(payload.get("overviewInfo"), dict):
+            overview_info = payload["overviewInfo"]
+            metadata["title"] = overview_info.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
+            record["title"] = metadata["title"]
+            metadata["keywords"] = normalize_keywords(overview_info.get("keywords", metadata.get("keywords", [])))
+            metadata["basicInfo"] = normalize_basic_info(overview_info.get("basicInfo", metadata.get("basicInfo", {})))
+        if isinstance(payload.get("basicInfo"), dict):
+            metadata["basicInfo"] = normalize_basic_info(payload["basicInfo"])
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
             update_paper_sync_hash(paper_dir)
@@ -976,7 +1142,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
 def summarize_paper(api_key, model, chat_completions_url, paper_text):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = call_chat_completions(api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt))
+    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt)
     method_points = normalize_method_points(overview.get("methodPoints", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
@@ -1014,6 +1180,7 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
     summary = {
         "paperTitle": str(overview.get("paperTitle", "")).strip(),
         "keywords": normalize_keywords(overview.get("keywords", [])),
+        "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
         "threeLineSummary": {
             "challenges": three_line.get("challenges", ""),
             "method": method_text,
@@ -1031,6 +1198,25 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
         "point_details": point_details,
     }
     return summary, raw
+
+
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text):
+    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
+    overview, raw = call_chat_completions(api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt))
+    three_line = overview.get("threeLineSummary", {})
+    return (
+        {
+            "paperTitle": str(overview.get("paperTitle", "")).strip(),
+            "keywords": normalize_keywords(overview.get("keywords", [])),
+            "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
+            "methodPoints": normalize_method_points(overview.get("methodPoints", [])),
+            "threeLineSummary": {
+                "challenges": str(three_line.get("challenges", "")).strip(),
+                "conclusion": str(three_line.get("conclusion", "")).strip(),
+            },
+        },
+        raw,
+    )
 
 
 def translate_text(api_key, model, chat_completions_url, text):
@@ -1322,6 +1508,17 @@ def normalize_method_sections(sections):
                 }
             )
     return normalized[:5]
+
+
+def normalize_basic_info(info):
+    if not isinstance(info, dict):
+        return {"authors": [], "venue": "", "publishedDate": "", "institutions": []}
+    return {
+        "authors": normalize_list(info.get("authors", []))[:30],
+        "venue": str(info.get("venue", "")).strip()[:240],
+        "publishedDate": str(info.get("publishedDate", info.get("publicationDate", ""))).strip()[:120],
+        "institutions": normalize_list(info.get("institutions", info.get("affiliations", [])))[:20],
+    }
 
 
 def sections_to_text(sections):
