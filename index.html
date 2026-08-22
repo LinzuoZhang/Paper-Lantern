@@ -10,8 +10,8 @@
     <main id="libraryView" class="library-view" aria-label="Literature library">
       <header class="library-header">
         <div>
-          <h1>Literature Library</h1>
-          <p id="libraryRoot">Manage papers, PDFs, highlights, and method notes by folder.</p>
+          <h1>Paper latrn</h1>
+          <p id="libraryRoot" hidden></p>
         </div>
         <div class="library-header-actions">
           <form id="uploadForm" class="upload-form">
@@ -54,6 +54,13 @@
               <path d="M20 19v-4h-4" />
             </svg>
           </button>
+          <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+            </svg>
+            <small id="cloudSyncStatus" hidden>Checking...</small>
+          </button>
         </div>
       </header>
       <div class="library-layout">
@@ -74,12 +81,6 @@
         </section>
       </div>
     </main>
-    <div class="settings-dock">
-      <button id="settingsButton" class="settings-trigger" type="button">
-        <span>Settings</span>
-        <small id="cloudSyncStatus">Checking...</small>
-      </button>
-    </div>
     <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
       <form id="cloudConfigForm" class="cloud-config-card">
         <div class="cloud-config-header">
