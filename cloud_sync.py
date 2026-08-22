@@ -16,9 +16,7 @@ SYNC_INDEX_NAME = "paperlantern-sync-index.json"
 REMOTE_PAPERS_DIR = "papers"
 PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json")
 PAPER_SYNC_HASH_FILE = "sync_hash.json"
-PAPER_PDF_FILE = "paper.pdf"
-HOT_SYNCED_PAPER_FILES = ("metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
-SYNCED_PAPER_FILES = (PAPER_PDF_FILE, *HOT_SYNCED_PAPER_FILES)
+SYNCED_PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
 ROOT_SYNCED_FILES = (MANIFEST_NAME,)
 
 
@@ -86,10 +84,9 @@ def describe_target(config):
     return ""
 
 
-def sync_library(library_dir, config, include_pdf_ids=None, full=False):
+def sync_library(library_dir, config):
     ensure_configured(config)
     library_dir = Path(library_dir)
-    include_pdf_ids = normalize_id_set(include_pdf_ids)
     local_db_path = library_dir / "library_db.json"
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     remote_db = read_remote_manifest(config)
@@ -97,13 +94,12 @@ def sync_library(library_dir, config, include_pdf_ids=None, full=False):
     write_json(local_db_path, merged_db)
     ensure_local_sync_hashes(library_dir, merged_db)
 
-    local_index = build_local_sync_index(library_dir, merged_db, include_pdf_ids=include_pdf_ids, full=full)
+    local_index = build_local_sync_index(library_dir, merged_db)
     remote_index = read_remote_sync_index(config)
     if not remote_index.get("files"):
-        remote_index = build_legacy_remote_sync_index(config, remote_db, include_pdf_ids=include_pdf_ids, full=full)
-    plan_remote_index = filter_sync_index_for_scope(remote_index, include_pdf_ids=include_pdf_ids, full=full)
+        remote_index = build_legacy_remote_sync_index(config, remote_db)
 
-    plan = plan_sync_actions(local_index, plan_remote_index)
+    plan = plan_sync_actions(local_index, remote_index)
     stats = execute_sync_plan(library_dir, config, plan)
 
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
@@ -114,21 +110,20 @@ def sync_library(library_dir, config, include_pdf_ids=None, full=False):
         record = final_db.get("papers", {}).get(paper_id, {})
         paper_dir = library_dir / record.get("folder", f"papers/{paper_id}")
         upload_paper_files(config, paper_id, paper_dir)
-    final_index = build_local_sync_index(library_dir, final_db, include_pdf_ids=include_pdf_ids, full=full)
-    final_index = preserve_out_of_scope_pdf_entries(final_index, remote_index, include_pdf_ids=include_pdf_ids, full=full)
+    final_index = build_local_sync_index(library_dir, final_db)
     write_local_sync_index(library_dir, final_index)
     write_remote_sync_index(config, final_index)
 
-    result = {**public_status(config), "action": "sync", "mode": "full" if full else "fast", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
+    result = {**public_status(config), "action": "sync", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
     write_sync_state(config, result)
     return result
 
 
-def auto_sync_library(library_dir, config, include_pdf_ids=None):
+def auto_sync_library(library_dir, config):
     if not config.get("auto_push"):
         return None
     try:
-        return sync_library(library_dir, config, include_pdf_ids=include_pdf_ids)
+        return sync_library(library_dir, config)
     except Exception as exc:
         return {**public_status(config), "action": "auto-sync", "error": str(exc), "syncedAt": utc_now()}
 

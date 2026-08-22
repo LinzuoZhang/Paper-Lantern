@@ -1423,8 +1423,9 @@ select {
 }
 
 .annotation-editor {
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
-  height: 360px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: 390px;
+  height: 410px;
 }
 
 .annotation-header-actions {
@@ -1459,9 +1460,77 @@ select {
   stroke-width: 2;
 }
 
-.annotation-translation {
+.annotation-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: end;
+  padding: 8px 10px 0;
   border-top: 1px solid var(--line);
   background: #fbfcfb;
+}
+
+.annotation-tab {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.annotation-tab.active {
+  border-color: var(--line);
+  border-bottom-color: #fff;
+  background: #fff;
+  color: var(--accent-strong);
+}
+
+.annotation-mode-toggle {
+  margin-left: auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.annotation-tab-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  background: #fff;
+}
+
+.annotation-tab-panel[hidden] {
+  display: none;
+}
+
+.annotation-tab-panel .translation-text {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+}
+
+.annotation-tab-panel.preview-mode .translation-text,
+.annotation-tab-panel.edit-mode .annotation-preview {
+  display: none;
+}
+
+.annotation-preview {
+  overflow: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: #fbfcfb;
+  color: #26312b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.annotation-preview.empty {
+  color: var(--muted);
 }
 
 .annotation-colors {

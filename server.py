@@ -29,6 +29,8 @@ MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
+MAX_EXTRACTED_TEXT_CHARS = 2_000_000
+EXTRACTED_TEXT_FILE = "extracted_text.txt"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
@@ -280,6 +282,18 @@ def read_json(path, fallback):
 
 def write_json(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_text_file(path):
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def write_text_file(path, text):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(str(text), encoding="utf-8")
 
 
 def get_cloud_sync_config():
@@ -554,7 +568,7 @@ def build_category_node(db, category_id):
     return {"id": category_id, "name": name, "locked": locked, "folders": folders, "papers": papers}
 
 
-def read_paper(paper_id, db=None):
+def read_paper(paper_id, db=None, include_extracted_text=False):
     db = db or load_library_db()
     record = db["papers"].get(str(paper_id))
     if not record:
@@ -565,6 +579,7 @@ def read_paper(paper_id, db=None):
     metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
     highlights = read_json(paper_dir / "highlights.json", [])
     discussion = normalize_discussion_payload(read_json(paper_dir / "discussion.json", []))
+    extracted_text = read_text_file(paper_dir / EXTRACTED_TEXT_FILE) if include_extracted_text else ""
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
     return {
         "id": record["id"],
@@ -581,6 +596,7 @@ def read_paper(paper_id, db=None):
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "discussion": discussion,
+        "extractedText": extracted_text,
     }
 
 
@@ -777,7 +793,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_settings_save()
             return
 
-        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/discuss"}:
+        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss"}:
             self.send_error(404, "Not found")
             return
 
@@ -806,6 +822,32 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to translate text.", "detail": str(exc)})
+            return
+
+        if request_path == "/api/explain":
+            selected_text = str(payload.get("selectedText", "")).strip()
+            paper_text = str(payload.get("paperText", "")).strip()
+            if not selected_text:
+                self._send_json(400, {"error": "Please select text to explain."})
+                return
+            if len(paper_text) < 80:
+                self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
+                return
+            try:
+                explanation = explain_selected_text(
+                    api_key,
+                    model,
+                    chat_completions_url,
+                    paper_text,
+                    selected_text,
+                    payload.get("summary", {}),
+                )
+                self._send_json(200, {"explanation": explanation})
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
+            except Exception as exc:
+                self._send_json(500, {"error": "Failed to explain selected text.", "detail": str(exc)})
             return
 
         if request_path == "/api/discuss":
@@ -876,7 +918,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
         if request_path == "/api/library/paper":
             paper_id = parse_query_value(self.path, "id")
-            paper = read_paper(paper_id)
+            paper = read_paper(paper_id, include_extracted_text=True)
             if not paper:
                 self._send_json(404, {"error": "Paper not found."})
                 return
@@ -1034,6 +1076,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         paper_dir = paper_dir_from_record(record)
 
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", record["id"]), record.get("categoryId", UNCATEGORIZED_ID)))
+        sync_relevant_changed = False
         if isinstance(payload.get("summary"), dict):
             summary = payload["summary"]
             metadata["title"] = summary.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
@@ -1044,23 +1087,32 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata["methodSections"] = normalize_method_sections(summary.get("methodSections", []))
             metadata["methodConclusion"] = str(summary.get("methodConclusion", "")).strip()
             metadata["basicInfo"] = normalize_basic_info(summary.get("basicInfo", metadata.get("basicInfo", {})))
+            sync_relevant_changed = True
         if isinstance(payload.get("overviewInfo"), dict):
             overview_info = payload["overviewInfo"]
             metadata["title"] = overview_info.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
             record["title"] = metadata["title"]
             metadata["keywords"] = normalize_keywords(overview_info.get("keywords", metadata.get("keywords", [])))
             metadata["basicInfo"] = normalize_basic_info(overview_info.get("basicInfo", metadata.get("basicInfo", {})))
+            sync_relevant_changed = True
         if isinstance(payload.get("basicInfo"), dict):
             metadata["basicInfo"] = normalize_basic_info(payload["basicInfo"])
+            sync_relevant_changed = True
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
             update_paper_sync_hash(paper_dir)
+            sync_relevant_changed = True
         if isinstance(payload.get("discussion"), (list, dict)):
             write_json(paper_dir / "discussion.json", normalize_discussion_payload(payload["discussion"]))
             update_paper_sync_hash(paper_dir)
+            sync_relevant_changed = True
+        if isinstance(payload.get("extractedText"), str):
+            extracted_text = payload["extractedText"].strip()
+            if extracted_text:
+                write_text_file(paper_dir / EXTRACTED_TEXT_FILE, extracted_text[:MAX_EXTRACTED_TEXT_CHARS])
         write_json(paper_dir / "metadata.json", metadata)
         save_library_db(db)
-        sync = maybe_auto_sync_library()
+        sync = maybe_auto_sync_library() if sync_relevant_changed else None
         self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree(), "sync": sync})
 
     def _handle_library_category(self):
@@ -1235,6 +1287,56 @@ def translate_text(api_key, model, chat_completions_url, text):
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
     return raw["choices"][0]["message"]["content"].strip()
+
+
+def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None):
+    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
+    selected_excerpt = selected_text[:MAX_TRANSLATE_CHARS]
+    summary_context = json.dumps(summary or {}, ensure_ascii=False)
+    upstream_payload = {
+        "model": model,
+        "temperature": 0.18,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a research paper reading assistant. Use the full paper context to explain only the selected passage's role in the paper. "
+                    "Do not translate the selected passage. Do not include any section except exactly '## 这段话在论文中的作用'. "
+                    "Write concise but specific content suitable for a PDF comment, and do not invent claims beyond the provided paper context."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Full paper context:\n"
+                    f"{paper_excerpt}\n\n"
+                    "Existing summary JSON:\n"
+                    f"{summary_context}\n\n"
+                    "Selected passage to explain:\n"
+                    f"{selected_excerpt}\n\n"
+                    "Output only this section:\n"
+                    "## 这段话在论文中的作用\n"
+                    "Explain how this passage functions in the paper's argument, method, evidence, or conclusion. Do not translate the passage."
+                ),
+            },
+        ],
+    }
+
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
+    return extract_selected_role_section(raw["choices"][0]["message"]["content"].strip())
+
+
+def extract_selected_role_section(text):
+    content = str(text or "").strip()
+    heading_pattern = r"(?m)^#{1,3}\s+这段话在论文中的作用\s*$"
+    match = re.search(heading_pattern, content)
+    if not match:
+        content = re.sub(r"(?mis)^#{1,3}\s+段落定位与上下文\s*.*?(?=^#{1,3}\s+|\Z)", "", content).strip()
+        return content
+    rest = content[match.end():]
+    next_heading = re.search(r"(?m)^#{1,3}\s+", rest)
+    body = rest[:next_heading.start()].strip() if next_heading else rest.strip()
+    return f"## 这段话在论文中的作用\n{body}".strip()
 
 
 def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None):

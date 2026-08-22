@@ -17,6 +17,7 @@ const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
 const translateButton = document.querySelector("#translateButton");
+const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
 const pageIndicator = document.querySelector("#pageIndicator");
@@ -221,7 +222,8 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 
   try {
-    const extraction = await extractPdfText(file);
+    const cachedText = String(currentPaper.extractedText || "").trim();
+    const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
     const extractedText = extraction.text;
     lastExtractedText = extractedText;
     if (extraction.title) {
@@ -232,6 +234,10 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     if (extractedText.trim().length < 80) {
       setStatus("Not enough text was extracted. This PDF may be scanned; paste text manually and retry.", true);
       return;
+    }
+
+    if (!cachedText) {
+      saveExtractedTextCache(extractedText).catch((error) => console.error("Failed to save extracted text cache.", error));
     }
 
     if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
@@ -275,9 +281,11 @@ document.addEventListener("pointerdown", (event) => {
 highlightButton.addEventListener("mousedown", (event) => event.preventDefault());
 commentButton.addEventListener("mousedown", (event) => event.preventDefault());
 translateButton.addEventListener("mousedown", (event) => event.preventDefault());
+explainButton.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
+explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
 clearDiscussionButton?.addEventListener("click", () => {
@@ -744,6 +752,17 @@ async function saveDiscussionThreads() {
   } catch (error) {
     console.error("Failed to save discussion.", error);
   }
+}
+
+async function saveExtractedTextCache(extractedText) {
+  if (!currentPaper || !String(extractedText || "").trim()) return;
+  const response = await apiFetch("/api/library/paper", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: currentPaper.id, extractedText }),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to save extracted text cache.");
 }
 
 function setDiscussionBusy(isBusy) {
@@ -1223,7 +1242,6 @@ async function translateSelection() {
   });
   if (!draftHighlights.length) return;
 
-  hideSelectionMenu();
   hideCommentBubble();
   translateButton.disabled = true;
   translateButton.textContent = "\u7ffb\u8bd1\u4e2d";
@@ -1250,6 +1268,59 @@ async function translateSelection() {
   } finally {
     translateButton.disabled = false;
     translateButton.textContent = "\u7ffb\u8bd1";
+  }
+}
+
+async function explainSelection() {
+  const text = selectedPdfText.trim();
+  const paperText = lastExtractedText.trim();
+  if (!text || !selectedPdfRange) return;
+  if (paperText.length < 80) {
+    setStatus("请先打开并解析论文，再解释局部文本。", true);
+    return;
+  }
+
+  const groupId = createAnnotationId();
+  const draftHighlights = createHighlightsFromRange(selectedPdfRange, {
+    groupId,
+    color: "green",
+    type: "comment",
+    text,
+  });
+  if (!draftHighlights.length) return;
+
+  hideTranslationBubble();
+  hideCommentBubble();
+  explainButton.disabled = true;
+  explainButton.textContent = "\u89e3\u91ca\u4e2d";
+  try {
+    const response = await apiFetch("/api/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        selectedText: text,
+        paperText,
+        summary: paperToSummary(currentPaper),
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.detail || data.error || "\u89e3\u91ca\u5931\u8d25");
+    const comment = String(data.explanation || "").trim() || "No explanation returned.";
+    draftHighlights.forEach((highlight) => {
+      const annotation = { ...highlight, comment };
+      savedHighlights.push(annotation);
+      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
+      if (pageNode) drawHighlight(pageNode, annotation);
+    });
+    window.getSelection()?.removeAllRanges();
+    hideSelectionMenu();
+    showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    saveCurrentPaper().catch((error) => console.error("Failed to save explanation annotation.", error));
+  } catch (error) {
+    setStatus(error.message || "\u89e3\u91ca\u5931\u8d25", true);
+  } finally {
+    explainButton.disabled = false;
+    explainButton.textContent = "\u89e3\u91ca";
   }
 }
 
@@ -1417,14 +1488,35 @@ function showAnnotationEditor(highlight, clientX, clientY) {
           <button class="translation-close" type="button" aria-label="Close annotation editor">×</button>
         </div>
       </header>
-      <textarea class="translation-text annotation-comment" placeholder="Add or edit comment..." spellcheck="false"></textarea>
-      <textarea class="translation-text annotation-translation" placeholder="Translation..." spellcheck="false"></textarea>
+      <div class="annotation-tabs" role="tablist" aria-label="Annotation fields">
+        <button class="annotation-tab active" type="button" role="tab" aria-selected="true" data-annotation-tab="comment">Comment</button>
+        <button class="annotation-tab" type="button" role="tab" aria-selected="false" data-annotation-tab="translation">Translation</button>
+        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit">Preview</button>
+      </div>
+      <div class="annotation-tab-panel active" data-annotation-panel="comment">
+        <textarea class="translation-text annotation-comment" placeholder="Add or edit comment with Markdown..." spellcheck="false"></textarea>
+        <div class="annotation-preview markdown-body" aria-label="Comment preview"></div>
+      </div>
+      <div class="annotation-tab-panel" data-annotation-panel="translation" hidden>
+        <textarea class="translation-text annotation-translation" placeholder="Translation or notes with Markdown..." spellcheck="false"></textarea>
+        <div class="annotation-preview markdown-body" aria-label="Translation preview"></div>
+      </div>
       <div class="annotation-colors" aria-label="Highlight color"></div>
     `;
     pdfViewer.parentElement.appendChild(editor);
     initTranslationWindow(editor, hideAnnotationEditor);
-    editor.querySelector(".annotation-comment").addEventListener("input", scheduleAnnotationAutoSave);
-    editor.querySelector(".annotation-translation").addEventListener("input", scheduleAnnotationAutoSave);
+    editor.querySelector(".annotation-comment").addEventListener("input", () => {
+      renderAnnotationPreview(editor, "comment");
+      scheduleAnnotationAutoSave();
+    });
+    editor.querySelector(".annotation-translation").addEventListener("input", () => {
+      renderAnnotationPreview(editor, "translation");
+      scheduleAnnotationAutoSave();
+    });
+    editor.querySelectorAll(".annotation-tab").forEach((button) => {
+      button.addEventListener("click", () => setAnnotationTab(editor, button.dataset.annotationTab));
+    });
+    editor.querySelector(".annotation-mode-toggle").addEventListener("click", () => toggleAnnotationMode(editor));
     editor.querySelector(".annotation-delete").addEventListener("click", deleteActiveHighlight);
     const colorHost = editor.querySelector(".annotation-colors");
     Object.entries(highlightColors).forEach(([key, value]) => {
@@ -1449,6 +1541,10 @@ function showAnnotationEditor(highlight, clientX, clientY) {
   const color = group.find((item) => item.color)?.color || highlight.color || "yellow";
   editor.querySelector(".annotation-comment").value = comment;
   editor.querySelector(".annotation-translation").value = translation;
+  renderAnnotationPreview(editor, "comment");
+  renderAnnotationPreview(editor, "translation");
+  setAnnotationTab(editor, comment || !translation ? "comment" : "translation");
+  setAnnotationMode(editor, "edit");
   editor.querySelectorAll(".color-swatch").forEach((button) => {
     button.classList.toggle("active", button.dataset.color === color);
   });
@@ -1460,6 +1556,48 @@ function showAnnotationEditor(highlight, clientX, clientY) {
   const top = Math.max(12, Math.min(clientY - frameRect.top + 10, frameRect.height - editorHeight - 12));
   editor.style.left = `${left}px`;
   editor.style.top = `${top}px`;
+}
+
+function setAnnotationTab(editor, tabName) {
+  const target = tabName === "translation" ? "translation" : "comment";
+  editor.querySelectorAll(".annotation-tab").forEach((button) => {
+    const active = button.dataset.annotationTab === target;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  editor.querySelectorAll(".annotation-tab-panel").forEach((panel) => {
+    const active = panel.dataset.annotationPanel === target;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+}
+
+function renderAnnotationPreview(editor, field) {
+  const textarea = editor.querySelector(field === "translation" ? ".annotation-translation" : ".annotation-comment");
+  const panel = editor.querySelector(`[data-annotation-panel="${field}"]`);
+  const preview = panel?.querySelector(".annotation-preview");
+  if (!preview || !textarea) return;
+  const value = textarea.value.trim();
+  preview.innerHTML = value ? renderDiscussionMarkdown(value) : "<p>Markdown preview</p>";
+  preview.classList.toggle("empty", !value);
+}
+
+function toggleAnnotationMode(editor) {
+  const current = editor.querySelector(".annotation-mode-toggle")?.dataset.annotationMode || "edit";
+  setAnnotationMode(editor, current === "preview" ? "edit" : "preview");
+}
+
+function setAnnotationMode(editor, mode) {
+  const nextMode = mode === "preview" ? "preview" : "edit";
+  editor.querySelectorAll(".annotation-tab-panel").forEach((panel) => {
+    panel.classList.toggle("preview-mode", nextMode === "preview");
+    panel.classList.toggle("edit-mode", nextMode === "edit");
+  });
+  const toggle = editor.querySelector(".annotation-mode-toggle");
+  if (toggle) {
+    toggle.dataset.annotationMode = nextMode;
+    toggle.textContent = nextMode === "preview" ? "Edit" : "Preview";
+  }
 }
 
 function scheduleAnnotationAutoSave() {
@@ -1767,8 +1905,10 @@ async function apiFetch(path, options = {}) {
 
   const bases = buildApiBaseCandidates();
   let lastError = null;
+  const tried = [];
   for (const base of bases) {
     try {
+      tried.push(base || window.location.origin || "current origin");
       const response = await fetch(`${base}${url}`, options);
       if (response.status !== 404 || !url.startsWith("/api/")) {
         apiBaseUrl = base;
@@ -1780,7 +1920,7 @@ async function apiFetch(path, options = {}) {
     }
   }
   throw new Error(
-    `${lastError?.message || "Failed to fetch"} Please start the Python server and open http://127.0.0.1:8000/ or http://127.0.0.1:8010/.`,
+    `${lastError?.message || "Failed to fetch"} Tried: ${tried.join(", ")}. Please start the Python server and open http://127.0.0.1:8000/ or http://localhost:8000/.`,
   );
 }
 
@@ -1788,9 +1928,9 @@ function buildApiBaseCandidates() {
   const candidates = [];
   if (apiBaseUrl) candidates.push(apiBaseUrl);
   if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    candidates.push("");
+    candidates.push(window.location.origin);
   }
-  ["http://127.0.0.1:8000", "http://127.0.0.1:8010", "http://127.0.0.1:8765"].forEach((base) => {
+  ["http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:8010", "http://localhost:8010", "http://127.0.0.1:8765", "http://localhost:8765"].forEach((base) => {
     if (window.location.origin !== base) candidates.push(base);
   });
   return [...new Set(candidates)];

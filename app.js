@@ -799,8 +799,10 @@ async function apiFetch(path, options = {}) {
 
   const bases = buildApiBaseCandidates();
   let lastError = null;
+  const tried = [];
   for (const base of bases) {
     try {
+      tried.push(base || window.location.origin || "current origin");
       const response = await fetch(`${base}${url}`, options);
       if (response.status !== 404 || !url.startsWith("/api/")) {
         apiBaseUrl = base;
@@ -814,14 +816,14 @@ async function apiFetch(path, options = {}) {
   if (url === "/api/library/arxiv") {
     throw new Error("arXiv upload API is not available. Restart python server.py so the new backend route is loaded.");
   }
-  throw new Error(`${lastError?.message || "Failed to fetch"} Please start the Python server.`);
+  throw new Error(`${lastError?.message || "Failed to fetch"} Tried: ${tried.join(", ")}. Please start the Python server and open http://127.0.0.1:8000/ or http://localhost:8000/.`);
 }
 
 function buildApiBaseCandidates() {
   const candidates = [];
   if (apiBaseUrl) candidates.push(apiBaseUrl);
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") candidates.push("");
-  ["http://127.0.0.1:8000", "http://127.0.0.1:8010", "http://127.0.0.1:8765"].forEach((base) => {
+  if (window.location.protocol === "http:" || window.location.protocol === "https:") candidates.push(window.location.origin);
+  ["http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:8010", "http://localhost:8010", "http://127.0.0.1:8765", "http://localhost:8765"].forEach((base) => {
     if (window.location.origin !== base) candidates.push(base);
   });
   return [...new Set(candidates)];
