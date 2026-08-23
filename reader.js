@@ -1910,7 +1910,8 @@ async function apiFetch(path, options = {}) {
     try {
       tried.push(base || window.location.origin || "current origin");
       const response = await fetch(`${base}${url}`, options);
-      if (response.status !== 404 || !url.startsWith("/api/")) {
+      const isPaperLanternResponse = response.headers.get("X-Paper-Lantern") === "1";
+      if (response.status !== 404 || !url.startsWith("/api/") || isPaperLanternResponse) {
         apiBaseUrl = base;
         return response;
       }
