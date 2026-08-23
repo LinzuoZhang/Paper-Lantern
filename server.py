@@ -23,7 +23,8 @@ CONFIG_FILE = BASE_DIR / ".env" / "paperlantern_config.json"
 LEGACY_AI_ENV_FILE = BASE_DIR / ".env" / "ai.env"
 LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
 PROMPT_DIR = BASE_DIR / "prompts" / "ai"
-MAX_PAPER_CHARS = 30000
+MAX_PAPER_CHARS = 500_000
+AI_SUMMARY_TIMEOUT_SECONDS = 600
 MAX_TRANSLATE_CHARS = 4000
 MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
@@ -54,11 +55,23 @@ def load_env_file(path):
             os.environ[key] = value
 
 
-def get_ai_config():
+def get_ai_config(task_name="summary"):
     config = load_config(BASE_DIR)
-    api_key = get_secret(config, "ai", "apiKey").strip()
-    model = str(config.get("ai", {}).get("model", "")).strip() or "gpt-4o-mini"
-    base_url = str(config.get("ai", {}).get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    ai = config.get("ai", {})
+    task_configs = ai.get("tasks", {}) if isinstance(ai.get("tasks", {}), dict) else {}
+    task = task_configs.get(task_name, {}) if isinstance(task_configs.get(task_name, {}), dict) else {}
+    use_default = bool(task.get("useDefault", True))
+
+    default_api_key = get_secret(config, "ai", "apiKey").strip()
+    default_model = str(ai.get("model", "")).strip() or "gpt-4o-mini"
+    default_base_url = str(ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    if use_default:
+        api_key, model, base_url = default_api_key, default_model, default_base_url
+    else:
+        api_key = get_secret({"task": task}, "task", "apiKey").strip() or default_api_key
+        model = str(task.get("model", "")).strip() or default_model
+        base_url = str(task.get("baseUrl", "")).strip() or default_base_url
+
     base_url = base_url.rstrip("/")
     if base_url.endswith("/chat/completions"):
         chat_completions_url = base_url
@@ -799,7 +812,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Not found")
             return
 
-        api_key, model, chat_completions_url = get_ai_config()
+        task_name = {
+            "/api/summarize": "summary",
+            "/api/overview": "summary",
+            "/api/translate": "translate",
+            "/api/explain": "explain",
+            "/api/discuss": "discuss",
+        }[request_path]
+        api_key, model, chat_completions_url = get_ai_config(task_name)
         if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
             self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
@@ -1436,7 +1456,7 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt):
         api_key,
         chat_completions_url,
         upstream_payload,
-        timeout=120,
+        timeout=AI_SUMMARY_TIMEOUT_SECONDS,
         retry_without_response_format=True,
     )
     content = raw["choices"][0]["message"]["content"]

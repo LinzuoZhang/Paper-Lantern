@@ -185,6 +185,76 @@ body {
   text-transform: uppercase;
 }
 
+.settings-help {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-advanced-settings {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.ai-advanced-settings summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-advanced-settings:not([open]) {
+  display: block;
+}
+
+.ai-task-config {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+}
+
+.ai-task-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.ai-task-default-row {
+  display: flex !important;
+  align-items: center;
+  gap: 7px !important;
+  white-space: nowrap;
+}
+
+.ai-task-default-row input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.ai-task-default-row span {
+  font-size: 11px !important;
+}
+
+.ai-task-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-task-config.uses-default .ai-task-fields {
+  opacity: 0.52;
+}
+
 .cloud-config-card label {
   display: grid;
   gap: 6px;
@@ -1213,6 +1283,126 @@ select {
   background: var(--panel);
 }
 
+.pdf-controls {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.pdf-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-control-button {
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pdf-control-button:hover,
+.pdf-control-button.active {
+  border-color: rgba(37, 109, 133, 0.36);
+  background: var(--soft);
+  color: var(--accent-strong);
+}
+
+.pdf-control-button:disabled {
+  cursor: default;
+}
+
+.pdf-zoom-label {
+  display: inline-grid;
+  min-width: 54px;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pdf-page-jump {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pdf-page-jump input {
+  width: 54px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+}
+
+.pdf-shortcuts-overlay {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(29, 37, 32, 0.24);
+}
+
+.pdf-shortcuts-dialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.pdf-shortcuts-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pdf-shortcuts-dialog-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.pdf-shortcuts-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pdf-shortcuts-list dt {
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.pdf-shortcuts-list dd {
+  margin: 0;
+}
+
 .page-indicator {
   position: absolute;
   top: 12px;
@@ -1244,6 +1434,11 @@ select {
   background: #e7eceb;
 }
 
+.pdf-viewer.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .pdf-loading {
   display: grid;
   min-height: 240px;
@@ -1257,6 +1452,17 @@ select {
   margin: 0 auto 18px;
   background: #fff;
   box-shadow: 0 10px 26px rgba(29, 37, 32, 0.16);
+}
+
+.pdf-page.pending {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pdf-page.pending::after {
+  content: "Rendering page";
 }
 
 .pdf-page canvas,

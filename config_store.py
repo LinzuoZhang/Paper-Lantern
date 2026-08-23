@@ -7,10 +7,21 @@ from pathlib import Path
 
 
 CONFIG_FILE_NAME = "paperlantern_config.json"
+AI_TASK_NAMES = ("summary", "translate", "explain", "discuss")
 
 
 def config_path(base_dir):
     return Path(base_dir) / ".env" / CONFIG_FILE_NAME
+
+
+def default_ai_task_config():
+    return {
+        "useDefault": True,
+        "baseUrl": "",
+        "model": "",
+        "apiKey": "",
+        "apiKeyTail": "",
+    }
 
 
 def default_config():
@@ -20,6 +31,7 @@ def default_config():
             "model": os.environ.get("AI_MODEL", "gpt-4o-mini"),
             "apiKey": protect_secret(os.environ.get("AI_API_KEY", "")),
             "apiKeyTail": secret_tail(os.environ.get("AI_API_KEY", "")),
+            "tasks": {name: default_ai_task_config() for name in AI_TASK_NAMES},
         },
         "sync": {
             "provider": os.environ.get("CLOUD_SYNC_PROVIDER", ""),
@@ -42,9 +54,16 @@ def load_config(base_dir):
     except (OSError, json.JSONDecodeError):
         data = {}
     merged = default_config()
-    for section in ("ai", "sync"):
-        if isinstance(data.get(section), dict):
-            merged[section].update(data[section])
+    if isinstance(data.get("ai"), dict):
+        saved_ai = data["ai"]
+        merged["ai"].update({key: value for key, value in saved_ai.items() if key != "tasks"})
+        saved_tasks = saved_ai.get("tasks", {})
+        if isinstance(saved_tasks, dict):
+            for name in AI_TASK_NAMES:
+                if isinstance(saved_tasks.get(name), dict):
+                    merged["ai"]["tasks"][name].update(saved_tasks[name])
+    if isinstance(data.get("sync"), dict):
+        merged["sync"].update(data["sync"])
     return merged
 
 
@@ -58,6 +77,20 @@ def save_config(base_dir, payload):
             api_key = str(ai.get("apiKey", "")).strip()
             current["ai"]["apiKey"] = protect_secret(api_key)
             current["ai"]["apiKeyTail"] = secret_tail(api_key)
+        task_payloads = ai.get("tasks", {})
+        if isinstance(task_payloads, dict):
+            for name in AI_TASK_NAMES:
+                task = task_payloads.get(name)
+                if not isinstance(task, dict):
+                    continue
+                target = current["ai"]["tasks"][name]
+                target["useDefault"] = bool(task.get("useDefault", target.get("useDefault", True)))
+                target["baseUrl"] = str(task.get("baseUrl", target.get("baseUrl", ""))).strip()
+                target["model"] = str(task.get("model", target.get("model", ""))).strip()
+                if "apiKey" in task and str(task.get("apiKey", "")).strip():
+                    api_key = str(task.get("apiKey", "")).strip()
+                    target["apiKey"] = protect_secret(api_key)
+                    target["apiKeyTail"] = secret_tail(api_key)
     if isinstance(payload.get("sync"), dict):
         sync = payload["sync"]
         current["sync"]["provider"] = str(sync.get("provider", current["sync"].get("provider", ""))).strip().lower()
@@ -77,12 +110,26 @@ def save_config(base_dir, payload):
 
 
 def public_config(config):
+    ai = config.get("ai", {})
+    tasks = ai.get("tasks", {}) if isinstance(ai.get("tasks", {}), dict) else {}
+    public_tasks = {}
+    for name in AI_TASK_NAMES:
+        task = tasks.get(name, {}) if isinstance(tasks.get(name, {}), dict) else {}
+        task_key = unprotect_secret(task.get("apiKey", ""))
+        public_tasks[name] = {
+            "useDefault": bool(task.get("useDefault", True)),
+            "baseUrl": task.get("baseUrl", ""),
+            "model": task.get("model", ""),
+            "hasApiKey": bool(task_key),
+            "apiKeyTail": task.get("apiKeyTail", "") or secret_tail(task_key),
+        }
     return {
         "ai": {
-            "baseUrl": config.get("ai", {}).get("baseUrl", ""),
-            "model": config.get("ai", {}).get("model", ""),
-            "hasApiKey": bool(unprotect_secret(config.get("ai", {}).get("apiKey", ""))),
-            "apiKeyTail": config.get("ai", {}).get("apiKeyTail", "") or secret_tail(unprotect_secret(config.get("ai", {}).get("apiKey", ""))),
+            "baseUrl": ai.get("baseUrl", ""),
+            "model": ai.get("model", ""),
+            "hasApiKey": bool(unprotect_secret(ai.get("apiKey", ""))),
+            "apiKeyTail": ai.get("apiKeyTail", "") or secret_tail(unprotect_secret(ai.get("apiKey", ""))),
+            "tasks": public_tasks,
         },
         "sync": {
             "provider": config.get("sync", {}).get("provider", ""),
@@ -110,6 +157,15 @@ def ensure_secret_tails(config):
     sync_secret = unprotect_secret(config.get("sync", {}).get("password", ""))
     if ai_secret and not config["ai"].get("apiKeyTail"):
         config["ai"]["apiKeyTail"] = secret_tail(ai_secret)
+    tasks = config.get("ai", {}).get("tasks", {})
+    if isinstance(tasks, dict):
+        for name in AI_TASK_NAMES:
+            task = tasks.get(name)
+            if not isinstance(task, dict):
+                continue
+            task_secret = unprotect_secret(task.get("apiKey", ""))
+            if task_secret and not task.get("apiKeyTail"):
+                task["apiKeyTail"] = secret_tail(task_secret)
     if sync_secret and not config["sync"].get("passwordTail"):
         config["sync"]["passwordTail"] = secret_tail(sync_secret)
 

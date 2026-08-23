@@ -19,6 +19,7 @@ const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton")
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiTaskConfigSections = Array.from(document.querySelectorAll("[data-ai-task]"));
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
 const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
 const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
@@ -81,6 +82,9 @@ cloudConfigOverlay.addEventListener("pointerdown", (event) => {
 cloudConfigForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveCloudSyncConfig();
+});
+aiTaskConfigSections.forEach((section) => {
+  section.querySelector("[data-ai-task-default]").addEventListener("change", () => updateAiTaskSection(section));
 });
 
 uploadForm.addEventListener("dragenter", handleUploadDrag);
@@ -670,6 +674,7 @@ async function saveCloudSyncConfig() {
           baseUrl: aiBaseUrlInput.value.trim(),
           model: aiModelInput.value.trim(),
           apiKey: aiApiKeyInput.value,
+          tasks: collectAiTaskSettings(),
         },
         sync: {
           provider: cloudProviderSelect.value,
@@ -689,6 +694,9 @@ async function saveCloudSyncConfig() {
     renderSettings(data.settings);
     renderCloudSyncStatus(data.sync);
     aiApiKeyInput.value = "";
+    aiTaskConfigSections.forEach((section) => {
+      section.querySelector("[data-ai-task-api-key]").value = "";
+    });
     cloudPasswordInput.value = "";
     closeCloudConfig();
     setLibraryStatus("Settings saved.");
@@ -762,12 +770,47 @@ function renderSettings(settings) {
   aiBaseUrlInput.value = ai.baseUrl || "";
   aiModelInput.value = ai.model || "";
   aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  renderAiTaskSettings(ai.tasks || {});
   cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
   cloudLocalDirInput.value = sync.localDir || "";
   cloudWebdavUrlInput.value = sync.webdavUrl || "";
   cloudUsernameInput.value = sync.username || "";
   cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
   cloudAutoPushInput.checked = Boolean(sync.autoSync);
+}
+
+function collectAiTaskSettings() {
+  return Object.fromEntries(
+    aiTaskConfigSections.map((section) => [
+      section.dataset.aiTask,
+      {
+        useDefault: section.querySelector("[data-ai-task-default]").checked,
+        baseUrl: section.querySelector("[data-ai-task-base-url]").value.trim(),
+        model: section.querySelector("[data-ai-task-model]").value.trim(),
+        apiKey: section.querySelector("[data-ai-task-api-key]").value,
+      },
+    ]),
+  );
+}
+
+function renderAiTaskSettings(tasks) {
+  aiTaskConfigSections.forEach((section) => {
+    const task = tasks?.[section.dataset.aiTask] || {};
+    section.querySelector("[data-ai-task-default]").checked = task.useDefault !== false;
+    section.querySelector("[data-ai-task-base-url]").value = task.baseUrl || "";
+    section.querySelector("[data-ai-task-model]").value = task.model || "";
+    const apiKeyInput = section.querySelector("[data-ai-task-api-key]");
+    apiKeyInput.placeholder = task.hasApiKey ? maskSecretTail(task.apiKeyTail) : "Leave blank to use unified key";
+    updateAiTaskSection(section);
+  });
+}
+
+function updateAiTaskSection(section) {
+  const useDefault = section.querySelector("[data-ai-task-default]").checked;
+  section.classList.toggle("uses-default", useDefault);
+  section.querySelectorAll("[data-ai-task-base-url], [data-ai-task-model], [data-ai-task-api-key]").forEach((input) => {
+    input.disabled = useDefault;
+  });
 }
 
 function maskSecretTail(tail) {

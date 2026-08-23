@@ -87,7 +87,7 @@
           <h2>Settings</h2>
           <button id="cloudConfigCloseButton" class="drawer-close-button" type="button" aria-label="Close"></button>
         </div>
-        <div class="settings-section-title">AI API</div>
+        <div class="settings-section-title">Unified AI Settings</div>
         <label>
           <span>API Base URL</span>
           <input id="aiBaseUrlInput" type="url" placeholder="https://api.openai.com/v1" />
@@ -100,6 +100,54 @@
           <span>API Key</span>
           <input id="aiApiKeyInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" />
         </label>
+        <details class="ai-advanced-settings">
+          <summary>Advanced: feature-specific AI settings</summary>
+          <p class="settings-help">Use the unified settings by default. Disable it for a feature to select a different compatible API, model, or key.</p>
+          <section class="ai-task-config" data-ai-task="summary">
+          <div class="ai-task-config-header">
+            <strong>Paper Summary &amp; Basic Info</strong>
+            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
+          </div>
+          <div class="ai-task-fields">
+            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+          </div>
+          </section>
+          <section class="ai-task-config" data-ai-task="translate">
+          <div class="ai-task-config-header">
+            <strong>Selected Text Translation</strong>
+            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
+          </div>
+          <div class="ai-task-fields">
+            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+          </div>
+          </section>
+          <section class="ai-task-config" data-ai-task="explain">
+          <div class="ai-task-config-header">
+            <strong>Selected Text Explanation</strong>
+            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
+          </div>
+          <div class="ai-task-fields">
+            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+          </div>
+          </section>
+          <section class="ai-task-config" data-ai-task="discuss">
+          <div class="ai-task-config-header">
+            <strong>Paper Discussion</strong>
+            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
+          </div>
+          <div class="ai-task-fields">
+            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+          </div>
+          </section>
+        </details>
         <div class="settings-section-title">Cloud Sync</div>
         <label>
           <span>Sync Provider</span>

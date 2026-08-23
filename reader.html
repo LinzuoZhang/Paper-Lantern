@@ -29,6 +29,23 @@
         <header class="toolbar">
           <h1 id="fileName" class="paper-title">Loading paper...</h1>
         </header>
+        <div class="pdf-controls" role="toolbar" aria-label="PDF controls">
+          <div class="pdf-control-group">
+            <button id="pdfZoomOutButton" class="pdf-control-button" type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">−</button>
+            <output id="pdfZoomLabel" class="pdf-zoom-label" aria-live="polite">100%</output>
+            <button id="pdfZoomInButton" class="pdf-control-button" type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)">+</button>
+          </div>
+          <div class="pdf-control-group">
+            <button id="pdfFitWidthButton" class="pdf-control-button" type="button" title="Fit width">Fit width</button>
+            <button id="pdfFitPageButton" class="pdf-control-button" type="button" title="Fit page">Fit page</button>
+          </div>
+          <div class="pdf-control-group pdf-page-jump">
+            <label for="pdfPageInput">Page</label>
+            <input id="pdfPageInput" type="number" min="1" value="1" inputmode="numeric" aria-label="Go to page" />
+            <span id="pdfPageTotal">/ 0</span>
+          </div>
+          <button id="pdfShortcutsButton" class="pdf-control-button" type="button">查看快捷键</button>
+        </div>
         <div class="paper-frame">
           <div id="pageIndicator" class="page-indicator" hidden>0 / 0</div>
           <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
@@ -44,6 +61,21 @@
           </div>
         </div>
       </section>
+
+      <div id="pdfShortcutsOverlay" class="pdf-shortcuts-overlay" hidden>
+        <section class="pdf-shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="pdfShortcutsTitle">
+          <div class="pdf-shortcuts-dialog-header">
+            <h2 id="pdfShortcutsTitle">快捷键</h2>
+            <button id="pdfShortcutsCloseButton" class="icon-button drawer-close-button" type="button" aria-label="Close shortcuts"></button>
+          </div>
+          <dl class="pdf-shortcuts-list">
+            <dt>Ctrl/Cmd + / −</dt><dd>缩放 PDF</dd>
+            <dt>Ctrl/Cmd 0</dt><dd>适应宽度</dd>
+            <dt>中键拖拽</dt><dd>平移 PDF</dd>
+            <dt>输入页码后回车</dt><dd>跳转到指定页面</dd>
+          </dl>
+        </section>
+      </div>
 
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 

@@ -21,6 +21,16 @@ const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
 const pageIndicator = document.querySelector("#pageIndicator");
+const pdfZoomOutButton = document.querySelector("#pdfZoomOutButton");
+const pdfZoomInButton = document.querySelector("#pdfZoomInButton");
+const pdfZoomLabel = document.querySelector("#pdfZoomLabel");
+const pdfFitWidthButton = document.querySelector("#pdfFitWidthButton");
+const pdfFitPageButton = document.querySelector("#pdfFitPageButton");
+const pdfPageInput = document.querySelector("#pdfPageInput");
+const pdfPageTotal = document.querySelector("#pdfPageTotal");
+const pdfShortcutsButton = document.querySelector("#pdfShortcutsButton");
+const pdfShortcutsOverlay = document.querySelector("#pdfShortcutsOverlay");
+const pdfShortcutsCloseButton = document.querySelector("#pdfShortcutsCloseButton");
 const summarizeButton = document.querySelector("#summarizeButton");
 const statusText = document.querySelector("#status");
 const challenges = document.querySelector("#challenges");
@@ -51,8 +61,11 @@ let lastExtractedText = "";
 let currentPdfTask = null;
 let currentPdfDocument = null;
 let pdfZoom = 1;
+let pdfFitMode = "width";
 let zoomRenderTimer = null;
 let paneRenderTimer = null;
+let pdfPageObserver = null;
+let pdfPanState = null;
 let savedHighlights = [];
 let selectedPdfText = "";
 let selectedPdfRange = null;
@@ -81,6 +94,7 @@ const highlightColors = {
 
 initPaneResizer();
 initSummaryPaneToggle();
+initPdfControls();
 initReaderTabs();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
@@ -256,6 +270,11 @@ document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
 pdfViewer.addEventListener("scroll", updatePageIndicator);
 pdfViewer.addEventListener("click", handlePdfClick);
+pdfViewer.addEventListener("pointerdown", startPdfPan);
+pdfViewer.addEventListener("pointermove", movePdfPan);
+pdfViewer.addEventListener("pointerup", finishPdfPan);
+pdfViewer.addEventListener("pointercancel", finishPdfPan);
+document.addEventListener("keydown", handlePdfKeyboardShortcut);
 document.addEventListener("pointerdown", (event) => {
   const translationBubble = document.querySelector("#translationBubble");
   const commentBubble = document.querySelector("#commentBubble");
@@ -797,6 +816,142 @@ function showPdf(file, displayTitle = "") {
   fileName.title = title;
 }
 
+function initPdfControls() {
+  pdfZoomOutButton?.addEventListener("click", () => changePdfZoom(-0.15));
+  pdfZoomInButton?.addEventListener("click", () => changePdfZoom(0.15));
+  pdfFitWidthButton?.addEventListener("click", () => setPdfFitMode("width"));
+  pdfFitPageButton?.addEventListener("click", () => setPdfFitMode("page"));
+  pdfPageInput?.addEventListener("change", () => goToPdfPage(Number(pdfPageInput.value)));
+  pdfPageInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    goToPdfPage(Number(pdfPageInput.value));
+    pdfPageInput.blur();
+  });
+  pdfShortcutsButton?.addEventListener("click", openPdfShortcuts);
+  pdfShortcutsCloseButton?.addEventListener("click", closePdfShortcuts);
+  pdfShortcutsOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === pdfShortcutsOverlay) closePdfShortcuts();
+  });
+  updatePdfControls();
+}
+
+function openPdfShortcuts() {
+  if (!pdfShortcutsOverlay) return;
+  pdfShortcutsOverlay.hidden = false;
+  pdfShortcutsCloseButton?.focus();
+}
+
+function closePdfShortcuts() {
+  if (!pdfShortcutsOverlay) return;
+  pdfShortcutsOverlay.hidden = true;
+  pdfShortcutsButton?.focus();
+}
+
+function updatePdfControls() {
+  const isReady = Boolean(currentPdfDocument);
+  [pdfZoomOutButton, pdfZoomInButton, pdfFitWidthButton, pdfFitPageButton, pdfPageInput].forEach((control) => {
+    if (control) control.disabled = !isReady;
+  });
+  if (pdfZoomLabel) pdfZoomLabel.textContent = `${Math.round(pdfZoom * 100)}%`;
+  if (pdfFitWidthButton) pdfFitWidthButton.classList.toggle("active", pdfFitMode === "width");
+  if (pdfFitPageButton) pdfFitPageButton.classList.toggle("active", pdfFitMode === "page");
+  if (pdfPageInput) {
+    pdfPageInput.min = "1";
+    pdfPageInput.max = String(currentPdfDocument?.numPages || 1);
+  }
+  if (pdfPageTotal) pdfPageTotal.textContent = `/ ${currentPdfDocument?.numPages || 0}`;
+}
+
+function changePdfZoom(amount, anchor = null) {
+  if (!currentPdfDocument) return;
+  const nextZoom = clamp(pdfZoom + amount, 0.5, 3.5);
+  if (nextZoom === pdfZoom) return;
+  pdfFitMode = "manual";
+  setPdfZoom(nextZoom, anchor);
+}
+
+function setPdfFitMode(mode) {
+  if (!currentPdfDocument) return;
+  pdfFitMode = mode === "page" ? "page" : "width";
+  setPdfZoom(1);
+}
+
+function setPdfZoom(nextZoom, anchor = null) {
+  const previousZoom = pdfZoom;
+  const scrollRatio = getViewerScrollRatio();
+  pdfZoom = nextZoom;
+  updatePdfControls();
+  schedulePdfRerender(scrollRatio, anchor, previousZoom);
+}
+
+function getPdfZoomAnchor(event) {
+  const rect = pdfViewer.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(event.clientX - rect.left, rect.width)),
+    y: Math.max(0, Math.min(event.clientY - rect.top, rect.height)),
+    contentX: pdfViewer.scrollLeft + Math.max(0, Math.min(event.clientX - rect.left, rect.width)),
+    contentY: pdfViewer.scrollTop + Math.max(0, Math.min(event.clientY - rect.top, rect.height)),
+  };
+}
+
+function goToPdfPage(pageNumber) {
+  if (!currentPdfDocument) return;
+  const page = clamp(Math.round(Number(pageNumber) || 1), 1, currentPdfDocument.numPages);
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${page}"]`);
+  if (pageNode) {
+    pdfViewer.scrollTo({ top: Math.max(pageNode.offsetTop - 12, 0), behavior: "smooth" });
+    renderPdfPage(page, currentPdfTask).catch((error) => console.error("Failed to render requested page.", error));
+  }
+  if (pdfPageInput) pdfPageInput.value = String(page);
+}
+
+function handlePdfKeyboardShortcut(event) {
+  if (event.key === "Escape" && !pdfShortcutsOverlay?.hidden) {
+    closePdfShortcuts();
+    return;
+  }
+  const target = event.target;
+  const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
+  if (isTyping) return;
+
+  if (event.type === "keydown" && (event.ctrlKey || event.metaKey) && ["+", "=", "-", "0"].includes(event.key)) {
+    event.preventDefault();
+    if (event.key === "0") setPdfFitMode("width");
+    else changePdfZoom(event.key === "-" ? -0.15 : 0.15);
+    return;
+  }
+
+}
+
+function startPdfPan(event) {
+  if (event.button !== 1 || !currentPdfDocument) return;
+  event.preventDefault();
+  hideSelectionMenu();
+  pdfPanState = {
+    pointerId: event.pointerId,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scrollLeft: pdfViewer.scrollLeft,
+    scrollTop: pdfViewer.scrollTop,
+  };
+  pdfViewer.setPointerCapture(event.pointerId);
+  pdfViewer.classList.add("is-panning");
+}
+
+function movePdfPan(event) {
+  if (!pdfPanState || event.pointerId !== pdfPanState.pointerId) return;
+  pdfViewer.scrollLeft = pdfPanState.scrollLeft - (event.clientX - pdfPanState.clientX);
+  pdfViewer.scrollTop = pdfPanState.scrollTop - (event.clientY - pdfPanState.clientY);
+}
+
+function finishPdfPan(event) {
+  if (!pdfPanState || event.pointerId !== pdfPanState.pointerId) return;
+  if (pdfViewer.hasPointerCapture(event.pointerId)) pdfViewer.releasePointerCapture(event.pointerId);
+  pdfPanState = null;
+  pdfViewer.classList.remove("is-panning");
+}
+
 function initPaneResizer() {
   const savedWidth = Number(localStorage.getItem("readerPaneWidth"));
   if (Number.isFinite(savedWidth)) {
@@ -892,6 +1047,8 @@ async function renderPdf(file) {
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
+  pdfFitMode = "width";
+  updatePdfControls();
   const loadingNode = document.createElement("div");
   loadingNode.className = "pdf-loading";
   loadingNode.textContent = "Loading PDF...";
@@ -904,6 +1061,7 @@ async function renderPdf(file) {
   if (currentPdfTask !== renderId) return;
   currentPdfDocument = pdf;
   setPageIndicator(1, pdf.numPages);
+  updatePdfControls();
 
   await renderPdfPages(renderId);
 }
@@ -911,27 +1069,60 @@ async function renderPdf(file) {
 async function renderPdfPages(renderId = Symbol("pdfRender")) {
   if (!currentPdfDocument) return;
   currentPdfTask = renderId;
+  pdfPageObserver?.disconnect();
   pdfViewer.innerHTML = "";
+  const firstPage = await currentPdfDocument.getPage(1);
+  if (currentPdfTask !== renderId) return;
+  const viewport = getPdfPageViewport(firstPage);
   for (let pageNumber = 1; pageNumber <= currentPdfDocument.numPages; pageNumber += 1) {
-    const page = await currentPdfDocument.getPage(pageNumber);
-    if (currentPdfTask !== renderId) return;
-    await renderPdfPage(page, pageNumber, renderId);
-    if (currentPdfTask !== renderId) return;
+    const pageNode = document.createElement("article");
+    pageNode.className = "pdf-page pending";
+    pageNode.dataset.pageNumber = String(pageNumber);
+    pageNode.style.width = `${viewport.width}px`;
+    pageNode.style.height = `${viewport.height}px`;
+    pdfViewer.appendChild(pageNode);
   }
-  restoreHighlights();
+  observePdfPages(renderId);
+  await renderPdfPage(1, renderId);
   updatePageIndicator();
 }
 
-async function renderPdfPage(page, pageNumber, renderId) {
+function observePdfPages(renderId) {
+  pdfPageObserver?.disconnect();
+  pdfPageObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || currentPdfTask !== renderId) return;
+        const pageNumber = Number(entry.target.dataset.pageNumber);
+        renderPdfPage(pageNumber, renderId).catch((error) => console.error("Failed to render PDF page.", error));
+      });
+    },
+    { root: pdfViewer, rootMargin: "900px 0px" },
+  );
+  pdfViewer.querySelectorAll(".pdf-page").forEach((pageNode) => pdfPageObserver.observe(pageNode));
+}
+
+function getPdfPageViewport(page) {
   const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
   const baseViewport = page.getViewport({ scale: 1 });
-  const scale = Math.min(containerWidth / baseViewport.width, 1.6) * pdfZoom;
-  const viewport = page.getViewport({ scale });
+  const containerHeight = Math.max(pdfViewer.clientHeight - 36, 320);
+  const widthScale = Math.min(containerWidth / baseViewport.width, 1.6);
+  const fitScale = pdfFitMode === "page" ? Math.min(widthScale, containerHeight / baseViewport.height) : widthScale;
+  return page.getViewport({ scale: fitScale * pdfZoom });
+}
+
+async function renderPdfPage(pageNumber, renderId) {
+  if (!currentPdfDocument || currentPdfTask !== renderId) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+  if (!pageNode || pageNode.dataset.rendered === "true" || pageNode.dataset.rendering === "true") return;
+  pageNode.dataset.rendering = "true";
+  const page = await currentPdfDocument.getPage(pageNumber);
+  if (currentPdfTask !== renderId) return;
+  const viewport = getPdfPageViewport(page);
   const outputScale = window.devicePixelRatio || 1;
 
-  const pageNode = document.createElement("article");
-  pageNode.className = "pdf-page";
-  pageNode.dataset.pageNumber = String(pageNumber);
+  pageNode.innerHTML = "";
+  pageNode.classList.remove("pending");
   pageNode.style.width = `${viewport.width}px`;
   pageNode.style.height = `${viewport.height}px`;
 
@@ -951,7 +1142,7 @@ async function renderPdfPage(page, pageNumber, renderId) {
 
   const textLayer = document.createElement("div");
   textLayer.className = "pdf-text-layer";
-  textLayer.style.setProperty("--scale-factor", `${scale}`);
+  textLayer.style.setProperty("--scale-factor", `${viewport.scale}`);
 
   pageNode.append(canvas, highlightLayer, textLayer);
 
@@ -963,10 +1154,9 @@ async function renderPdfPage(page, pageNumber, renderId) {
     viewport,
   }).render();
   if (currentPdfTask !== renderId) return;
-
-  const existingPage = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
-  if (existingPage) existingPage.remove();
-  pdfViewer.appendChild(pageNode);
+  pageNode.dataset.rendered = "true";
+  delete pageNode.dataset.rendering;
+  restoreHighlightsForPage(pageNode);
 }
 
 function handlePdfWheel(event) {
@@ -977,22 +1167,23 @@ function handlePdfWheel(event) {
   hideTranslationBubble();
   window.getSelection()?.removeAllRanges();
 
-  const previousZoom = pdfZoom;
   const direction = event.deltaY < 0 ? 1 : -1;
-  const nextZoom = clamp(pdfZoom + direction * 0.12, 0.6, 2.8);
-  if (nextZoom === previousZoom) return;
-
-  const scrollRatio = getViewerScrollRatio();
-  pdfZoom = nextZoom;
-  schedulePdfRerender(scrollRatio);
+  changePdfZoom(direction * 0.12, getPdfZoomAnchor(event));
 }
 
-function schedulePdfRerender(scrollRatio) {
+function schedulePdfRerender(scrollRatio, anchor = null, previousZoom = pdfZoom) {
   window.clearTimeout(zoomRenderTimer);
   zoomRenderTimer = window.setTimeout(async () => {
     const renderId = Symbol("pdfZoomRender");
     await renderPdfPages(renderId);
-    setViewerScrollRatio(scrollRatio);
+    if (anchor && previousZoom > 0) {
+      const factor = pdfZoom / previousZoom;
+      pdfViewer.scrollLeft = Math.max(0, anchor.contentX * factor - anchor.x);
+      pdfViewer.scrollTop = Math.max(0, anchor.contentY * factor - anchor.y);
+      updatePageIndicator();
+    } else {
+      setViewerScrollRatio(scrollRatio);
+    }
   }, 80);
 }
 
@@ -1707,10 +1898,15 @@ function redrawHighlights() {
 
 function restoreHighlights() {
   savedHighlights = normalizeHighlights(savedHighlights);
-  savedHighlights.forEach((highlight) => {
-    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
-    if (pageNode) drawHighlight(pageNode, highlight);
-  });
+  pdfViewer.querySelectorAll(".pdf-page[data-rendered='true']").forEach(restoreHighlightsForPage);
+}
+
+function restoreHighlightsForPage(pageNode) {
+  if (!pageNode?.dataset?.pageNumber) return;
+  const pageNumber = Number(pageNode.dataset.pageNumber);
+  savedHighlights
+    .filter((highlight) => highlight.pageNumber === pageNumber)
+    .forEach((highlight) => drawHighlight(pageNode, highlight));
 }
 
 function normalizeHighlights(highlights) {
