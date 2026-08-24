@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
     <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script defer src="./vendor/katex/katex.min.js"></script>
+    <script defer src="./vendor/markdown-it-texmath/texmath.min.js"></script>
   </head>
   <body>
     <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
@@ -163,7 +166,12 @@
 
           <form id="discussionForm" class="discussion-form">
             <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
-            <button id="sendDiscussionButton" type="submit">Send</button>
+            <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="Send" title="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M22 2 11 13"></path>
+                <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
+              </svg>
+            </button>
           </form>
         </div>
 

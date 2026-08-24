@@ -70,6 +70,7 @@ let readerSelectedCategoryId = "";
 let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
+let discussionMarkdownRenderer = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
 let referenceEntries = new Map();
@@ -166,16 +167,21 @@ function renderReaderLibrary() {
   });
 }
 
-function flattenReaderCategories(node, depth = 0) {
+function flattenReaderCategories(node, depth = 0, includeCurrent = false) {
   if (!node) return [];
-  const current = {
-    id: node.id || "",
-    name: node.name || "Library",
-    depth,
-    paperCount: collectReaderPapers(node).length,
-    papers: node.papers || [],
-  };
-  return [current, ...(node.folders || []).flatMap((folder) => flattenReaderCategories(folder, depth + 1))];
+  const current = includeCurrent
+    ? [
+        {
+          id: node.id || "",
+          name: node.name || "Library",
+          depth,
+          paperCount: collectReaderPapers(node).length,
+          papers: node.papers || [],
+        },
+      ]
+    : [];
+  const childDepth = includeCurrent ? depth + 1 : depth;
+  return [...current, ...(node.folders || []).flatMap((folder) => flattenReaderCategories(folder, childDepth, true))];
 }
 
 function collectReaderPapers(node) {
@@ -724,6 +730,50 @@ async function regenerateDiscussionAnswer(messageNode) {
 }
 
 function renderDiscussionMarkdown(content) {
+  const renderer = getDiscussionMarkdownRenderer();
+  if (!renderer) return renderDiscussionMarkdownFallback(content);
+  return renderer.render(String(content || "")) || "<p>No response</p>";
+}
+
+function getDiscussionMarkdownRenderer() {
+  if (discussionMarkdownRenderer) return discussionMarkdownRenderer;
+  if (!window.markdownit) return null;
+
+  discussionMarkdownRenderer = window.markdownit({
+    html: false,
+    linkify: true,
+    breaks: false,
+    typographer: false,
+  });
+
+  if (window.texmath && window.katex) {
+    discussionMarkdownRenderer.use(window.texmath, {
+      engine: window.katex,
+      delimiters: ["dollars", "brackets", "beg_end"],
+      katexOptions: {
+        throwOnError: false,
+        strict: "ignore",
+      },
+    });
+  }
+
+  const defaultTableOpen =
+    discussionMarkdownRenderer.renderer.rules.table_open ||
+    ((tokens, index, options, env, self) => self.renderToken(tokens, index, options));
+  const defaultTableClose =
+    discussionMarkdownRenderer.renderer.rules.table_close ||
+    ((tokens, index, options, env, self) => self.renderToken(tokens, index, options));
+  discussionMarkdownRenderer.renderer.rules.table_open = (tokens, index, options, env, self) => {
+    return `<div class="markdown-table-wrap">${defaultTableOpen(tokens, index, options, env, self)}`;
+  };
+  discussionMarkdownRenderer.renderer.rules.table_close = (tokens, index, options, env, self) => {
+    return `${defaultTableClose(tokens, index, options, env, self)}</div>`;
+  };
+
+  return discussionMarkdownRenderer;
+}
+
+function renderDiscussionMarkdownFallback(content) {
   const text = escapeHtml(String(content || ""));
   const lines = text.split(/\r?\n/);
   const blocks = [];
@@ -747,7 +797,8 @@ function renderDiscussionMarkdown(content) {
     codeLines = [];
   };
 
-  lines.forEach((line) => {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     if (/^\s*```/.test(line)) {
       if (inCodeBlock) {
         flushCode();
@@ -757,12 +808,26 @@ function renderDiscussionMarkdown(content) {
         flushList();
         inCodeBlock = true;
       }
-      return;
+      continue;
     }
 
     if (inCodeBlock) {
       codeLines.push(line);
-      return;
+      continue;
+    }
+
+    if (isMarkdownTableHeader(line, lines[index + 1])) {
+      flushParagraph();
+      flushList();
+      const tableLines = [line, lines[index + 1]];
+      index += 2;
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        tableLines.push(lines[index]);
+        index += 1;
+      }
+      index -= 1;
+      blocks.push(renderMarkdownTable(tableLines));
+      continue;
     }
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
@@ -771,30 +836,98 @@ function renderDiscussionMarkdown(content) {
       flushList();
       const level = heading[1].length + 3;
       blocks.push(`<h${level}>${formatDiscussionInline(heading[2])}</h${level}>`);
-      return;
+      continue;
     }
 
     const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
     if (bullet) {
       flushParagraph();
       list.push(bullet[1]);
-      return;
+      continue;
     }
 
     if (!line.trim()) {
       flushParagraph();
       flushList();
-      return;
+      continue;
     }
 
     flushList();
     paragraph.push(line.trim());
-  });
+  }
 
   if (inCodeBlock) flushCode();
   flushParagraph();
   flushList();
   return blocks.join("") || "<p>No response</p>";
+}
+
+function isMarkdownTableHeader(line, separatorLine) {
+  return isMarkdownTableRow(line) && isMarkdownTableSeparator(separatorLine);
+}
+
+function isMarkdownTableRow(line) {
+  const text = String(line || "").trim();
+  return text.includes("|") && splitMarkdownTableRow(text).length >= 2;
+}
+
+function isMarkdownTableSeparator(line) {
+  const cells = splitMarkdownTableRow(line);
+  if (cells.length < 2) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line) {
+  let text = String(line || "").trim();
+  if (text.startsWith("|")) text = text.slice(1);
+  if (text.endsWith("|")) text = text.slice(0, -1);
+  const cells = [];
+  let current = "";
+  let escaped = false;
+
+  for (const char of text) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      current += char;
+      continue;
+    }
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function renderMarkdownTable(tableLines) {
+  const headers = splitMarkdownTableRow(tableLines[0]);
+  const alignments = splitMarkdownTableRow(tableLines[1]).map((cell) => {
+    const value = cell.trim();
+    if (value.startsWith(":") && value.endsWith(":")) return "center";
+    if (value.endsWith(":")) return "right";
+    return "left";
+  });
+  const rows = tableLines.slice(2).map(splitMarkdownTableRow);
+  const columnCount = Math.max(headers.length, alignments.length, ...rows.map((row) => row.length));
+  const renderCell = (cell, tag, columnIndex) => {
+    const align = alignments[columnIndex] || "left";
+    const value = formatDiscussionInline(cell || "");
+    return `<${tag} style="text-align:${align}">${value}</${tag}>`;
+  };
+
+  const head = Array.from({ length: columnCount }, (_, index) => renderCell(headers[index], "th", index)).join("");
+  const body = rows
+    .map((row) => `<tr>${Array.from({ length: columnCount }, (_, index) => renderCell(row[index], "td", index)).join("")}</tr>`)
+    .join("");
+  return `<div class="markdown-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 function formatDiscussionInline(text) {
@@ -1172,17 +1305,20 @@ async function renderPdfPages(renderId = Symbol("pdfRender")) {
   if (!currentPdfDocument) return;
   currentPdfTask = renderId;
   pdfViewer.innerHTML = "";
+  const pagesHost = document.createElement("div");
+  pagesHost.className = "pdf-pages";
+  pdfViewer.appendChild(pagesHost);
   for (let pageNumber = 1; pageNumber <= currentPdfDocument.numPages; pageNumber += 1) {
     const page = await currentPdfDocument.getPage(pageNumber);
     if (currentPdfTask !== renderId) return;
-    await renderPdfPage(page, pageNumber, renderId);
+    await renderPdfPage(page, pageNumber, renderId, pagesHost);
     if (currentPdfTask !== renderId) return;
   }
   restoreHighlights();
   updatePageIndicator();
 }
 
-async function renderPdfPage(page, pageNumber, renderId) {
+async function renderPdfPage(page, pageNumber, renderId, pagesHost = pdfViewer) {
   const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
   const baseViewport = page.getViewport({ scale: 1 });
   const scale = Math.min(containerWidth / baseViewport.width, 1.6) * pdfZoom;
@@ -1224,9 +1360,9 @@ async function renderPdfPage(page, pageNumber, renderId) {
   }).render();
   if (currentPdfTask !== renderId) return;
 
-  const existingPage = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+  const existingPage = pagesHost.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
   if (existingPage) existingPage.remove();
-  pdfViewer.appendChild(pageNode);
+  pagesHost.appendChild(pageNode);
   decorateReferenceCitations(pageNode, textLayer);
 }
 
