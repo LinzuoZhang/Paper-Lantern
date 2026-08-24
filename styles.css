@@ -1318,6 +1318,110 @@ select {
   background: rgba(37, 109, 133, 0.28);
 }
 
+.pdf-reference-cue {
+  position: absolute;
+  z-index: 4;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(37, 109, 133, 0.08);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.pdf-reference-cue:hover {
+  background: rgba(37, 109, 133, 0.2);
+}
+
+.reference-popover {
+  position: absolute;
+  z-index: 24;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(360px, calc(100% - 24px));
+  max-height: min(320px, calc(100% - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 16px 34px rgba(29, 37, 32, 0.18);
+  color: var(--ink);
+}
+
+.reference-popover-header,
+.reference-popover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #f8faf9;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reference-popover-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  background: #fbfcfb;
+}
+
+.reference-close {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.reference-close:hover {
+  background: var(--soft);
+  color: var(--accent-strong);
+}
+
+.reference-popover-body {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.reference-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.reference-entry strong {
+  color: var(--accent-strong);
+}
+
+.reference-entry p {
+  margin: 0;
+}
+
+.reference-copy {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .selection-menu {
   position: absolute;
   z-index: 20;
@@ -2345,9 +2449,17 @@ select {
 .library-header h1,
 .paper-title {
   color: var(--ink);
-  font-size: 28px;
   font-weight: 850;
   letter-spacing: 0;
+}
+
+.library-header h1 {
+  font-size: 28px;
+}
+
+.paper-title {
+  font-size: 18px;
+  line-height: 1.25;
 }
 
 .upload-form {
@@ -2733,9 +2845,12 @@ button.ghost:hover,
     align-items: stretch;
   }
 
-  .library-header h1,
-  .paper-title {
+  .library-header h1 {
     font-size: 24px;
+  }
+
+  .paper-title {
+    font-size: 17px;
   }
 
   .upload-form {

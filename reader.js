@@ -71,6 +71,7 @@ let activeDiscussionId = null;
 let discussionIsBusy = false;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
+let referenceEntries = new Map();
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -213,8 +214,9 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   const pdfResponse = await apiFetch(currentPaper.pdfUrl);
   const blob = await pdfResponse.blob();
   const file = new File([blob], `${currentPaper.title}.pdf`, { type: "application/pdf" });
-  showPdf(file, currentPaper.title);
   lastExtractedText = "";
+  referenceEntries = new Map();
+  showPdf(file, currentPaper.title);
   setBusy(true);
   clearStatus();
   if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
@@ -226,6 +228,8 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
     const extractedText = extraction.text;
     lastExtractedText = extractedText;
+    referenceEntries = extractReferenceEntries(extractedText);
+    refreshReferenceCitations();
     if (extraction.title) {
       fileName.textContent = extraction.title;
       fileName.title = extraction.title;
@@ -254,22 +258,28 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
 
 document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
-pdfViewer.addEventListener("scroll", updatePageIndicator);
+pdfViewer.addEventListener("scroll", () => {
+  updatePageIndicator();
+  hideReferencePopover();
+});
 pdfViewer.addEventListener("click", handlePdfClick);
 document.addEventListener("pointerdown", (event) => {
   const translationBubble = document.querySelector("#translationBubble");
   const commentBubble = document.querySelector("#commentBubble");
   const annotationEditor = document.querySelector("#annotationEditor");
+  const referencePopover = document.querySelector("#referencePopover");
   const clickedFloatingUi =
     selectionMenu.contains(event.target) ||
     translationBubble?.contains(event.target) ||
     commentBubble?.contains(event.target) ||
-    annotationEditor?.contains(event.target);
+    annotationEditor?.contains(event.target) ||
+    referencePopover?.contains(event.target);
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
     document.querySelector(".library-menu")?.remove();
   }
   if (!clickedFloatingUi) {
     hideTranslationBubble();
+    hideReferencePopover();
     hideAnnotationEditor();
   }
 
@@ -811,6 +821,7 @@ function initPaneResizer() {
     document.body.classList.add("resizing-panes");
     hideSelectionMenu();
     hideTranslationBubble();
+    hideReferencePopover();
   });
 
   paneResizer.addEventListener("pointermove", (event) => {
@@ -889,6 +900,7 @@ function refreshPdfAfterPaneResize() {
 async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
+  hideReferencePopover();
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
@@ -967,6 +979,7 @@ async function renderPdfPage(page, pageNumber, renderId) {
   const existingPage = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
   if (existingPage) existingPage.remove();
   pdfViewer.appendChild(pageNode);
+  decorateReferenceCitations(pageNode, textLayer);
 }
 
 function handlePdfWheel(event) {
@@ -975,6 +988,7 @@ function handlePdfWheel(event) {
   event.preventDefault();
   hideSelectionMenu();
   hideTranslationBubble();
+  hideReferencePopover();
   window.getSelection()?.removeAllRanges();
 
   const previousZoom = pdfZoom;
@@ -1019,6 +1033,53 @@ async function extractPdfText(file) {
     text,
     title: metadataTitle || guessPaperTitle(pageTexts[0] || ""),
   };
+}
+
+function extractReferenceEntries(text) {
+  const source = String(text || "").replace(/\s+/g, " ").trim();
+  if (!source) return new Map();
+
+  const sectionMatch = Array.from(source.matchAll(/\b(references|bibliography|参考文献)\b/gi)).pop();
+  if (!sectionMatch) return new Map();
+
+  const section = source.slice(sectionMatch.index + sectionMatch[0].length).trim();
+  const markers = Array.from(section.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g));
+  if (!markers.length) return new Map();
+
+  const entries = new Map();
+  markers.forEach((marker, index) => {
+    const number = marker[1];
+    const contentStart = marker.index + marker[0].length;
+    const contentEnd = index + 1 < markers.length ? markers[index + 1].index : section.length;
+    const citation = cleanReferenceText(section.slice(contentStart, contentEnd));
+    if (citation.length >= 12) entries.set(number, citation);
+  });
+  return entries;
+}
+
+function cleanReferenceText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+}
+
+function getCitationNumbers(value) {
+  const body = String(value || "").replace(/^\[/, "").replace(/\]$/, "");
+  const numbers = [];
+  body.split(/[，,]/).forEach((part) => {
+    const range = part.match(/(\d{1,3})\s*-\s*(\d{1,3})/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      const step = start <= end ? 1 : -1;
+      for (let number = start; number !== end + step; number += step) numbers.push(String(number));
+      return;
+    }
+    const single = part.match(/\d{1,3}/);
+    if (single) numbers.push(single[0]);
+  });
+  return Array.from(new Set(numbers));
 }
 
 async function summarizeText(text) {
@@ -1122,6 +1183,7 @@ function handlePdfSelectionChange() {
   selectedPdfRange = range.cloneRange();
   lastSelectionRect = rects[rects.length - 1];
   hideTranslationBubble();
+  hideReferencePopover();
   showSelectionMenu(lastSelectionRect);
 }
 
@@ -1427,10 +1489,79 @@ async function saveCommentDraft() {
   await saveCurrentPaper();
 }
 
+function decorateReferenceCitations(pageNode, textLayer) {
+  if (!referenceEntries.size) return;
+
+  const pageRect = pageNode.getBoundingClientRect();
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  textNodes.forEach((node) => {
+    const text = node.nodeValue || "";
+    const matches = Array.from(text.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
+    matches.forEach((match) => {
+      const numbers = getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
+      if (!numbers.length) return;
+
+      const range = document.createRange();
+      range.setStart(node, match.index);
+      range.setEnd(node, match.index + match[0].length);
+      const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+      range.detach();
+
+      rects.forEach((rect) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pdf-reference-cue";
+        button.dataset.references = numbers.join(",");
+        button.setAttribute("aria-label", `Show reference ${numbers.join(", ")}`);
+        button.title = `Reference ${numbers.join(", ")}`;
+        button.style.left = `${rect.left - pageRect.left}px`;
+        button.style.top = `${rect.top - pageRect.top}px`;
+        button.style.width = `${Math.max(rect.width, 10)}px`;
+        button.style.height = `${Math.max(rect.height, 10)}px`;
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showReferencePopover(numbers, event.clientX, event.clientY);
+        });
+        pageNode.appendChild(button);
+      });
+    });
+  });
+}
+
+function refreshReferenceCitations() {
+  pdfViewer.querySelectorAll(".pdf-reference-cue").forEach((cue) => cue.remove());
+  if (!referenceEntries.size) return;
+  pdfViewer.querySelectorAll(".pdf-page").forEach((pageNode) => {
+    const textLayer = pageNode.querySelector(".pdf-text-layer");
+    if (textLayer) decorateReferenceCitations(pageNode, textLayer);
+  });
+}
+
 function handlePdfClick(event) {
   const selection = window.getSelection();
   if (selection && selection.toString().trim()) return;
-  if (selectionMenu.contains(event.target)) return;
+  if (selectionMenu.contains(event.target) || event.target.closest(".reference-popover")) return;
+
+  const cue = event.target.closest(".pdf-reference-cue");
+  if (cue) {
+    const numbers = (cue.dataset.references || "").split(",").filter(Boolean);
+    if (numbers.length) {
+      event.preventDefault();
+      showReferencePopover(numbers, event.clientX, event.clientY);
+      return;
+    }
+  }
+
+  const clickedReference = getCitationAtPoint(event.clientX, event.clientY);
+  if (clickedReference.length) {
+    event.preventDefault();
+    showReferencePopover(clickedReference, event.clientX, event.clientY);
+    return;
+  }
 
   const hit = findHighlightAtPoint(event.clientX, event.clientY);
   if (!hit) return;
@@ -1439,7 +1570,132 @@ function handlePdfClick(event) {
   hideSelectionMenu();
   hideTranslationBubble();
   hideCommentBubble();
+  hideReferencePopover();
   showAnnotationEditor(hit.highlight, event.clientX, event.clientY);
+}
+
+function getCitationAtPoint(clientX, clientY) {
+  const range = getTextRangeAtPoint(clientX, clientY);
+  if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE) return [];
+
+  const text = range.startContainer.nodeValue || "";
+  const offset = range.startOffset;
+  const windowStart = Math.max(0, offset - 16);
+  const windowText = text.slice(windowStart, Math.min(text.length, offset + 16));
+  const matches = Array.from(windowText.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
+  const match = matches.find((item) => {
+    const start = windowStart + item.index;
+    const end = start + item[0].length;
+    return offset >= start && offset <= end;
+  });
+  if (!match) return [];
+
+  return getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
+}
+
+function getTextRangeAtPoint(clientX, clientY) {
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(clientX, clientY);
+  if (!document.caretPositionFromPoint) return null;
+  const position = document.caretPositionFromPoint(clientX, clientY);
+  if (!position) return null;
+  const range = document.createRange();
+  range.setStart(position.offsetNode, position.offset);
+  range.collapse(true);
+  return range;
+}
+
+function showReferencePopover(numbers, clientX, clientY) {
+  const entries = numbers
+    .map((number) => ({ number, text: referenceEntries.get(number) }))
+    .filter((entry) => entry.text);
+  if (!entries.length) return;
+
+  hideSelectionMenu();
+  hideTranslationBubble();
+  hideCommentBubble();
+  hideAnnotationEditor();
+
+  let popover = document.querySelector("#referencePopover");
+  if (!popover) {
+    popover = document.createElement("section");
+    popover.id = "referencePopover";
+    popover.className = "reference-popover";
+    popover.innerHTML = `
+      <header class="reference-popover-header">
+        <span>参考文献</span>
+        <button class="reference-close" type="button" aria-label="Close reference preview">×</button>
+      </header>
+      <div class="reference-popover-body"></div>
+      <div class="reference-popover-actions">
+        <button class="reference-copy" type="button">复制引用</button>
+      </div>
+    `;
+    popover.querySelector(".reference-close").addEventListener("click", hideReferencePopover);
+    popover.querySelector(".reference-copy").addEventListener("click", () => copyReferenceEntries(entries, popover));
+    pdfViewer.parentElement.appendChild(popover);
+  }
+
+  const body = popover.querySelector(".reference-popover-body");
+  body.innerHTML = "";
+  entries.forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = "reference-entry";
+    const number = document.createElement("strong");
+    number.textContent = `[${entry.number}]`;
+    const text = document.createElement("p");
+    text.textContent = entry.text;
+    item.append(number, text);
+    body.appendChild(item);
+  });
+  popover.dataset.copyText = entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
+  popover.querySelector(".reference-copy").textContent = "复制引用";
+  positionReferencePopover(popover, clientX, clientY);
+}
+
+function positionReferencePopover(popover, clientX, clientY) {
+  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const width = popover.offsetWidth || 340;
+  const height = popover.offsetHeight || 180;
+  const placeRight = clientX - frameRect.left + 12 + width <= frameRect.width - 12;
+  const left = placeRight ? clientX - frameRect.left + 12 : clientX - frameRect.left - width - 12;
+  const top = Math.min(Math.max(clientY - frameRect.top - 18, 12), frameRect.height - height - 12);
+  popover.style.left = `${Math.max(12, Math.min(left, frameRect.width - width - 12))}px`;
+  popover.style.top = `${Math.max(12, top)}px`;
+}
+
+async function copyReferenceEntries(entries, popover) {
+  const text = popover.dataset.copyText || entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
+  const button = popover.querySelector(".reference-copy");
+  try {
+    await copyTextToClipboard(text);
+    button.textContent = "已复制";
+    window.setTimeout(() => {
+      if (document.body.contains(button)) button.textContent = "复制引用";
+    }, 1200);
+  } catch (error) {
+    console.error("Failed to copy reference.", error);
+    button.textContent = "复制失败";
+  }
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function hideReferencePopover() {
+  document.querySelector("#referencePopover")?.remove();
 }
 
 function findHighlightAtPoint(clientX, clientY) {
