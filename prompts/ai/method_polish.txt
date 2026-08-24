@@ -32,7 +32,9 @@ Hard requirements:
 - methodConclusion should synthesize what the method achieves, its key tradeoff, and any stated limitation or dependency.
 - Each section should have one clear title, one plain motivation sentence, one summary sentence, 2 to 4 compact bullets, and formulas/notations only when useful.
 - Motivation should be modest and factual. Do not style it rhetorically; explain the specific limitation, bottleneck, or design need.
-- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, write the Chinese explanation and include the original English term; if an abbreviation/acronym exists, include it as well.
+- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, the mention must be a complete phrase in the form "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation/acronym exists, or "Chinese explanation (Original English Full Term)" when it does not. Do not use only the Chinese translation; Use the exact original English term from the paper when available.
+- Never introduce an abbreviation/acronym by itself on first mention. The first occurrence must include the Chinese explanation, the full original English term, and the abbreviation/acronym together.
+- Parenthesized English terms and abbreviations must remain plain text in the JSON value; do not add Markdown, HTML, code formatting, special font instructions, emphasis, or visual styling.
 - Make formulas readable: keep notation such as "L = ...", "d_i = ...", "p_{{current}}", "G=(V,E)", "O(n)", "\frac{{a}}{{b}}" if present, and explain what the variables mean.
 - Keep formulas in simple LaTeX-like plain text so the frontend can render subscripts and superscripts.
 - Write partial derivatives as \frac{{\partial c_i}}{{\partial p}} rather than "\partial c_i \partial p".

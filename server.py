@@ -1,5 +1,6 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import cgi
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import mimetypes
@@ -29,6 +30,7 @@ MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
+MAX_METHOD_POINT_WORKERS = 5
 MAX_EXTRACTED_TEXT_CHARS = 2_000_000
 EXTRACTED_TEXT_FILE = "extracted_text.txt"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
@@ -1222,25 +1224,9 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
-    point_details = []
-    point_raws = []
-    for index, point in enumerate(method_points, start=1):
-        detail, detail_raw = call_chat_completions(
-            api_key,
-            model,
-            chat_completions_url,
-            build_method_point_prompt(paper_excerpt, point, index, len(method_points)),
-        )
-        point_details.append(
-            {
-                "title": detail.get("title") or point["title"],
-                "motivation": detail.get("motivation", ""),
-                "summary": detail.get("summary", ""),
-                "details": normalize_list(detail.get("details", [])),
-                "formulas": normalize_list(detail.get("formulas", [])),
-            }
-        )
-        point_raws.append(detail_raw)
+    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points)
+    point_details = [item["detail"] for item in point_results]
+    point_raws = [item["raw"] for item in point_results]
 
     polished, polished_raw = call_chat_completions(
         api_key,
@@ -1273,6 +1259,42 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
         "point_details": point_details,
     }
     return summary, raw
+
+
+def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points):
+    total = len(method_points)
+    max_workers = min(MAX_METHOD_POINT_WORKERS, total)
+    if max_workers <= 1:
+        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total) for index, point in enumerate(method_points, start=1)]
+
+    results = [None] * total
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {
+            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total): index - 1
+            for index, point in enumerate(method_points, start=1)
+        }
+        for future in as_completed(future_to_index):
+            results[future_to_index[future]] = future.result()
+    return results
+
+
+def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total):
+    detail, detail_raw = call_chat_completions(
+        api_key,
+        model,
+        chat_completions_url,
+        build_method_point_prompt(paper_excerpt, point, index, total),
+    )
+    return {
+        "detail": {
+            "title": detail.get("title") or point["title"],
+            "motivation": detail.get("motivation", ""),
+            "summary": detail.get("summary", ""),
+            "details": normalize_list(detail.get("details", [])),
+            "formulas": normalize_list(detail.get("formulas", [])),
+        },
+        "raw": detail_raw,
+    }
 
 
 def extract_paper_overview(api_key, model, chat_completions_url, paper_text):

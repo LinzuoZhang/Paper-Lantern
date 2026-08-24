@@ -2577,8 +2577,13 @@ select {
 }
 
 .term-inline {
-  background: var(--term);
-  color: var(--term-ink);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  font: inherit;
 }
 
 .formula-inline {
@@ -2741,8 +2746,7 @@ select {
 }
 
 .keyword-chip,
-.paper-card-keywords span,
-.term-inline {
+.paper-card-keywords span {
   background: var(--soft);
   color: var(--accent-strong);
   border: 1px solid rgba(44, 117, 140, 0.12);
