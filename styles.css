@@ -1973,7 +1973,7 @@ select {
 }
 
 .copy-section-button,
-.inline-copy-button {
+.message-action-button {
   border-color: transparent;
   background: transparent;
   color: var(--accent-strong);
@@ -1981,12 +1981,12 @@ select {
 }
 
 .copy-section-button:hover,
-.inline-copy-button:hover {
+.message-action-button:hover {
   background: var(--soft);
 }
 
 .copy-section-button svg,
-.inline-copy-button svg {
+.message-action-button svg {
   width: 17px;
   height: 17px;
   fill: none;
@@ -1997,7 +1997,7 @@ select {
 }
 
 .copy-section-button.copied,
-.inline-copy-button.copied {
+.message-action-button.copied {
   background: var(--soft);
   color: var(--accent);
 }
@@ -2203,22 +2203,51 @@ select {
 }
 
 .discussion-thread-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   gap: 10px;
   align-items: center;
   width: 100%;
-  padding: 9px 4px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
-  color: var(--ink);
-  text-align: left;
 }
 
-.discussion-thread-item:hover {
+.discussion-thread-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  flex: 1;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
+}
+
+.discussion-thread-item:hover,
+.discussion-thread-open:hover {
   background: var(--soft);
+}
+
+.discussion-thread-delete {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  margin-right: 4px;
+  color: #a93d3d;
+  opacity: 0;
+}
+
+.discussion-thread-item:hover .discussion-thread-delete,
+.discussion-thread-delete:focus-visible {
+  opacity: 1;
 }
 
 .discussion-thread-item-title {
@@ -2253,6 +2282,27 @@ select {
   min-height: 28px;
   padding: 0;
   margin-right: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--accent-strong);
+  box-shadow: 0 2px 8px rgba(29, 37, 32, 0.08);
+}
+
+.discussion-back-button:hover,
+.discussion-back-button:focus-visible {
+  background: #fff;
+  color: var(--accent);
+  border-color: rgba(45, 125, 96, 0.32);
+}
+
+.discussion-back-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
 }
 
 .discussion-thread-title {
@@ -2291,10 +2341,7 @@ select {
 }
 
 .discussion-message-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: block;
 }
 
 .discussion-message.user {
@@ -2312,7 +2359,14 @@ select {
   text-transform: uppercase;
 }
 
-.inline-copy-button {
+.discussion-message-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.message-action-button {
   width: 24px;
   min-width: 24px;
   height: 24px;
@@ -2323,8 +2377,9 @@ select {
   opacity: 0;
 }
 
-.discussion-message:hover .inline-copy-button,
-.inline-copy-button:focus-visible {
+.discussion-message:hover .message-action-button,
+.message-action-button:focus-visible,
+.message-action-button.copied {
   opacity: 1;
 }
 
@@ -2362,6 +2417,42 @@ select {
 
 .discussion-message-body.markdown-body {
   white-space: normal;
+}
+
+.discussion-edit-form {
+  display: grid;
+  gap: 8px;
+}
+
+.discussion-edit-input {
+  width: min(360px, 100%);
+  min-height: 92px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(37, 109, 133, 0.32);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent-strong);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.discussion-edit-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.discussion-edit-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.discussion-edit-cancel {
+  background: transparent;
+  color: var(--accent-strong);
 }
 
 .markdown-body p,

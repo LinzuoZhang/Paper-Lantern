@@ -37,7 +37,6 @@ const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
-const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
 const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
@@ -300,9 +299,6 @@ translateButton.addEventListener("click", translateSelection);
 explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
-clearDiscussionButton?.addEventListener("click", () => {
-  clearActiveDiscussion();
-});
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
 copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
 copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
@@ -448,11 +444,11 @@ async function handleDiscussionSubmit(event) {
     if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
 
     pending.classList.remove("pending");
-    setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), data.answer || "No response", "assistant");
     thread.messages.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
     thread.updatedAt = new Date().toISOString();
     if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
     thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionMessages(thread.messages);
     renderDiscussionThreadList();
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
@@ -526,10 +522,13 @@ function renderDiscussionThreadList() {
     return;
   }
   discussionThreads.forEach((thread) => {
+    const item = document.createElement("div");
+    item.className = "discussion-thread-item";
+    item.dataset.threadId = thread.id;
+
     const button = document.createElement("button");
-    button.className = "discussion-thread-item";
+    button.className = "discussion-thread-open";
     button.type = "button";
-    button.dataset.threadId = thread.id;
     const title = document.createElement("span");
     title.className = "discussion-thread-item-title";
     title.textContent = thread.title || "New discussion";
@@ -539,32 +538,52 @@ function renderDiscussionThreadList() {
     meta.textContent = `${turnCount || 0} turns`;
     button.append(title, meta);
     button.addEventListener("click", () => showDiscussionThread(thread.id));
-    discussionThreadList.appendChild(button);
+
+    const deleteButton = createMessageActionButton("delete", "Delete discussion");
+    deleteButton.classList.add("discussion-thread-delete");
+    deleteButton.addEventListener("click", () => deleteDiscussionThread(thread.id));
+
+    item.append(button, deleteButton);
+    discussionThreadList.appendChild(item);
   });
 }
 
-function appendDiscussionMessage(role, content) {
+function appendDiscussionMessage(role, content, index = -1) {
   discussionMessages.querySelector(".discussion-empty")?.remove();
 
   const message = document.createElement("div");
   message.className = `discussion-message ${role === "user" ? "user" : "assistant"}`;
+  if (index >= 0) message.dataset.messageIndex = String(index);
 
   const label = document.createElement("div");
   label.className = "discussion-message-label";
   label.textContent = role === "user" ? "You" : "AI";
 
-  const copyButton = createInlineCopyButton(`Copy ${role === "user" ? "question" : "answer"}`);
-  copyButton.addEventListener("click", () => copyTextWithFeedback(String(content || ""), copyButton));
-
   const header = document.createElement("div");
   header.className = "discussion-message-header";
-  header.append(label, copyButton);
+  header.append(label);
 
   const body = document.createElement("div");
   body.className = "discussion-message-body";
   setDiscussionMessageContent(body, content, role);
 
-  message.append(header, body);
+  const actions = document.createElement("div");
+  actions.className = "discussion-message-actions";
+  const copyButton = createMessageActionButton("copy", `Copy ${role === "user" ? "question" : "answer"}`);
+  copyButton.addEventListener("click", () => copyTextWithFeedback(getDiscussionMessageContent(message, content), copyButton));
+  actions.appendChild(copyButton);
+
+  if (role === "user") {
+    const editButton = createMessageActionButton("edit", "Edit question");
+    editButton.addEventListener("click", () => editDiscussionMessage(message));
+    actions.appendChild(editButton);
+  } else {
+    const regenerateButton = createMessageActionButton("refresh", "Regenerate answer");
+    regenerateButton.addEventListener("click", () => regenerateDiscussionAnswer(message));
+    actions.appendChild(regenerateButton);
+  }
+
+  message.append(header, body, actions);
   discussionMessages.appendChild(message);
   message.scrollIntoView({ block: "nearest" });
   return message;
@@ -578,6 +597,129 @@ function setDiscussionMessageContent(body, content, role) {
   } else {
     body.classList.remove("markdown-body");
     body.textContent = content;
+  }
+}
+
+function getDiscussionMessageContent(messageNode, fallback = "") {
+  const index = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (thread && Number.isInteger(index) && thread.messages[index]) return thread.messages[index].content;
+  const body = messageNode?.querySelector(".discussion-message-body");
+  if (body?.innerText || body?.textContent) return body.innerText || body.textContent;
+  return String(fallback || "");
+}
+
+async function deleteDiscussionThread(threadId) {
+  if (discussionIsBusy) return;
+  const index = discussionThreads.findIndex((thread) => thread.id === threadId);
+  if (index < 0) return;
+  if (!window.confirm("Delete this discussion?")) return;
+  discussionThreads.splice(index, 1);
+  if (activeDiscussionId === threadId) activeDiscussionId = null;
+  renderDiscussionThreadList();
+  showDiscussionList();
+  await saveDiscussionThreads();
+}
+
+function editDiscussionMessage(messageNode) {
+  if (discussionIsBusy) return;
+  const index = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread || !Number.isInteger(index) || thread.messages[index]?.role !== "user") return;
+  if (messageNode.querySelector(".discussion-edit-form")) return;
+
+  const body = messageNode.querySelector(".discussion-message-body");
+  const actions = messageNode.querySelector(".discussion-message-actions");
+  const original = thread.messages[index].content || "";
+  body.hidden = true;
+  if (actions) actions.hidden = true;
+
+  const form = document.createElement("form");
+  form.className = "discussion-edit-form";
+  form.innerHTML = `
+    <textarea class="discussion-edit-input" rows="3" aria-label="Edit question"></textarea>
+    <div class="discussion-edit-actions">
+      <button class="discussion-edit-cancel" type="button">Cancel</button>
+      <button class="discussion-edit-save" type="submit">Save</button>
+    </div>
+  `;
+  const input = form.querySelector(".discussion-edit-input");
+  input.value = original;
+  form.querySelector(".discussion-edit-cancel").addEventListener("click", () => {
+    form.remove();
+    body.hidden = false;
+    if (actions) actions.hidden = false;
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const next = input.value.trim();
+    if (!next) return;
+    thread.messages[index].content = next;
+    thread.updatedAt = new Date().toISOString();
+    const firstQuestion = thread.messages.find((message) => message.role === "user")?.content || next;
+    thread.title = makeDiscussionTitle(firstQuestion);
+    thread.hash = await makeDiscussionThreadHash(thread);
+    await saveDiscussionThreads();
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    renderDiscussionMessages(thread.messages);
+  });
+  body.after(form);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+async function regenerateDiscussionAnswer(messageNode) {
+  if (discussionIsBusy) return;
+  const assistantIndex = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread || !Number.isInteger(assistantIndex) || thread.messages[assistantIndex]?.role !== "assistant") return;
+
+  let userIndex = assistantIndex - 1;
+  while (userIndex >= 0 && thread.messages[userIndex]?.role !== "user") userIndex -= 1;
+  if (userIndex < 0) return;
+
+  const paperText = lastExtractedText.trim();
+  if (paperText.length < 80) {
+    setDiscussionMessageContent(messageNode.querySelector(".discussion-message-body"), "请先打开并解析一篇论文，再重新生成回答。", "assistant");
+    return;
+  }
+
+  const question = thread.messages[userIndex].content || "";
+  const body = messageNode.querySelector(".discussion-message-body");
+  setDiscussionBusy(true);
+  messageNode.classList.add("pending");
+  setDiscussionMessageContent(body, "Thinking...", "assistant");
+
+  try {
+    const response = await apiFetch("/api/discuss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperText,
+        question,
+        summary: paperToSummary(currentPaper),
+        history: thread.messages.slice(0, userIndex),
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
+
+    thread.messages[assistantIndex].content = data.answer || "";
+    thread.updatedAt = new Date().toISOString();
+    thread.hash = await makeDiscussionThreadHash(thread);
+    messageNode.classList.remove("pending", "error");
+    setDiscussionMessageContent(body, data.answer || "No response", "assistant");
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
+  } catch (error) {
+    console.error(error);
+    messageNode.classList.remove("pending");
+    messageNode.classList.add("error");
+    setDiscussionMessageContent(body, error.message || "重新生成失败，请稍后重试。", "assistant");
+  } finally {
+    setDiscussionBusy(false);
   }
 }
 
@@ -679,18 +821,6 @@ function clearDiscussionMessages() {
   discussionMessages.appendChild(empty);
 }
 
-async function clearActiveDiscussion() {
-  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
-  if (!thread) return false;
-  thread.messages = [];
-  thread.updatedAt = new Date().toISOString();
-  thread.hash = await makeDiscussionThreadHash(thread);
-  renderDiscussionMessages(thread.messages);
-  renderDiscussionThreadList();
-  await saveDiscussionThreads();
-  return true;
-}
-
 function renderDiscussionHistory(discussion) {
   discussionThreads = normalizeDiscussionThreads(discussion);
   activeDiscussionId = null;
@@ -700,7 +830,7 @@ function renderDiscussionHistory(discussion) {
 
 function renderDiscussionMessages(history) {
   clearDiscussionMessages();
-  normalizeDiscussionHistory(history).forEach((message) => appendDiscussionMessage(message.role, message.content));
+  normalizeDiscussionHistory(history).forEach((message, index) => appendDiscussionMessage(message.role, message.content, index));
 }
 
 function normalizeDiscussionHistory(history) {
@@ -792,19 +922,50 @@ function setDiscussionBusy(isBusy) {
   discussionInput.disabled = isBusy;
 }
 
-function createInlineCopyButton(label) {
+function createMessageActionButton(icon, label) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "icon-button inline-copy-button";
+  button.className = "icon-button message-action-button";
   button.setAttribute("aria-label", label);
   button.title = label;
-  button.innerHTML = `
+  button.innerHTML = getActionIconSvg(icon);
+  return button;
+}
+
+function getActionIconSvg(icon) {
+  if (icon === "refresh") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M20 6v5h-5"></path>
+        <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+      </svg>
+    `;
+  }
+  if (icon === "edit") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+      </svg>
+    `;
+  }
+  if (icon === "delete") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4h8v2"></path>
+        <path d="M6 6l1 15h10l1-15"></path>
+        <path d="M10 11v6"></path>
+        <path d="M14 11v6"></path>
+      </svg>
+    `;
+  }
+  return `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <rect x="9" y="9" width="11" height="11" rx="2"></rect>
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
     </svg>
   `;
-  return button;
 }
 
 async function copyReaderSection(section, button) {
