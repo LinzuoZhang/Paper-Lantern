@@ -2852,34 +2852,13 @@ function extractFormulaLikeText(text) {
 }
 
 function formatInlineTechnicalText(text) {
-  const pattern = /(\b[A-Z][A-Za-z0-9_-]{1,}\b|(?:\\?[A-Za-z]+[A-Za-z0-9_{}α-ωΑ-Ω]*|[A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^，。；;,.]+|[A-Za-z]\([^)]+\)|G=\([^)]+\)|O\([^)]+\))/g;
-  const nodes = [];
-  let lastIndex = 0;
-  let match;
+  const source = String(text || "");
+  const renderer = getDiscussionMarkdownRenderer();
+  if (!renderer) return [document.createTextNode(source)];
 
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(document.createTextNode(text.slice(lastIndex, match.index)));
-    }
-    const mark = document.createElement("mark");
-    mark.className = looksLikeFormula(match[0]) ? "formula-inline" : "term-inline";
-    if (looksLikeFormula(match[0])) {
-      renderFormula(mark, match[0], false);
-    } else {
-      mark.textContent = match[0];
-    }
-    nodes.push(mark);
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(document.createTextNode(text.slice(lastIndex)));
-  }
-  return nodes.length ? nodes : [document.createTextNode(text)];
-}
-
-function looksLikeFormula(value) {
-  return /=|\(|\)|\+|-|\*|\/|\^|_/.test(value);
+  const template = document.createElement("template");
+  template.innerHTML = renderer.renderInline(source);
+  return Array.from(template.content.childNodes);
 }
 
 function normalizeFormulaSource(value) {

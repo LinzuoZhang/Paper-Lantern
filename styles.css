@@ -2694,6 +2694,19 @@ select {
   font-size: 1em;
 }
 
+.method-summary .katex,
+.method-bullets .katex,
+.method-boundary .katex {
+  font-size: 1em;
+}
+
+.method-summary eq,
+.method-bullets eq,
+.method-boundary eq {
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
 .error {
   color: var(--warn);
 }

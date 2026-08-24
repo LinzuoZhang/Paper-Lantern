@@ -1233,6 +1233,7 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
         model,
         chat_completions_url,
         build_method_polish_prompt(paper_excerpt, method_points, point_details),
+        system_prompt=build_method_polish_system_prompt(),
     )
 
     three_line = overview.get("threeLineSummary", {})
@@ -1461,7 +1462,7 @@ def format_earlier_discussion_context(messages):
     return "\n".join(lines)
 
 
-def call_chat_completions(api_key, model, chat_completions_url, prompt):
+def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None):
     upstream_payload = {
         "model": model,
         "temperature": 0.12,
@@ -1469,7 +1470,7 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt):
         "messages": [
             {
                 "role": "system",
-                "content": render_prompt("summary_system.txt"),
+                "content": system_prompt or render_prompt("summary_system.txt"),
             },
             {"role": "user", "content": prompt},
         ],
@@ -1705,6 +1706,10 @@ def build_method_polish_prompt(paper_text, method_points, point_details):
         method_points_json=json.dumps(method_points, ensure_ascii=False),
         point_details_json=json.dumps(point_details, ensure_ascii=False),
     )
+
+
+def build_method_polish_system_prompt():
+    return render_prompt("method_polish_system.txt")
 
 
 if __name__ == "__main__":
