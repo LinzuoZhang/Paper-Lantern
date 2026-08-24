@@ -8,6 +8,7 @@ from pathlib import Path
 
 CONFIG_FILE_NAME = "paperlantern_config.json"
 AI_TASK_NAMES = ("summary", "translate", "explain", "discuss")
+RESERVED_API_EXTRA_PARAM_KEYS = {"model", "messages", "stream", "response_format"}
 
 
 def config_path(base_dir):
@@ -21,6 +22,7 @@ def default_ai_task_config():
         "model": "",
         "apiKey": "",
         "apiKeyTail": "",
+        "extraParams": {},
     }
 
 
@@ -31,6 +33,7 @@ def default_config():
             "model": os.environ.get("AI_MODEL", "gpt-4o-mini"),
             "apiKey": protect_secret(os.environ.get("AI_API_KEY", "")),
             "apiKeyTail": secret_tail(os.environ.get("AI_API_KEY", "")),
+            "extraParams": {},
             "tasks": {name: default_ai_task_config() for name in AI_TASK_NAMES},
         },
         "sync": {
@@ -64,6 +67,11 @@ def load_config(base_dir):
                     merged["ai"]["tasks"][name].update(saved_tasks[name])
     if isinstance(data.get("sync"), dict):
         merged["sync"].update(data["sync"])
+    merged["ai"]["extraParams"] = sanitize_api_extra_params(merged["ai"].get("extraParams"))
+    for name in AI_TASK_NAMES:
+        merged["ai"]["tasks"][name]["extraParams"] = sanitize_api_extra_params(
+            merged["ai"]["tasks"][name].get("extraParams")
+        )
     return merged
 
 
@@ -73,6 +81,8 @@ def save_config(base_dir, payload):
         ai = payload["ai"]
         current["ai"]["baseUrl"] = str(ai.get("baseUrl", current["ai"].get("baseUrl", ""))).strip()
         current["ai"]["model"] = str(ai.get("model", current["ai"].get("model", ""))).strip()
+        if "extraParams" in ai:
+            current["ai"]["extraParams"] = validate_api_extra_params(ai["extraParams"], "Unified API extra parameters")
         if "apiKey" in ai and str(ai.get("apiKey", "")).strip():
             api_key = str(ai.get("apiKey", "")).strip()
             current["ai"]["apiKey"] = protect_secret(api_key)
@@ -87,6 +97,10 @@ def save_config(base_dir, payload):
                 target["useDefault"] = bool(task.get("useDefault", target.get("useDefault", True)))
                 target["baseUrl"] = str(task.get("baseUrl", target.get("baseUrl", ""))).strip()
                 target["model"] = str(task.get("model", target.get("model", ""))).strip()
+                if "extraParams" in task:
+                    target["extraParams"] = validate_api_extra_params(
+                        task["extraParams"], f"{name} API extra parameters"
+                    )
                 if "apiKey" in task and str(task.get("apiKey", "")).strip():
                     api_key = str(task.get("apiKey", "")).strip()
                     target["apiKey"] = protect_secret(api_key)
@@ -122,6 +136,7 @@ def public_config(config):
             "model": task.get("model", ""),
             "hasApiKey": bool(task_key),
             "apiKeyTail": task.get("apiKeyTail", "") or secret_tail(task_key),
+            "extraParams": sanitize_api_extra_params(task.get("extraParams")),
         }
     return {
         "ai": {
@@ -129,6 +144,7 @@ def public_config(config):
             "model": ai.get("model", ""),
             "hasApiKey": bool(unprotect_secret(ai.get("apiKey", ""))),
             "apiKeyTail": ai.get("apiKeyTail", "") or secret_tail(unprotect_secret(ai.get("apiKey", ""))),
+            "extraParams": sanitize_api_extra_params(ai.get("extraParams")),
             "tasks": public_tasks,
         },
         "sync": {
@@ -145,6 +161,21 @@ def public_config(config):
 
 def get_secret(config, section, key):
     return unprotect_secret(config.get(section, {}).get(key, ""))
+
+
+def sanitize_api_extra_params(value):
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items() if str(key) not in RESERVED_API_EXTRA_PARAM_KEYS}
+
+
+def validate_api_extra_params(value, label):
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object.")
+    blocked = sorted(str(key) for key in value if str(key) in RESERVED_API_EXTRA_PARAM_KEYS)
+    if blocked:
+        raise ValueError(f"{label} cannot override: {', '.join(blocked)}.")
+    return dict(value)
 
 
 def secret_tail(value):

@@ -19,6 +19,7 @@ const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton")
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiExtraParamsInput = document.querySelector("#aiExtraParamsInput");
 const aiTaskConfigSections = Array.from(document.querySelectorAll("[data-ai-task]"));
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
 const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
@@ -674,6 +675,7 @@ async function saveCloudSyncConfig() {
           baseUrl: aiBaseUrlInput.value.trim(),
           model: aiModelInput.value.trim(),
           apiKey: aiApiKeyInput.value,
+          extraParams: parseApiExtraParams(aiExtraParamsInput.value, "Unified API extra parameters"),
           tasks: collectAiTaskSettings(),
         },
         sync: {
@@ -770,6 +772,7 @@ function renderSettings(settings) {
   aiBaseUrlInput.value = ai.baseUrl || "";
   aiModelInput.value = ai.model || "";
   aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  aiExtraParamsInput.value = formatApiExtraParams(ai.extraParams);
   renderAiTaskSettings(ai.tasks || {});
   cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
   cloudLocalDirInput.value = sync.localDir || "";
@@ -788,6 +791,10 @@ function collectAiTaskSettings() {
         baseUrl: section.querySelector("[data-ai-task-base-url]").value.trim(),
         model: section.querySelector("[data-ai-task-model]").value.trim(),
         apiKey: section.querySelector("[data-ai-task-api-key]").value,
+        extraParams: parseApiExtraParams(
+          section.querySelector("[data-ai-task-extra-params]").value,
+          `${section.querySelector("strong").textContent} API extra parameters`,
+        ),
       },
     ]),
   );
@@ -799,6 +806,7 @@ function renderAiTaskSettings(tasks) {
     section.querySelector("[data-ai-task-default]").checked = task.useDefault !== false;
     section.querySelector("[data-ai-task-base-url]").value = task.baseUrl || "";
     section.querySelector("[data-ai-task-model]").value = task.model || "";
+    section.querySelector("[data-ai-task-extra-params]").value = formatApiExtraParams(task.extraParams);
     const apiKeyInput = section.querySelector("[data-ai-task-api-key]");
     apiKeyInput.placeholder = task.hasApiKey ? maskSecretTail(task.apiKeyTail) : "Leave blank to use unified key";
     updateAiTaskSection(section);
@@ -808,9 +816,34 @@ function renderAiTaskSettings(tasks) {
 function updateAiTaskSection(section) {
   const useDefault = section.querySelector("[data-ai-task-default]").checked;
   section.classList.toggle("uses-default", useDefault);
-  section.querySelectorAll("[data-ai-task-base-url], [data-ai-task-model], [data-ai-task-api-key]").forEach((input) => {
+  section.querySelectorAll("[data-ai-task-base-url], [data-ai-task-model], [data-ai-task-api-key], [data-ai-task-extra-params]").forEach((input) => {
     input.disabled = useDefault;
   });
+}
+
+function parseApiExtraParams(value, label) {
+  const text = value.trim();
+  if (!text) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  const reserved = ["model", "messages", "stream", "response_format"].filter((key) => key in parsed);
+  if (reserved.length) {
+    throw new Error(`${label} cannot override: ${reserved.join(", ")}.`);
+  }
+  return parsed;
+}
+
+function formatApiExtraParams(params) {
+  return params && typeof params === "object" && !Array.isArray(params) && Object.keys(params).length
+    ? JSON.stringify(params, null, 2)
+    : "";
 }
 
 function maskSecretTail(tail) {

@@ -53,6 +53,7 @@
             <button id="highlightButton" type="button">高亮</button>
             <button id="commentButton" type="button">评论</button>
             <button id="translateButton" type="button">翻译</button>
+            <button id="translateWithContextButton" type="button">结合上下文翻译</button>
             <button id="explainButton" type="button">解释</button>
           </div>
           <div id="emptyState" class="empty-state">
@@ -184,7 +185,11 @@
           </div>
 
           <form id="discussionForm" class="discussion-form">
-            <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
+            <div id="discussionResizeHandle" class="discussion-resize-handle" role="separator" aria-orientation="horizontal" aria-label="拖拽调整输入框高度" aria-valuemin="74" aria-valuemax="360" tabindex="0"><span aria-hidden="true"></span></div>
+            <div class="discussion-input-area">
+              <div class="discussion-input-target"><span>发送到</span><strong id="discussionInputTarget">新建 Discussion</strong></div>
+              <textarea id="discussionInput" rows="3" placeholder="输入问题后将新建一个 Discussion..." aria-label="Discussion question"></textarea>
+            </div>
             <button id="sendDiscussionButton" type="submit">Send</button>
           </form>
         </div>

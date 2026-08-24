@@ -26,6 +26,8 @@ PROMPT_DIR = BASE_DIR / "prompts" / "ai"
 MAX_PAPER_CHARS = 500_000
 AI_SUMMARY_TIMEOUT_SECONDS = 600
 MAX_TRANSLATE_CHARS = 4000
+MAX_TRANSLATION_CONTEXT_CHARS = 3000
+MAX_TRANSLATION_SUMMARY_CHARS = 8000
 MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
@@ -65,19 +67,21 @@ def get_ai_config(task_name="summary"):
     default_api_key = get_secret(config, "ai", "apiKey").strip()
     default_model = str(ai.get("model", "")).strip() or "gpt-4o-mini"
     default_base_url = str(ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    default_extra_params = dict(ai.get("extraParams", {})) if isinstance(ai.get("extraParams", {}), dict) else {}
     if use_default:
-        api_key, model, base_url = default_api_key, default_model, default_base_url
+        api_key, model, base_url, extra_params = default_api_key, default_model, default_base_url, default_extra_params
     else:
         api_key = get_secret({"task": task}, "task", "apiKey").strip() or default_api_key
         model = str(task.get("model", "")).strip() or default_model
         base_url = str(task.get("baseUrl", "")).strip() or default_base_url
+        extra_params = dict(task.get("extraParams", {})) if isinstance(task.get("extraParams", {}), dict) else {}
 
     base_url = base_url.rstrip("/")
     if base_url.endswith("/chat/completions"):
         chat_completions_url = base_url
     else:
         chat_completions_url = f"{base_url}/chat/completions"
-    return api_key, model, chat_completions_url
+    return api_key, model, chat_completions_url, extra_params
 
 
 def parse_query_value(path, name):
@@ -808,7 +812,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_settings_save()
             return
 
-        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss"}:
+        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/translate-context", "/api/explain", "/api/discuss"}:
             self.send_error(404, "Not found")
             return
 
@@ -816,10 +820,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             "/api/summarize": "summary",
             "/api/overview": "summary",
             "/api/translate": "translate",
+            "/api/translate-context": "translate",
             "/api/explain": "explain",
             "/api/discuss": "discuss",
         }[request_path]
-        api_key, model, chat_completions_url = get_ai_config(task_name)
+        api_key, model, chat_completions_url, extra_params = get_ai_config(task_name)
         if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
             self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
@@ -831,13 +836,24 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid JSON request."})
             return
 
-        if request_path == "/api/translate":
+        if request_path in {"/api/translate", "/api/translate-context"}:
             selected_text = str(payload.get("text", "")).strip()
             if not selected_text:
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
             try:
-                translation = translate_text(api_key, model, chat_completions_url, selected_text)
+                if request_path == "/api/translate-context":
+                    translation = translate_with_context(
+                        api_key,
+                        model,
+                        chat_completions_url,
+                        selected_text,
+                        paper_summary=payload.get("summary", {}),
+                        surrounding_context=payload.get("surroundingContext", ""),
+                        extra_params=extra_params,
+                    )
+                else:
+                    translation = translate_text(api_key, model, chat_completions_url, selected_text, extra_params)
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -863,6 +879,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     paper_text,
                     selected_text,
                     payload.get("summary", {}),
+                    extra_params,
                 )
                 self._send_json(200, {"explanation": explanation})
             except urllib.error.HTTPError as exc:
@@ -890,6 +907,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     question,
                     payload.get("summary", {}),
                     payload.get("history", []),
+                    extra_params,
                 )
                 self._send_json(200, {"answer": answer})
             except urllib.error.HTTPError as exc:
@@ -905,7 +923,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
             try:
-                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text)
+                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, extra_params)
                 self._send_json(200, {"overviewInfo": overview, "raw": raw})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -919,7 +937,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
-            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text)
+            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, extra_params)
             self._send_json(200, {"summary": summary, "raw": raw})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -1214,9 +1232,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(500, {"error": str(exc)})
 
 
-def summarize_paper(api_key, model, chat_completions_url, paper_text):
+def summarize_paper(api_key, model, chat_completions_url, paper_text, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt)
+    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, extra_params)
     method_points = normalize_method_points(overview.get("methodPoints", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
@@ -1229,6 +1247,7 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
             model,
             chat_completions_url,
             build_method_point_prompt(paper_excerpt, point, index, len(method_points)),
+            extra_params,
         )
         point_details.append(
             {
@@ -1246,6 +1265,7 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
         model,
         chat_completions_url,
         build_method_polish_prompt(paper_excerpt, method_points, point_details),
+        extra_params,
     )
 
     three_line = overview.get("threeLineSummary", {})
@@ -1274,9 +1294,11 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
     return summary, raw
 
 
-def extract_paper_overview(api_key, model, chat_completions_url, paper_text):
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, raw = call_chat_completions(api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt))
+    overview, raw = call_chat_completions(
+        api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt), extra_params
+    )
     three_line = overview.get("threeLineSummary", {})
     return (
         {
@@ -1293,7 +1315,7 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text):
     )
 
 
-def translate_text(api_key, model, chat_completions_url, text):
+def translate_text(api_key, model, chat_completions_url, text, extra_params=None):
     source_text = text[:MAX_TRANSLATE_CHARS]
     upstream_payload = {
         "model": model,
@@ -1306,12 +1328,50 @@ def translate_text(api_key, model, chat_completions_url, text):
             {"role": "user", "content": source_text},
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None):
+def translate_with_context(
+    api_key,
+    model,
+    chat_completions_url,
+    text,
+    paper_summary=None,
+    surrounding_context="",
+    extra_params=None,
+):
+    source_text = text[:MAX_TRANSLATE_CHARS]
+    summary_context = json.dumps(paper_summary if isinstance(paper_summary, dict) else {}, ensure_ascii=False)
+    summary_context = summary_context[:MAX_TRANSLATION_SUMMARY_CHARS]
+    context_excerpt = str(surrounding_context or "").strip()[:MAX_TRANSLATION_CONTEXT_CHARS]
+    upstream_payload = {
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": render_prompt("translate_with_context_system.txt")},
+            {
+                "role": "user",
+                "content": (
+                    "Paper summary (reference only; do not translate or repeat it):\n"
+                    f"{summary_context}\n\n"
+                    "Surrounding source context (reference only; do not translate or repeat it):\n"
+                    f"{context_excerpt}\n\n"
+                    "Selected text to translate:\n"
+                    f"{source_text}"
+                ),
+            },
+        ],
+    }
+    upstream_payload.update(extra_params or {})
+
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
+    return raw["choices"][0]["message"]["content"].strip()
+
+
+def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     selected_excerpt = selected_text[:MAX_TRANSLATE_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
@@ -1343,6 +1403,7 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
             },
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
     return extract_selected_role_section(raw["choices"][0]["message"]["content"].strip())
@@ -1361,7 +1422,7 @@ def extract_selected_role_section(text):
     return f"## 这段话在论文中的作用\n{body}".strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None):
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
     history_messages = build_discussion_context_messages(history)
@@ -1392,6 +1453,7 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
         "temperature": 0.18,
         "messages": messages,
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
     return raw["choices"][0]["message"]["content"].strip()
@@ -1438,7 +1500,7 @@ def format_earlier_discussion_context(messages):
     return "\n".join(lines)
 
 
-def call_chat_completions(api_key, model, chat_completions_url, prompt):
+def call_chat_completions(api_key, model, chat_completions_url, prompt, extra_params=None):
     upstream_payload = {
         "model": model,
         "temperature": 0.12,
@@ -1451,6 +1513,7 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt):
             {"role": "user", "content": prompt},
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(
         api_key,

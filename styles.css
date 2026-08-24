@@ -267,7 +267,8 @@ body {
 }
 
 .cloud-config-card input,
-.cloud-config-card select {
+.cloud-config-card select,
+.cloud-config-card textarea {
   width: 100%;
   min-height: 38px;
   border: 1px solid var(--line);
@@ -276,6 +277,26 @@ body {
   background: #fff;
   color: var(--ink);
   font: inherit;
+}
+
+.cloud-config-card textarea {
+  min-height: 72px;
+  padding: 9px 10px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-extra-params-config {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font-size: 13px;
 }
 
 .cloud-auto-sync-row {
@@ -2384,7 +2405,9 @@ select {
 
 .markdown-body p,
 .markdown-body ul,
-.markdown-body pre {
+.markdown-body pre,
+.markdown-body .katex-display,
+.markdown-body .markdown-table-wrap {
   margin: 0;
 }
 
@@ -2395,8 +2418,78 @@ select {
 .markdown-body pre + p,
 .markdown-body h4 + p,
 .markdown-body h5 + p,
-.markdown-body h6 + p {
+.markdown-body h6 + p,
+.markdown-body .markdown-table-wrap + p,
+.markdown-body p + .markdown-table-wrap,
+.markdown-body ul + .markdown-table-wrap,
+.markdown-body .markdown-table-wrap + ul,
+.markdown-body pre + .markdown-table-wrap,
+.markdown-body .markdown-table-wrap + pre,
+.markdown-body .katex-display + .markdown-table-wrap,
+.markdown-body .markdown-table-wrap + .katex-display {
   margin-top: 8px;
+}
+
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 1px;
+}
+
+.markdown-body .katex-display + p,
+.markdown-body p + .katex-display,
+.markdown-body ul + .katex-display,
+.markdown-body .katex-display + ul,
+.markdown-body pre + .katex-display,
+.markdown-body .katex-display + pre {
+  margin-top: 8px;
+}
+
+.markdown-body .katex {
+  font-size: 1.02em;
+}
+
+.markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.markdown-table-wrap table {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  padding: 8px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.markdown-table-wrap th:last-child,
+.markdown-table-wrap td:last-child {
+  border-right: 0;
+}
+
+.markdown-table-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-table-wrap th {
+  color: var(--accent-strong);
+  font-weight: 800;
+  background: var(--soft);
+}
+
+.discussion-math-fallback {
+  white-space: pre-wrap;
 }
 
 .markdown-body h4,
@@ -2458,10 +2551,67 @@ select {
   backdrop-filter: blur(8px);
 }
 
+.discussion-resize-handle {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  height: 12px;
+  margin: -7px 0 -1px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.discussion-resize-handle span {
+  width: 34px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 160ms ease, width 160ms ease;
+}
+
+.discussion-resize-handle:hover span,
+.discussion-resize-handle:focus-visible span,
+body.resizing-discussion-input .discussion-resize-handle span {
+  width: 46px;
+  background: var(--accent);
+}
+
+body.resizing-discussion-input {
+  cursor: ns-resize;
+  user-select: none;
+}
+
+.discussion-input-area {
+  grid-column: 1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.discussion-input-target {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.discussion-input-target strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: inherit;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .discussion-form textarea {
   width: 100%;
   min-height: 74px;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
@@ -2476,6 +2626,8 @@ select {
 }
 
 .discussion-form button {
+  grid-column: 2;
+  grid-row: 2;
   min-height: 40px;
   padding: 0 14px;
 }

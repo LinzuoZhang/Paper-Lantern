@@ -17,6 +17,7 @@ const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
 const translateButton = document.querySelector("#translateButton");
+const translateWithContextButton = document.querySelector("#translateWithContextButton");
 const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
@@ -46,6 +47,8 @@ const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
 const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
+const discussionInputTarget = document.querySelector("#discussionInputTarget");
+const discussionResizeHandle = document.querySelector("#discussionResizeHandle");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
 const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
@@ -82,6 +85,7 @@ let readerSelectedCategoryId = "";
 let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
+let discussionInputResizeState = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
 
@@ -98,6 +102,7 @@ initPdfControls();
 initReaderTabs();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
+initDiscussionInputResizer();
 openReaderFromUrl();
 
 backToLibraryButton?.addEventListener("click", () => {
@@ -300,10 +305,12 @@ document.addEventListener("pointerdown", (event) => {
 highlightButton.addEventListener("mousedown", (event) => event.preventDefault());
 commentButton.addEventListener("mousedown", (event) => event.preventDefault());
 translateButton.addEventListener("mousedown", (event) => event.preventDefault());
+translateWithContextButton.addEventListener("mousedown", (event) => event.preventDefault());
 explainButton.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
+translateWithContextButton.addEventListener("click", () => translateSelection(true));
 explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
@@ -502,6 +509,54 @@ function showDiscussionList() {
   discussionListView.hidden = false;
   discussionThreadView.hidden = true;
   renderDiscussionThreadList();
+  updateDiscussionInputTarget();
+}
+
+function initDiscussionInputResizer() {
+  if (!discussionResizeHandle || !discussionInput) return;
+  const savedHeight = Number(localStorage.getItem("discussionInputHeight"));
+  setDiscussionInputHeight(Number.isFinite(savedHeight) ? savedHeight : 74, false);
+
+  discussionResizeHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    discussionInputResizeState = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: discussionInput.getBoundingClientRect().height,
+    };
+    discussionResizeHandle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-discussion-input");
+  });
+
+  discussionResizeHandle.addEventListener("pointermove", (event) => {
+    if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
+    setDiscussionInputHeight(discussionInputResizeState.startHeight - (event.clientY - discussionInputResizeState.startY), false);
+  });
+
+  const finishResize = (event) => {
+    if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
+    if (discussionResizeHandle.hasPointerCapture(event.pointerId)) discussionResizeHandle.releasePointerCapture(event.pointerId);
+    localStorage.setItem("discussionInputHeight", String(Math.round(discussionInput.getBoundingClientRect().height)));
+    discussionInputResizeState = null;
+    document.body.classList.remove("resizing-discussion-input");
+  };
+  discussionResizeHandle.addEventListener("pointerup", finishResize);
+  discussionResizeHandle.addEventListener("pointercancel", finishResize);
+  discussionResizeHandle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowUp" ? 1 : -1;
+    setDiscussionInputHeight(discussionInput.getBoundingClientRect().height + direction * 16);
+  });
+}
+
+function setDiscussionInputHeight(value, save = true) {
+  if (!discussionInput || !discussionResizeHandle) return;
+  const height = Math.round(clamp(Number(value) || 74, 74, 360));
+  discussionInput.style.height = `${height}px`;
+  discussionResizeHandle.setAttribute("aria-valuenow", String(height));
+  if (save) localStorage.setItem("discussionInputHeight", String(height));
 }
 
 function showDiscussionThread(threadId) {
@@ -512,12 +567,30 @@ function showDiscussionThread(threadId) {
   discussionThreadView.hidden = false;
   renderDiscussionThreadHeader(thread);
   renderDiscussionMessages(thread.messages);
+  updateDiscussionInputTarget();
 }
 
 function renderDiscussionThreadHeader(thread) {
   if (!discussionThreadTitle) return;
   discussionThreadTitle.textContent = thread?.title || "New discussion";
   discussionThreadTitle.title = thread?.title || "New discussion";
+  updateDiscussionInputTarget();
+}
+
+function updateDiscussionInputTarget() {
+  if (!discussionInputTarget || !discussionInput) return;
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) {
+    discussionInputTarget.textContent = "新建 Discussion";
+    discussionInputTarget.title = "发送后将新建一个 Discussion 会话";
+    discussionInput.placeholder = "输入问题后将新建一个 Discussion...";
+    return;
+  }
+
+  const title = thread.title || "未命名 Discussion";
+  discussionInputTarget.textContent = `继续：${title}`;
+  discussionInputTarget.title = `将继续当前会话：${title}`;
+  discussionInput.placeholder = `继续“${title}”...`;
 }
 
 function renderDiscussionThreadList() {
@@ -580,13 +653,15 @@ function setDiscussionMessageContent(body, content, role) {
 }
 
 function renderDiscussionMarkdown(content) {
-  const text = escapeHtml(String(content || ""));
-  const lines = text.split(/\r?\n/);
+  const lines = String(content || "").split(/\r?\n/);
   const blocks = [];
   let paragraph = [];
   let list = [];
   let inCodeBlock = false;
   let codeLines = [];
+  let inMathBlock = false;
+  let mathDelimiter = "";
+  let mathLines = [];
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -599,11 +674,17 @@ function renderDiscussionMarkdown(content) {
     list = [];
   };
   const flushCode = () => {
-    blocks.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
+    blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
     codeLines = [];
   };
+  const flushMath = () => {
+    blocks.push(renderDiscussionMath(mathLines.join("\n"), true));
+    mathLines = [];
+    mathDelimiter = "";
+  };
 
-  lines.forEach((line) => {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     if (/^\s*```/.test(line)) {
       if (inCodeBlock) {
         flushCode();
@@ -613,12 +694,39 @@ function renderDiscussionMarkdown(content) {
         flushList();
         inCodeBlock = true;
       }
-      return;
+      continue;
     }
 
     if (inCodeBlock) {
       codeLines.push(line);
-      return;
+      continue;
+    }
+
+    if (inMathBlock) {
+      if ((mathDelimiter === "$$" && /^\s*\$\$\s*$/.test(line)) || (mathDelimiter === "\\[" && /^\s*\\\]\s*$/.test(line))) {
+        flushMath();
+        inMathBlock = false;
+      } else {
+        mathLines.push(line);
+      }
+      continue;
+    }
+
+    const singleLineMath = line.match(/^\s*\$\$\s*(.*?)\s*\$\$\s*$/) || line.match(/^\s*\\\[\s*(.*?)\s*\\\]\s*$/);
+    if (singleLineMath) {
+      flushParagraph();
+      flushList();
+      blocks.push(renderDiscussionMath(singleLineMath[1], true));
+      continue;
+    }
+
+    const mathStart = line.match(/^\s*(\$\$|\\\[)\s*$/);
+    if (mathStart) {
+      flushParagraph();
+      flushList();
+      inMathBlock = true;
+      mathDelimiter = mathStart[1];
+      continue;
     }
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
@@ -627,37 +735,128 @@ function renderDiscussionMarkdown(content) {
       flushList();
       const level = heading[1].length + 3;
       blocks.push(`<h${level}>${formatDiscussionInline(heading[2])}</h${level}>`);
-      return;
+      continue;
     }
 
     const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
     if (bullet) {
       flushParagraph();
       list.push(bullet[1]);
-      return;
+      continue;
     }
 
     if (!line.trim()) {
       flushParagraph();
       flushList();
-      return;
+      continue;
+    }
+
+    if (isMarkdownTableHeader(line, lines[index + 1])) {
+      flushParagraph();
+      flushList();
+      const headers = splitMarkdownTableRow(line);
+      const alignments = getMarkdownTableAlignments(lines[index + 1]);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        rows.push(splitMarkdownTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      blocks.push(renderDiscussionTable(headers, alignments, rows));
+      continue;
     }
 
     flushList();
     paragraph.push(line.trim());
-  });
+  }
 
   if (inCodeBlock) flushCode();
+  if (inMathBlock) flushMath();
   flushParagraph();
   flushList();
   return blocks.join("") || "<p>No response</p>";
 }
 
+function splitMarkdownTableRow(line) {
+  const trimmed = String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function isMarkdownTableRow(line) {
+  return String(line || "").includes("|") && splitMarkdownTableRow(line).length >= 2;
+}
+
+function isMarkdownTableHeader(headerLine, dividerLine) {
+  if (!isMarkdownTableRow(headerLine) || !dividerLine) return false;
+  const columns = splitMarkdownTableRow(dividerLine);
+  return columns.length >= 2 && columns.every((column) => /^:?-+:?$/.test(column));
+}
+
+function getMarkdownTableAlignments(dividerLine) {
+  return splitMarkdownTableRow(dividerLine).map((column) => {
+    const starts = column.startsWith(":");
+    const ends = column.endsWith(":");
+    if (starts && ends) return "center";
+    if (ends) return "right";
+    return "left";
+  });
+}
+
+function renderDiscussionTable(headers, alignments, rows) {
+  const cells = (items, tagName) =>
+    headers
+      .map((_, index) => {
+        const alignment = alignments[index] || "left";
+        const value = items[index] || "";
+        return `<${tagName} style="text-align:${alignment}">${formatDiscussionInline(value)}</${tagName}>`;
+      })
+      .join("");
+  const body = rows.map((row) => `<tr>${cells(row, "td")}</tr>`).join("");
+  return `<div class="markdown-table-wrap"><table><thead><tr>${cells(headers, "th")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
 function formatDiscussionInline(text) {
-  return text
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
+  const tokens = [];
+  const addToken = (html) => {
+    const token = `@@PAPER_LANTERN_TOKEN_${tokens.length}@@`;
+    tokens.push({ token, html });
+    return token;
+  };
+
+  let value = String(text || "")
+    .replace(/`([^`]+)`/g, (_, code) => addToken(`<code>${escapeHtml(code)}</code>`))
+    .replace(/\\\((.+?)\\\)/g, (_, formula) => addToken(renderDiscussionMath(formula, false)))
+    .replace(/(^|[^\\$])\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_, prefix, formula) => `${prefix}${addToken(renderDiscussionMath(formula, false))}`);
+
+  value = escapeHtml(value)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  tokens.forEach(({ token, html }) => {
+    value = value.split(token).join(html);
+  });
+  return value;
+}
+
+function renderDiscussionMath(source, displayMode) {
+  const formula = normalizeFormulaSource(source);
+  if (!formula) return "";
+  if (!window.katex) {
+    return `<code class="discussion-math-fallback">${escapeHtml(formula)}</code>`;
+  }
+  try {
+    return window.katex.renderToString(formula, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      trust: false,
+    });
+  } catch (error) {
+    console.warn("Failed to render discussion formula.", error);
+    return `<code class="discussion-math-fallback">${escapeHtml(formula)}</code>`;
+  }
 }
 
 function escapeHtml(value) {
@@ -1420,7 +1619,7 @@ function commentSelection() {
   showCommentWindow("");
 }
 
-async function translateSelection() {
+async function translateSelection(withContext = false) {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
 
@@ -1434,13 +1633,19 @@ async function translateSelection() {
   if (!draftHighlights.length) return;
 
   hideCommentBubble();
-  translateButton.disabled = true;
-  translateButton.textContent = "\u7ffb\u8bd1\u4e2d";
+  const button = withContext ? translateWithContextButton : translateButton;
+  button.disabled = true;
+  button.textContent = "\u7ffb\u8bd1\u4e2d";
   try {
-    const response = await apiFetch("/api/translate", {
+    const requestPayload = { text };
+    if (withContext) {
+      requestPayload.summary = paperToSummary(currentPaper);
+      requestPayload.surroundingContext = getTranslationSurroundingContext(lastExtractedText, text);
+    }
+    const response = await apiFetch(withContext ? "/api/translate-context" : "/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(requestPayload),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
@@ -1457,9 +1662,23 @@ async function translateSelection() {
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
   } finally {
-    translateButton.disabled = false;
-    translateButton.textContent = "\u7ffb\u8bd1";
+    button.disabled = false;
+    button.textContent = withContext ? "\u7ed3\u5408\u4e0a\u4e0b\u6587\u7ffb\u8bd1" : "\u7ffb\u8bd1";
   }
+}
+
+function getTranslationSurroundingContext(paperText, selectedText) {
+  const source = String(paperText || "").replace(/\s+/g, " ").trim();
+  const target = String(selectedText || "").replace(/\s+/g, " ").trim();
+  if (!source || !target) return "";
+
+  const index = source.indexOf(target);
+  if (index < 0) return "";
+
+  const radius = 1500;
+  const start = Math.max(0, index - radius);
+  const end = Math.min(source.length, index + target.length + radius);
+  return `${start > 0 ? "…" : ""}${source.slice(start, end)}${end < source.length ? "…" : ""}`;
 }
 
 async function explainSelection() {

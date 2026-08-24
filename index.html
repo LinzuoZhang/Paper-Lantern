@@ -102,7 +102,11 @@
         </label>
         <details class="ai-advanced-settings">
           <summary>Advanced: feature-specific AI settings</summary>
-          <p class="settings-help">Use the unified settings by default. Disable it for a feature to select a different compatible API, model, or key.</p>
+          <p class="settings-help">Set optional request parameters as a JSON object, for example <code>{"enable_thinking": false}</code> for compatible Qwen models. Each feature uses the unified settings by default; disable it to configure an independent API, model, key, and parameters.</p>
+          <section class="ai-extra-params-config">
+            <strong>Unified API Extra Parameters</strong>
+            <label><span>JSON object</span><textarea id="aiExtraParamsInput" rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
+          </section>
           <section class="ai-task-config" data-ai-task="summary">
           <div class="ai-task-config-header">
             <strong>Paper Summary &amp; Basic Info</strong>
@@ -112,6 +116,7 @@
             <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
             <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
             <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
           </div>
           </section>
           <section class="ai-task-config" data-ai-task="translate">
@@ -123,6 +128,7 @@
             <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
             <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
             <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
           </div>
           </section>
           <section class="ai-task-config" data-ai-task="explain">
@@ -134,6 +140,7 @@
             <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
             <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
             <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
           </div>
           </section>
           <section class="ai-task-config" data-ai-task="discuss">
@@ -145,6 +152,7 @@
             <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
             <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
             <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
+            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
           </div>
           </section>
         </details>
