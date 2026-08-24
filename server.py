@@ -470,6 +470,7 @@ def load_library_db():
         db = new_db()
         migrate_existing_library(db)
         save_library_db(db)
+    reconcile_paper_storage(db)
     ensure_uncategorized(db)
     save_library_db(db)
     return db
@@ -520,6 +521,28 @@ def migrate_existing_library(db):
             "categoryId": category_id,
             "folder": f"papers/{paper_id}",
             "uploadedAt": metadata["uploadedAt"],
+        }
+
+
+def reconcile_paper_storage(db):
+    db.setdefault("papers", {})
+    if not PAPER_STORAGE_DIR.exists():
+        return
+    for paper_dir in sorted(PAPER_STORAGE_DIR.iterdir(), key=lambda item: item.name.lower()):
+        if not paper_dir.is_dir() or not (paper_dir / "paper.pdf").exists():
+            continue
+        paper_id = paper_dir.name
+        if paper_id in db["papers"]:
+            continue
+        metadata = read_json(paper_dir / "metadata.json", default_metadata(paper_id, UNCATEGORIZED_ID))
+        category_id = ensure_category_path(db, metadata.get("category") or UNCATEGORIZED_ID)
+        uploaded_at = metadata.get("uploadedAt") or datetime.fromtimestamp(paper_dir.stat().st_mtime, timezone.utc).isoformat()
+        db["papers"][paper_id] = {
+            "id": paper_id,
+            "title": metadata.get("title") or paper_id,
+            "categoryId": category_id,
+            "folder": f"papers/{paper_id}",
+            "uploadedAt": uploaded_at,
         }
 
 

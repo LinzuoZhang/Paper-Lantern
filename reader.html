@@ -93,10 +93,18 @@
                 </section>
 
                 <section class="summary-card collapsible-card" data-collapsible-card>
-                  <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
-                    <span>Three-Line Summary</span>
-                    <span class="collapse-icon" aria-hidden="true"></span>
-                  </button>
+                  <div class="summary-card-header">
+                    <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
+                      <span>Three-Line Summary</span>
+                      <span class="collapse-icon" aria-hidden="true"></span>
+                    </button>
+                    <button id="copyThreeLineButton" class="icon-button copy-section-button" type="button" aria-label="Copy three-line summary" title="Copy three-line summary">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <dl id="threeLineSummary" class="three-lines">
                     <dt>Challenges</dt>
                     <dd id="challenges">Waiting</dd>
@@ -108,10 +116,18 @@
                 </section>
 
                 <section class="summary-card method-card collapsible-card" data-collapsible-card>
-                  <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
-                    <span>Method Breakdown</span>
-                    <span class="collapse-icon" aria-hidden="true"></span>
-                  </button>
+                  <div class="summary-card-header">
+                    <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
+                      <span>Method Breakdown</span>
+                      <span class="collapse-icon" aria-hidden="true"></span>
+                    </button>
+                    <button id="copyMethodButton" class="icon-button copy-section-button" type="button" aria-label="Copy method breakdown" title="Copy method breakdown">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <div id="methodSections" class="method-sections"></div>
                 </section>
               </div>

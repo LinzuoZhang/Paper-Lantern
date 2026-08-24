@@ -38,6 +38,8 @@ const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
 const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
+const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
+const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
 const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
 const basicInfoButton = document.querySelector("#basicInfoButton");
@@ -302,6 +304,8 @@ clearDiscussionButton?.addEventListener("click", () => {
   clearActiveDiscussion();
 });
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
+copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
+copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
 
 summarizeButton.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -549,11 +553,18 @@ function appendDiscussionMessage(role, content) {
   label.className = "discussion-message-label";
   label.textContent = role === "user" ? "You" : "AI";
 
+  const copyButton = createInlineCopyButton(`Copy ${role === "user" ? "question" : "answer"}`);
+  copyButton.addEventListener("click", () => copyTextWithFeedback(String(content || ""), copyButton));
+
+  const header = document.createElement("div");
+  header.className = "discussion-message-header";
+  header.append(label, copyButton);
+
   const body = document.createElement("div");
   body.className = "discussion-message-body";
   setDiscussionMessageContent(body, content, role);
 
-  message.append(label, body);
+  message.append(header, body);
   discussionMessages.appendChild(message);
   message.scrollIntoView({ block: "nearest" });
   return message;
@@ -779,6 +790,82 @@ function setDiscussionBusy(isBusy) {
   discussionIsBusy = isBusy;
   sendDiscussionButton.disabled = isBusy;
   discussionInput.disabled = isBusy;
+}
+
+function createInlineCopyButton(label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "icon-button inline-copy-button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  `;
+  return button;
+}
+
+async function copyReaderSection(section, button) {
+  await copyTextWithFeedback(getReaderSectionText(section), button);
+}
+
+function getReaderSectionText(section) {
+  if (section === "threeLine") return getThreeLineSummaryText();
+  if (section === "method") return getMethodBreakdownText();
+  return "";
+}
+
+function getThreeLineSummaryText() {
+  return [
+    ["Challenges", challenges.textContent],
+    ["Core Method And Technical Details", method.textContent],
+    ["Conclusion", conclusion.textContent],
+  ]
+    .map(([label, value]) => `${label}: ${cleanCopiedText(value)}`)
+    .join("\n\n");
+}
+
+function getMethodBreakdownText() {
+  const text = methodSections.innerText || methodSections.textContent || "";
+  return cleanCopiedText(text) || "No structured method sections returned.";
+}
+
+function cleanCopiedText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+async function copyTextWithFeedback(text, button) {
+  const value = cleanCopiedText(text);
+  if (!value) return;
+
+  const previousTitle = button?.title || "";
+  try {
+    await copyTextToClipboard(value);
+    if (button) {
+      button.classList.add("copied");
+      button.title = "Copied";
+      button.setAttribute("aria-label", "Copied");
+      window.setTimeout(() => {
+        if (!document.body.contains(button)) return;
+        button.classList.remove("copied");
+        button.title = previousTitle || "Copy";
+        button.setAttribute("aria-label", previousTitle || "Copy");
+      }, 1200);
+    }
+  } catch (error) {
+    console.error("Failed to copy text.", error);
+    if (button) {
+      button.title = "Copy failed";
+      button.setAttribute("aria-label", "Copy failed");
+    }
+  }
 }
 
 async function saveCurrentPaper(extra = {}) {
@@ -1036,13 +1123,16 @@ async function extractPdfText(file) {
 }
 
 function extractReferenceEntries(text) {
-  const source = String(text || "").replace(/\s+/g, " ").trim();
+  const source = String(text || "")
+    .replace(/\0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!source) return new Map();
 
-  const sectionMatch = Array.from(source.matchAll(/\b(references|bibliography|参考文献)\b/gi)).pop();
-  if (!sectionMatch) return new Map();
+  const sectionStart = findReferenceSectionStart(source);
+  if (sectionStart < 0) return new Map();
 
-  const section = source.slice(sectionMatch.index + sectionMatch[0].length).trim();
+  const section = trimReferenceSection(source.slice(sectionStart).trim());
   const markers = Array.from(section.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g));
   if (!markers.length) return new Map();
 
@@ -1055,6 +1145,59 @@ function extractReferenceEntries(text) {
     if (citation.length >= 12) entries.set(number, citation);
   });
   return entries;
+}
+
+function trimReferenceSection(section) {
+  const appendixMatch = section.match(/\b(?:appendix|a\s+p\s*p\s*e\s*n\s*d\s*i\s*x|附录)\b/i);
+  if (!appendixMatch) return section;
+
+  const beforeAppendix = section.slice(0, appendixMatch.index);
+  const markers = beforeAppendix.match(/(?:^|\s)\[(\d{1,3})\]\s+/g) || [];
+  return markers.length >= 5 ? beforeAppendix : section;
+}
+
+function findReferenceSectionStart(source) {
+  const headingMatches = Array.from(
+    source.matchAll(/\b(?:references|bibliography|r\s+e\s*f\s*e\s*r\s*e\s*n\s*c\s*e\s*s|参考文献)\b/gi),
+  );
+  for (let index = headingMatches.length - 1; index >= 0; index -= 1) {
+    const match = headingMatches[index];
+    const preview = source.slice(match.index, match.index + 1800);
+    const firstMarker = preview.match(/\[(1)\]\s+/);
+    if (firstMarker) return match.index + firstMarker.index;
+  }
+
+  return findSequentialReferenceListStart(source);
+}
+
+function findSequentialReferenceListStart(source) {
+  const markers = Array.from(source.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g)).map((match) => ({
+    number: Number(match[1]),
+    index: match.index + match[0].indexOf("["),
+  }));
+
+  let best = null;
+  markers.forEach((marker, startIndex) => {
+    if (marker.number !== 1) return;
+    let expected = 2;
+    let lastIndex = marker.index;
+    let count = 1;
+
+    for (let index = startIndex + 1; index < markers.length && expected <= 12; index += 1) {
+      const next = markers[index];
+      if (next.index - lastIndex > 2500) break;
+      if (next.number !== expected) continue;
+      count += 1;
+      expected += 1;
+      lastIndex = next.index;
+    }
+
+    if (count >= 5 && (!best || count > best.count || marker.index > best.index)) {
+      best = { count, index: marker.index };
+    }
+  });
+
+  return best ? best.index : -1;
 }
 
 function cleanReferenceText(value) {
@@ -1631,10 +1774,10 @@ function showReferencePopover(numbers, clientX, clientY) {
       </div>
     `;
     popover.querySelector(".reference-close").addEventListener("click", hideReferencePopover);
-    popover.querySelector(".reference-copy").addEventListener("click", () => copyReferenceEntries(entries, popover));
     pdfViewer.parentElement.appendChild(popover);
   }
 
+  popover.querySelector(".reference-copy").onclick = () => copyReferenceEntries(entries, popover);
   const body = popover.querySelector(".reference-popover-body");
   body.innerHTML = "";
   entries.forEach((entry) => {

@@ -1878,6 +1878,33 @@ select {
   background: transparent;
 }
 
+.summary-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 32px);
+  min-height: 48px;
+  margin: 0 -16px;
+  padding: 0 10px 0 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.summary-card-header:hover {
+  background: #f7faf8;
+}
+
+.summary-card-header .summary-card-toggle {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 16px;
+}
+
+.summary-card-header .summary-card-toggle:hover {
+  background: transparent;
+}
+
 .summary-group-content,
 .discussion-content {
   display: grid;
@@ -1916,6 +1943,10 @@ select {
   border-radius: 8px;
 }
 
+.collapsible-card.collapsed .summary-card-header {
+  border-radius: 8px;
+}
+
 .collapsible-card.collapsed .summary-group-header {
   border-radius: 8px;
 }
@@ -1939,6 +1970,36 @@ select {
 
 .summary-card-toggle[aria-expanded="false"] .collapse-icon::before {
   transform: rotate(-45deg);
+}
+
+.copy-section-button,
+.inline-copy-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-strong);
+  box-shadow: none;
+}
+
+.copy-section-button:hover,
+.inline-copy-button:hover {
+  background: var(--soft);
+}
+
+.copy-section-button svg,
+.inline-copy-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.copy-section-button.copied,
+.inline-copy-button.copied {
+  background: var(--soft);
+  color: var(--accent);
 }
 
 .three-lines {
@@ -2229,6 +2290,13 @@ select {
   max-width: 92%;
 }
 
+.discussion-message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .discussion-message.user {
   justify-self: end;
 }
@@ -2242,6 +2310,22 @@ select {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.inline-copy-button {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+
+.discussion-message:hover .inline-copy-button,
+.inline-copy-button:focus-visible {
+  opacity: 1;
 }
 
 .discussion-message.user .discussion-message-label {
