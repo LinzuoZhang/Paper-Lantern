@@ -43,6 +43,9 @@ loadLibrary();
 loadCloudSyncStatus();
 loadSettings();
 migrateLegacyRecentPapers();
+if (new URLSearchParams(window.location.search).get("settings") === "1") {
+  openCloudConfig();
+}
 
 libraryPdfInput.addEventListener("change", async () => {
   const file = libraryPdfInput.files && libraryPdfInput.files[0];

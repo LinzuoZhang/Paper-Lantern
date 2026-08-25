@@ -9,10 +9,27 @@ const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const readerPaperList = document.querySelector("#readerPaperList");
 const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
+const readerLeftRail = document.querySelector("#readerLeftRail");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
-const toggleSummaryPaneButton = document.querySelector("#toggleSummaryPaneButton");
+const readerSideRail = document.querySelector("#readerSideRail");
+const readerSettingsButton = document.querySelector("#readerSettingsButton");
+const exportPdfButton = document.querySelector("#exportPdfButton");
+const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
+const cloudConfigForm = document.querySelector("#cloudConfigForm");
+const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
+const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
+const aiModelInput = document.querySelector("#aiModelInput");
+const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiApiTestButton = document.querySelector("#aiApiTestButton");
+const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
+const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
+const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
+const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
+const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
+const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
+const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
@@ -88,8 +105,10 @@ const highlightColors = {
 };
 
 initPaneResizer();
+initReaderSideRail();
 initSummaryPaneToggle();
 initReaderTabs();
+initReaderSettings();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 openReaderFromUrl();
@@ -99,7 +118,13 @@ backToLibraryButton?.addEventListener("click", () => {
 });
 
 function initReaderLibraryDrawer() {
-  openLibraryDrawerButton?.addEventListener("click", () => openReaderLibraryDrawer());
+  openLibraryDrawerButton?.addEventListener("click", () => {
+    if (readerLibraryDrawer.classList.contains("open")) {
+      closeReaderLibraryDrawer();
+      return;
+    }
+    openReaderLibraryDrawer();
+  });
   closeLibraryDrawerButton?.addEventListener("click", () => closeReaderLibraryDrawer());
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
@@ -110,14 +135,18 @@ function initReaderLibraryDrawer() {
 async function openReaderLibraryDrawer() {
   readerLibraryDrawer.classList.add("open");
   readerLibraryDrawer.setAttribute("aria-hidden", "false");
+  openLibraryDrawerButton.classList.add("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "true");
+  openLibraryDrawerButton.setAttribute("aria-label", "Close library");
   await loadReaderLibrary();
 }
 
 function closeReaderLibraryDrawer() {
   readerLibraryDrawer.classList.remove("open");
   readerLibraryDrawer.setAttribute("aria-hidden", "true");
+  openLibraryDrawerButton.classList.remove("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "false");
+  openLibraryDrawerButton.setAttribute("aria-label", "Open library");
 }
 
 async function loadReaderLibrary() {
@@ -133,18 +162,40 @@ function renderReaderLibrary() {
   if (!readerLibraryTree) return;
   const categories = flattenReaderCategories(readerLibraryTree);
   readerCategoryList.innerHTML = "";
+  let rootCategoryCount = 0;
   categories.forEach((category) => {
+    const row = document.createElement("div");
+    row.className = "reader-category-row";
+    if (category.depth === 0) {
+      rootCategoryCount += 1;
+      row.classList.add("reader-category-row-root");
+      if (rootCategoryCount > 1) row.classList.add("reader-category-row-root-separated");
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = "reader-category-item";
     button.classList.toggle("active", category.id === readerSelectedCategoryId);
     button.style.paddingLeft = `${10 + category.depth * 14}px`;
-    button.textContent = `${category.name} (${category.paperCount})`;
+    if (isReaderUncategorizedCategory(category)) {
+      button.appendChild(createReaderUncategorizedIcon());
+    }
+    button.appendChild(document.createTextNode(`${category.name} (${category.paperCount})`));
     button.addEventListener("click", () => {
       readerSelectedCategoryId = category.id;
       renderReaderLibrary();
     });
-    readerCategoryList.appendChild(button);
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.className = "reader-category-menu-button menu-button";
+    menuButton.textContent = "...";
+    menuButton.setAttribute("aria-label", `${category.name} category actions`);
+    menuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showReaderCategoryMenu(category, menuButton);
+    });
+    row.appendChild(button);
+    row.appendChild(menuButton);
+    readerCategoryList.appendChild(row);
   });
 
   const selected = categories.find((category) => category.id === readerSelectedCategoryId) || categories[0];
@@ -170,6 +221,128 @@ function renderReaderLibrary() {
     });
     readerPaperList.appendChild(button);
   });
+}
+
+function isReaderUncategorizedCategory(category) {
+  const id = String(category?.id || "").toLowerCase();
+  const name = String(category?.name || "");
+  return id === "uncategorized" || name === "未分类" || name.toLowerCase() === "uncategorized";
+}
+
+function createReaderUncategorizedIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  icon.classList.add("reader-category-icon");
+  [
+    ["path", { d: "M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2H18.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z" }],
+    ["path", { d: "M8 12h8" }],
+  ].forEach(([tag, attrs]) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    icon.appendChild(node);
+  });
+  return icon;
+}
+
+async function moveCurrentPaperToCategory(category) {
+  if (!currentPaper?.id || !category) return;
+  const targetCategory = category.id || category.name;
+  if (!targetCategory || currentPaper.category === category.id) return;
+  const previousText = statusText.textContent;
+  setStatus(`Moving to ${category.name}...`);
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move", id: currentPaper.id, category: targetCategory }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Move failed.");
+    currentPaper = data.paper;
+    readerSelectedCategoryId = currentPaper.category || category.id;
+    await loadReaderLibrary();
+    setStatus(`Moved to ${category.name}.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Move failed.", true);
+  } finally {
+    if (!statusText.classList.contains("error")) {
+      window.setTimeout(() => {
+        if (statusText.textContent.startsWith("Moved to ")) setStatus(previousText || "");
+      }, 1600);
+    }
+  }
+}
+
+function showReaderCategoryMenu(category, anchor) {
+  document.querySelector(".library-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "category-menu reader-category-menu library-menu";
+
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.textContent = "Move Here";
+  moveButton.disabled = !currentPaper?.id || currentPaper.category === category.id;
+  moveButton.addEventListener("click", async () => {
+    menu.remove();
+    await moveCurrentPaperToCategory(category);
+  });
+
+  const renameButton = document.createElement("button");
+  renameButton.type = "button";
+  renameButton.textContent = "Rename";
+  renameButton.disabled = category.locked || !category.id;
+  renameButton.addEventListener("click", async () => {
+    menu.remove();
+    const name = window.prompt("New category name", category.name);
+    if (!name?.trim() || name.trim() === category.name) return;
+    await updateReaderCategory({ action: "rename", id: category.id, name: name.trim() });
+  });
+
+  const createButton = document.createElement("button");
+  createButton.type = "button";
+  createButton.textContent = "Create Subcategory";
+  createButton.addEventListener("click", async () => {
+    menu.remove();
+    const name = window.prompt("Subcategory name");
+    if (!name?.trim()) return;
+    await updateReaderCategory({ action: "create", parentId: category.id, name: name.trim() });
+  });
+
+  menu.append(moveButton, renameButton, createButton);
+  document.body.appendChild(menu);
+  positionReaderMenu(menu, anchor, 210);
+}
+
+function positionReaderMenu(menu, anchor, width) {
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.min(rect.left, window.innerWidth - width - 8)}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+}
+
+async function updateReaderCategory(payload) {
+  try {
+    const response = await apiFetch("/api/library/category", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Category operation failed.");
+    readerLibraryTree = data.tree;
+    if (payload.action === "create" && data.categoryId) {
+      readerSelectedCategoryId = data.categoryId;
+    } else if (payload.action === "rename" && data.categoryId) {
+      if (readerSelectedCategoryId === payload.id) readerSelectedCategoryId = data.categoryId;
+      if (currentPaper?.category === payload.id) currentPaper.category = data.categoryId;
+    }
+    renderReaderLibrary();
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Category operation failed.", true);
+  }
 }
 
 function flattenReaderCategories(node, depth = 0, includeCurrent = false) {
@@ -219,8 +392,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   renderDiscussionHistory(currentPaper.discussion || []);
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo);
-  fileName.textContent = currentPaper.title;
-  fileName.title = currentPaper.title;
+  setReaderPaperTitle(currentPaper.title);
   renderReaderLibrary();
 
   const pdfResponse = await apiFetch(currentPaper.pdfUrl);
@@ -243,8 +415,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     referenceEntries = extractReferenceEntries(extractedText);
     refreshReferenceCitations();
     if (extraction.title) {
-      fileName.textContent = extraction.title;
-      fileName.title = extraction.title;
+      setReaderPaperTitle(extraction.title);
     }
 
     if (extractedText.trim().length < 80) {
@@ -364,8 +535,57 @@ basicInfoButton?.addEventListener("click", async () => {
 
 function initReaderTabs() {
   readerTabs.forEach((tab) => {
-    tab.addEventListener("click", () => setActiveReaderTab(tab.id));
+    tab.addEventListener("click", () => {
+      const isCollapsed = appShell.classList.contains("summary-pane-collapsed");
+      const isActive = tab.classList.contains("active");
+      if (isActive && !isCollapsed) {
+        setSummaryPaneCollapsed(true);
+        return;
+      }
+      if (!isActive) setActiveReaderTab(tab.id);
+      if (isCollapsed) {
+        setSummaryPaneCollapsed(false);
+      }
+    });
   });
+}
+
+function initReaderSideRail() {
+  const tabs = document.querySelector(".reader-tabs");
+  if (readerSideRail && tabs) readerSideRail.append(tabs);
+  if (readerLeftRail) readerLeftRail.append(...[readerSettingsButton, exportPdfButton].filter(Boolean));
+}
+
+exportPdfButton?.addEventListener("click", exportCurrentPaperPdf);
+
+async function exportCurrentPaperPdf() {
+  if (!currentPaper?.id) {
+    setStatus("No paper is open to export.", true);
+    return;
+  }
+
+  exportPdfButton.disabled = true;
+  try {
+    const response = await apiFetch(`/api/library/export?id=${encodeURIComponent(currentPaper.id)}`);
+    const blob = await response.blob();
+    if (!response.ok) {
+      const detail = await blob.text();
+      throw new Error(detail || "Export failed.");
+    }
+    const link = document.createElement("a");
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    link.download = `${currentPaper.title || "paper"}-export.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Export failed.", true);
+  } finally {
+    exportPdfButton.disabled = false;
+  }
 }
 
 function setActiveReaderTab(activeTabId) {
@@ -1266,8 +1486,15 @@ function showPdf(file, displayTitle = "") {
   pageIndicator.hidden = false;
   setPageIndicator(0, 0);
   const title = displayTitle || file.name.replace(/\.pdf$/i, "");
-  fileName.textContent = title;
-  fileName.title = title;
+  setReaderPaperTitle(title);
+}
+
+function setReaderPaperTitle(title) {
+  const normalizedTitle = String(title || "").replace(/\s+/g, " ").trim();
+  const displayTitle = normalizedTitle || "Loading paper...";
+  fileName.textContent = displayTitle;
+  fileName.title = displayTitle;
+  document.title = normalizedTitle ? `${normalizedTitle} - Paper Lantern` : "PaperLantern Paper Reader";
 }
 
 function initPaneResizer() {
@@ -1313,18 +1540,150 @@ function initPaneResizer() {
 function initSummaryPaneToggle() {
   const isCollapsed = localStorage.getItem("summaryPaneCollapsed") === "true";
   setSummaryPaneCollapsed(isCollapsed, false);
-  toggleSummaryPaneButton?.addEventListener("click", () => {
-    const nextCollapsed = !appShell.classList.contains("summary-pane-collapsed");
-    setSummaryPaneCollapsed(nextCollapsed);
-  });
 }
 
 function setSummaryPaneCollapsed(isCollapsed, shouldRefreshPdf = true) {
   appShell.classList.toggle("summary-pane-collapsed", isCollapsed);
-  toggleSummaryPaneButton?.setAttribute("aria-expanded", String(!isCollapsed));
-  toggleSummaryPaneButton?.setAttribute("aria-label", isCollapsed ? "Expand summary pane" : "Collapse summary pane");
   localStorage.setItem("summaryPaneCollapsed", String(isCollapsed));
   if (shouldRefreshPdf) refreshPdfAfterPaneResize();
+}
+
+function initReaderSettings() {
+  readerSettingsButton?.addEventListener("click", openReaderSettings);
+  cloudConfigCloseButton?.addEventListener("click", closeReaderSettings);
+  cloudConfigOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === cloudConfigOverlay) closeReaderSettings();
+  });
+  cloudConfigForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveReaderSettings();
+  });
+  aiApiTestButton?.addEventListener("click", testReaderAiApi);
+  loadReaderSettings().catch((error) => console.error("Failed to load settings.", error));
+}
+
+function openReaderSettings() {
+  if (!cloudConfigOverlay) return;
+  cloudConfigOverlay.hidden = false;
+  aiBaseUrlInput?.focus();
+}
+
+function closeReaderSettings() {
+  if (cloudConfigOverlay) cloudConfigOverlay.hidden = true;
+}
+
+async function loadReaderSettings() {
+  const response = await apiFetch("/api/settings");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+  renderReaderSettings(data);
+}
+
+async function saveReaderSettings() {
+  setReaderSettingsBusy(true);
+  try {
+    const response = await apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput?.value.trim() || "",
+          model: aiModelInput?.value.trim() || "",
+          apiKey: aiApiKeyInput?.value || "",
+        },
+        sync: {
+          provider: cloudProviderSelect?.value || "local",
+          localDir: cloudLocalDirInput?.value.trim() || "",
+          webdavUrl: cloudWebdavUrlInput?.value.trim() || "",
+          username: cloudUsernameInput?.value.trim() || "",
+          password: cloudPasswordInput?.value || "",
+          autoSync: Boolean(cloudAutoPushInput?.checked),
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Settings save failed.");
+    renderReaderSettings(data.settings);
+    if (aiApiKeyInput) aiApiKeyInput.value = "";
+    if (cloudPasswordInput) cloudPasswordInput.value = "";
+    closeReaderSettings();
+    setStatus("Settings saved.");
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Settings save failed.", true);
+  } finally {
+    setReaderSettingsBusy(false);
+  }
+}
+
+async function testReaderAiApi() {
+  setReaderAiApiTestStatus("Testing...", false);
+  setReaderAiApiTestBusy(true);
+  try {
+    const response = await apiFetch("/api/settings/test-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput?.value.trim() || "",
+          model: aiModelInput?.value.trim() || "",
+          apiKey: aiApiKeyInput?.value || "",
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      setReaderAiApiTestStatus(formatReaderAiApiTestError(data), true);
+      return;
+    }
+    const message = data.message ? ` - ${data.message}` : "";
+    setReaderAiApiTestStatus(`Connected: ${data.model || aiModelInput?.value.trim() || "model"}${message}`, false);
+  } catch (error) {
+    console.error(error);
+    setReaderAiApiTestStatus(error.message || "AI API test failed.", true);
+  } finally {
+    setReaderAiApiTestBusy(false);
+  }
+}
+
+function renderReaderSettings(settings) {
+  const ai = settings?.ai || {};
+  const sync = settings?.sync || {};
+  if (aiBaseUrlInput) aiBaseUrlInput.value = ai.baseUrl || "";
+  if (aiModelInput) aiModelInput.value = ai.model || "";
+  if (aiApiKeyInput) aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  if (cloudProviderSelect) cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
+  if (cloudLocalDirInput) cloudLocalDirInput.value = sync.localDir || "";
+  if (cloudWebdavUrlInput) cloudWebdavUrlInput.value = sync.webdavUrl || "";
+  if (cloudUsernameInput) cloudUsernameInput.value = sync.username || "";
+  if (cloudPasswordInput) cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
+  if (cloudAutoPushInput) cloudAutoPushInput.checked = Boolean(sync.autoSync);
+}
+
+function setReaderSettingsBusy(isBusy) {
+  if (cloudConfigForm) cloudConfigForm.querySelector("button[type='submit']").disabled = isBusy;
+  if (readerSettingsButton) readerSettingsButton.disabled = isBusy;
+}
+
+function setReaderAiApiTestBusy(isBusy) {
+  if (!aiApiTestButton) return;
+  aiApiTestButton.disabled = isBusy;
+  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
+}
+
+function setReaderAiApiTestStatus(message, isError) {
+  if (!aiApiTestStatus) return;
+  aiApiTestStatus.textContent = message;
+  aiApiTestStatus.classList.toggle("error", Boolean(isError));
+}
+
+function formatReaderAiApiTestError(data) {
+  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
+  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
+}
+
+function maskSecretTail(tail) {
+  return `****${tail || "****"}`;
 }
 
 function resizePanesToClientX(clientX) {
@@ -1640,8 +1999,7 @@ async function summarizeText(text) {
   renderBasicInfo(data.summary?.basicInfo);
   await saveCurrentPaper({ summary: data.summary });
   if (data.summary?.paperTitle) {
-    fileName.textContent = data.summary.paperTitle;
-    fileName.title = data.summary.paperTitle;
+    setReaderPaperTitle(data.summary.paperTitle);
   }
   clearStatus();
 }
@@ -1662,8 +2020,7 @@ async function refreshOverviewInfo(text) {
   renderBasicInfo(data.overviewInfo?.basicInfo);
   await saveCurrentPaper({ overviewInfo: data.overviewInfo });
   if (data.overviewInfo?.paperTitle) {
-    fileName.textContent = data.overviewInfo.paperTitle;
-    fileName.title = data.overviewInfo.paperTitle;
+    setReaderPaperTitle(data.overviewInfo.paperTitle);
   }
 }
 
@@ -3026,7 +3383,7 @@ function renderMethodSections(sections, options = {}) {
     if (section.motivation) {
       const motivationNode = document.createElement("p");
       motivationNode.className = "method-motivation";
-      motivationNode.textContent = `动机：${section.motivation}`;
+      motivationNode.append(document.createTextNode("动机："), ...formatInlineTechnicalText(section.motivation));
       article.appendChild(motivationNode);
     }
 
@@ -3121,19 +3478,27 @@ function createFormulaExplanationBlock(value) {
   const block = document.createElement("div");
   block.className = "formula-explanation";
 
+  if (parsed.intro) {
+    const introNode = document.createElement("div");
+    introNode.className = "formula-explanation-text";
+    introNode.append(...formatInlineTechnicalText(parsed.intro));
+    block.appendChild(introNode);
+  }
+
   const formulaNode = document.createElement("div");
   formulaNode.className = "formula-display";
-  if (isFormulaRenderCandidate(parsed.formula)) {
+  if (isFormulaRenderCandidate(parsed.formula) && !isInlineMathProse(parsed.formula)) {
     renderFormula(formulaNode, parsed.formula, true);
   } else {
-    formulaNode.textContent = parsed.formula;
+    formulaNode.className = "formula-explanation-text";
+    formulaNode.append(...formatInlineTechnicalText(parsed.formula));
   }
   block.appendChild(formulaNode);
 
   if (parsed.explanation) {
     const explanationNode = document.createElement("div");
     explanationNode.className = "formula-explanation-text";
-    explanationNode.textContent = parsed.explanation;
+    explanationNode.append(...formatInlineTechnicalText(parsed.explanation));
     block.appendChild(explanationNode);
   }
 
@@ -3142,7 +3507,10 @@ function createFormulaExplanationBlock(value) {
 
 function splitFormulaAndExplanation(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return { formula: "", explanation: "" };
+  if (!text) return { intro: "", formula: "", explanation: "" };
+
+  const embeddedDisplayFormula = splitEmbeddedDisplayFormula(text);
+  if (embeddedDisplayFormula) return embeddedDisplayFormula;
 
   const explicitFormula = splitExplicitFormulaAndExplanation(text);
   if (explicitFormula) return explicitFormula;
@@ -3161,18 +3529,39 @@ function splitFormulaAndExplanation(value) {
   const generalSeparator = findFormulaExplanationSeparator(text);
   if (generalSeparator > 0) {
     return {
+      intro: "",
       formula: text.slice(0, generalSeparator).trim(),
       explanation: text.slice(generalSeparator + 1).trim(),
     };
   }
 
-  return { formula: text, explanation: "" };
+  return { intro: "", formula: text, explanation: "" };
+}
+
+function splitEmbeddedDisplayFormula(text) {
+  const dollarStart = text.indexOf("$$");
+  const bracketStart = text.indexOf("\\[");
+  const candidates = [dollarStart, bracketStart].filter((index) => index >= 0).sort((a, b) => a - b);
+  const start = candidates[0];
+  if (start === undefined) return null;
+
+  const isDollar = text.startsWith("$$", start);
+  const close = isDollar ? "$$" : "\\]";
+  const formulaStart = start + (isDollar ? 2 : 2);
+  const end = text.indexOf(close, formulaStart);
+  if (end < 0) return null;
+
+  const intro = text.slice(0, start).trim();
+  const formula = text.slice(start, end + close.length).trim();
+  const explanation = stripFormulaExplanationPrefix(text.slice(end + close.length).trim());
+  return { intro, formula, explanation };
 }
 
 function splitExplicitFormulaAndExplanation(text) {
   const formulaEnd = findLeadingFormulaEnd(text);
   if (formulaEnd <= 0) return null;
   return {
+    intro: "",
     formula: text.slice(0, formulaEnd).trim(),
     explanation: stripFormulaExplanationPrefix(text.slice(formulaEnd).trim()),
   };
@@ -3216,6 +3605,7 @@ function splitFormulaTextAtPattern(text, pattern) {
   const match = text.match(pattern);
   if (!match || match.index <= 0) return null;
   return {
+    intro: "",
     formula: text.slice(0, match.index).trim(),
     explanation: text.slice(match.index + match[0].length).trim(),
   };
@@ -3246,13 +3636,133 @@ function looksLikeExplanation(value) {
 }
 
 function formatInlineTechnicalText(text) {
-  const source = String(text || "");
+  const source = normalizeInlineMathText(text);
+  const tokens = tokenizeInlineMath(source);
+  if (!tokens.some((token) => token.type === "math")) {
+    return renderInlineMarkdownNodes(source);
+  }
+
+  return tokens.flatMap((token) => {
+    if (token.type === "math") return [createInlineFormulaNode(token.value, token.raw)];
+    return renderInlineMarkdownNodes(token.value);
+  });
+}
+
+function normalizeInlineMathText(text) {
+  return String(text || "")
+    .replace(/\\\$/g, "$")
+    .replace(/＄/g, "$")
+    .replace(/\\\(/g, "\\(")
+    .replace(/\\\)/g, "\\)");
+}
+
+function tokenizeInlineMath(source) {
+  const tokens = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const dollarIndex = findNextInlineMathDelimiter(source, cursor);
+    const bracketIndex = source.indexOf("\\(", cursor);
+    const nextIndex = [dollarIndex, bracketIndex].filter((index) => index >= 0).sort((a, b) => a - b)[0] ?? -1;
+    if (nextIndex < 0) break;
+
+    const parsed = source.startsWith("\\(", nextIndex)
+      ? readBracketInlineMath(source, nextIndex)
+      : readDollarInlineMath(source, nextIndex);
+    if (!parsed) {
+      tokens.push({ type: "text", value: source.slice(cursor, nextIndex + 1) });
+      cursor = nextIndex + 1;
+      continue;
+    }
+
+    if (nextIndex > cursor) tokens.push({ type: "text", value: source.slice(cursor, nextIndex) });
+    tokens.push({ type: "math", value: parsed.value, raw: parsed.raw });
+    cursor = parsed.end;
+  }
+
+  if (cursor < source.length) tokens.push({ type: "text", value: source.slice(cursor) });
+  return tokens;
+}
+
+function findNextInlineMathDelimiter(source, startIndex) {
+  for (let index = startIndex; index < source.length; index += 1) {
+    if (source[index] !== "$" || isEscaped(source, index)) continue;
+    if (source[index + 1] === "$" || source[index - 1] === "$") continue;
+    return index;
+  }
+  return -1;
+}
+
+function readDollarInlineMath(source, startIndex) {
+  const endIndex = findClosingDollar(source, startIndex + 1);
+  if (endIndex < 0) return null;
+  const value = source.slice(startIndex + 1, endIndex).trim();
+  if (!isValidInlineFormulaContent(value)) return null;
+  return {
+    value,
+    raw: source.slice(startIndex, endIndex + 1),
+    end: endIndex + 1,
+  };
+}
+
+function readBracketInlineMath(source, startIndex) {
+  const endIndex = source.indexOf("\\)", startIndex + 2);
+  if (endIndex < 0) return null;
+  const value = source.slice(startIndex + 2, endIndex).trim();
+  if (!isValidInlineFormulaContent(value)) return null;
+  return {
+    value,
+    raw: source.slice(startIndex, endIndex + 2),
+    end: endIndex + 2,
+  };
+}
+
+function findClosingDollar(source, startIndex) {
+  for (let index = startIndex; index < source.length; index += 1) {
+    if (source[index] !== "$" || isEscaped(source, index)) continue;
+    if (source[index + 1] === "$" || source[index - 1] === "$") continue;
+    return index;
+  }
+  return -1;
+}
+
+function isEscaped(source, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function isValidInlineFormulaContent(value) {
+  if (!value || /\n/.test(value)) return false;
+  if (value.length > 180) return false;
+  return /[A-Za-z0-9\\_^{}=+\-*/()[\]|.,<>α-ωΑ-Ω]/.test(value);
+}
+
+function createInlineFormulaNode(value, raw) {
+  const node = document.createElement("span");
+  node.className = "formula-inline";
+  if (!window.katex) {
+    node.textContent = raw || value;
+    return node;
+  }
+
+  renderFormula(node, value, false);
+  return node;
+}
+
+function renderInlineMarkdownNodes(source) {
   const renderer = getDiscussionMarkdownRenderer();
   if (!renderer) return [document.createTextNode(source)];
 
   const template = document.createElement("template");
-  template.innerHTML = renderer.renderInline(source);
+  template.innerHTML = renderer.renderInline(escapeMarkdownMathDelimiters(source));
   return Array.from(template.content.childNodes);
+}
+
+function escapeMarkdownMathDelimiters(source) {
+  return String(source || "").replace(/\$/g, "\\$").replace(/\\\(/g, "\\\\(").replace(/\\\)/g, "\\\\)");
 }
 
 function normalizeFormulaSource(value) {
@@ -3267,6 +3777,16 @@ function normalizeFormulaSource(value) {
 function isFormulaRenderCandidate(value) {
   const text = String(value || "").trim();
   return isExplicitFormulaSource(text) || looksLikeStandaloneFormula(text);
+}
+
+function isInlineMathProse(value) {
+  const text = String(value || "").trim();
+  if (!/(^|[^$])\$[^$\n]+\$/.test(text) && !/\\\([^)]*\\\)/.test(text)) return false;
+  const withoutMath = text
+    .replace(/\$[^$\n]+\$/g, "")
+    .replace(/\\\([^)]*\\\)/g, "")
+    .trim();
+  return /[\u4e00-\u9fff]/.test(withoutMath) || /\b[a-z]{4,}\b/i.test(withoutMath);
 }
 
 function isExplicitFormulaSource(value) {

@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
+    <link rel="icon" type="image/jpeg" href="./.cache/figure.jpg" />
+    <link rel="apple-touch-icon" href="./.cache/figure.jpg" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -14,24 +16,31 @@
   <body>
     <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
       <div class="reader-library-header">
-        <button id="backToLibraryButton" class="ghost" type="button">Back to Library</button>
-        <button id="closeLibraryDrawerButton" class="icon-button drawer-close-button" type="button" aria-label="Close library"></button>
+        <button id="backToLibraryButton" class="ghost reader-library-back-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-13z"></path>
+            <path d="M8 8h8"></path>
+            <path d="M8 12h8"></path>
+            <path d="M8 16h5"></path>
+          </svg>
+          <span>Library</span>
+        </button>
       </div>
       <section class="reader-library-section">
-        <h2>Library</h2>
         <div id="readerCategoryList" class="reader-category-list"></div>
       </section>
       <section class="reader-library-section reader-paper-section">
-        <h2 id="readerLibraryTitle">Papers</h2>
+        <h2 id="readerLibraryTitle" hidden>Papers</h2>
         <div id="readerPaperList" class="reader-paper-list"></div>
       </section>
     </aside>
-    <button id="openLibraryDrawerButton" class="reader-drawer-tab" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">Library</button>
     <main class="app-shell">
+      <nav id="readerLeftRail" class="reader-left-rail" aria-label="Reader library controls">
+        <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
+          <img class="site-logo reader-rail-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
+        </button>
+      </nav>
       <section class="reader-pane" aria-label="Paper reader">
-        <header class="toolbar">
-          <h1 id="fileName" class="paper-title">Loading paper...</h1>
-        </header>
         <div class="paper-frame">
           <div id="pageIndicator" class="page-indicator" hidden>0 / 0</div>
           <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
@@ -51,7 +60,11 @@
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="summary-pane" aria-label="Paper side panel">
-        <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs">
+        <header class="summary-titlebar">
+          <h1 id="fileName" class="paper-title">Loading paper...</h1>
+        </header>
+        <div class="summary-content-shell">
+          <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs" aria-orientation="vertical">
           <button id="withAiTab" class="reader-tab active" type="button" role="tab" aria-selected="true" aria-controls="withAiPanel" aria-label="With AI" title="With AI">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"></path>
@@ -66,15 +79,15 @@
               <path d="M8 16h5"></path>
             </svg>
           </button>
-        </div>
+          </div>
 
-        <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
+          <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
           <div class="summary-scroll">
-            <section class="summary-card summary-group collapsible-card" data-collapsible-card>
+            <section class="summary-card summary-group ai-summary-panel collapsible-card" data-collapsible-card>
               <div class="summary-group-header">
                 <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="aiSummaryContent">
-                  <span>AI Summary</span>
                   <span class="collapse-icon" aria-hidden="true"></span>
+                  <span>AI Summary</span>
                 </button>
                 <button id="summarizeButton" class="icon-button refresh-button" type="button" aria-label="Regenerate summary" title="Regenerate summary">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -89,8 +102,8 @@
 
                 <section class="summary-card collapsible-card" data-collapsible-card>
                   <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
-                    <span>Keywords</span>
                     <span class="collapse-icon" aria-hidden="true"></span>
+                    <span>Keywords</span>
                   </button>
                   <div id="keywords" class="keywords"></div>
                 </section>
@@ -98,8 +111,8 @@
                 <section class="summary-card collapsible-card" data-collapsible-card>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
-                      <span>Three-Line Summary</span>
                       <span class="collapse-icon" aria-hidden="true"></span>
+                      <span>Three-Line Summary</span>
                     </button>
                     <button id="copyThreeLineButton" class="icon-button copy-section-button" type="button" aria-label="Copy three-line summary" title="Copy three-line summary">
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -121,8 +134,8 @@
                 <section class="summary-card method-card collapsible-card" data-collapsible-card>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
-                      <span>Method Breakdown</span>
                       <span class="collapse-icon" aria-hidden="true"></span>
+                      <span>Method Breakdown</span>
                     </button>
                     <button id="copyMethodButton" class="icon-button copy-section-button" type="button" aria-label="Copy method breakdown" title="Copy method breakdown">
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -173,9 +186,9 @@
               </svg>
             </button>
           </form>
-        </div>
+          </div>
 
-        <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
+          <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
           <section class="summary-card basic-info-card">
             <div class="summary-group-header">
               <h2>基本信息</h2>
@@ -198,12 +211,85 @@
               <dd id="basicInfoInstitutions">Waiting</dd>
             </dl>
           </section>
+          </div>
         </div>
       </aside>
-      <button id="toggleSummaryPaneButton" class="summary-pane-tab" type="button" aria-label="Collapse summary pane" aria-expanded="true">
-        <span class="summary-pane-tab-icon" aria-hidden="true"></span>
+      <nav id="readerSideRail" class="reader-side-rail" aria-label="Reader side controls"></nav>
+      <button id="readerSettingsButton" class="reader-settings-button" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+          <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+        </svg>
+      </button>
+      <button id="exportPdfButton" class="reader-export-button" type="button" aria-label="Export PDF" title="Export PDF">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 3v11"></path>
+          <path d="m7 9 5 5 5-5"></path>
+          <path d="M5 19h14"></path>
+        </svg>
       </button>
     </main>
+    <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
+      <form id="cloudConfigForm" class="cloud-config-card">
+        <div class="cloud-config-header">
+          <h2>Settings</h2>
+          <button id="cloudConfigCloseButton" class="drawer-close-button" type="button" aria-label="Close"></button>
+        </div>
+        <div class="settings-section-title">AI API</div>
+        <label>
+          <span>API Base URL</span>
+          <input id="aiBaseUrlInput" type="url" placeholder="https://api.openai.com/v1" />
+        </label>
+        <label>
+          <span>Model</span>
+          <input id="aiModelInput" type="text" placeholder="gpt-4o-mini" />
+        </label>
+        <label>
+          <span>API Key</span>
+          <input id="aiApiKeyInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" />
+        </label>
+        <div class="ai-api-test-row">
+          <button id="aiApiTestButton" class="secondary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5h8" />
+              <path d="M12 5v5" />
+              <path d="M9 10h6l4 8a2 2 0 0 1-1.8 3H6.8A2 2 0 0 1 5 18l4-8z" />
+            </svg>
+            <span>Test API</span>
+          </button>
+          <p id="aiApiTestStatus" class="ai-api-test-status" role="status"></p>
+        </div>
+        <div class="settings-section-title">Cloud Sync</div>
+        <label>
+          <span>Sync Provider</span>
+          <select id="cloudProviderSelect">
+            <option value="local">Google Drive / local sync folder</option>
+            <option value="webdav">Jianguoyun / WebDAV</option>
+          </select>
+        </label>
+        <label>
+          <span>Local Sync Folder</span>
+          <input id="cloudLocalDirInput" type="text" placeholder="C:\Users\you\Google Drive\PaperLantern" />
+        </label>
+        <label>
+          <span>WebDAV URL</span>
+          <input id="cloudWebdavUrlInput" type="url" placeholder="https://dav.jianguoyun.com/dav/PaperLantern" />
+        </label>
+        <label>
+          <span>Account</span>
+          <input id="cloudUsernameInput" type="text" autocomplete="username" />
+        </label>
+        <label>
+          <span>Password / App Password</span>
+          <input id="cloudPasswordInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
+        </label>
+        <label class="cloud-auto-sync-row">
+          <input id="cloudAutoPushInput" type="checkbox" />
+          <span>Auto sync after library changes</span>
+        </label>
+        <button type="submit">Save Settings</button>
+      </form>
+    </div>
     <script src="./reader.js" type="module"></script>
   </body>
 </html>

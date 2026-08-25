@@ -4,78 +4,82 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
+    <link rel="icon" type="image/jpeg" href="./.cache/figure.jpg" />
+    <link rel="apple-touch-icon" href="./.cache/figure.jpg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main id="libraryView" class="library-view" aria-label="Literature library">
-      <header class="library-header">
-        <div>
-          <h1>Paper Lantern</h1>
-          <p id="libraryRoot" hidden></p>
-        </div>
-        <div class="library-header-actions">
-          <form id="uploadForm" class="upload-form">
-            <div class="upload-menu-wrap">
-              <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
-                <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 3v12" />
-                  <path d="m7 8 5-5 5 5" />
-                  <path d="M5 15v4h14v-4" />
-                </svg>
-              </button>
-              <div id="uploadMenu" class="upload-menu" role="menu" hidden>
-                <label class="upload-drop-option" role="menuitem">
-                  <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
-                  <span class="upload-drop-box">
-                    <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
-                      <path d="M24 34V12" />
-                      <path d="m14 22 10-10 10 10" />
-                      <path d="M12 36h24" />
-                    </svg>
-                    <strong>Upload PDF</strong>
-                    <small>Drop a file here or click to choose</small>
-                  </span>
-                </label>
-                <div class="arxiv-upload-panel" role="menuitem">
-                  <label for="arxivUploadInput">arXiv ID or URL</label>
-                  <div class="arxiv-upload-row">
-                    <input id="arxivUploadInput" type="text" placeholder="2401.12345 or arxiv.org/abs/..." autocomplete="off" />
-                    <button id="arxivUploadButton" type="button">Upload</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </form>
-          <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
-              <path d="M4 5v4h4" />
-              <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
-              <path d="M20 19v-4h-4" />
-            </svg>
-          </button>
-          <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
-              <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
-            </svg>
-            <small id="cloudSyncStatus" hidden>Checking...</small>
-          </button>
-        </div>
-      </header>
       <div class="library-layout">
         <aside class="category-panel">
-          <h2>Categories</h2>
+          <div class="brand-lockup library-brand">
+            <img class="site-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
+            <div>
+              <h1>Paper Lantern</h1>
+              <p id="libraryRoot" hidden></p>
+            </div>
+          </div>
           <label class="category-search">
             <span>Search</span>
             <input id="librarySearchInput" type="search" placeholder="Search title or category" autocomplete="off" />
           </label>
           <div id="categoryTree" class="category-tree"></div>
+          <div class="library-footer-actions">
+            <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+                <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+              </svg>
+              <small id="cloudSyncStatus" hidden>Checking...</small>
+            </button>
+            <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
+                <path d="M4 5v4h4" />
+                <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
+                <path d="M20 19v-4h-4" />
+              </svg>
+            </button>
+          </div>
         </aside>
         <section class="paper-list-panel">
           <div class="paper-list-header">
-            <h2 id="currentCategoryName">All Papers</h2>
-            <p id="libraryStatus" role="status"></p>
+            <div>
+              <h2 id="currentCategoryName">All Papers</h2>
+              <p id="libraryStatus" role="status"></p>
+            </div>
+            <form id="uploadForm" class="upload-form">
+              <div class="upload-menu-wrap">
+                <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
+                  <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v12" />
+                    <path d="m7 8 5-5 5 5" />
+                    <path d="M5 15v4h14v-4" />
+                  </svg>
+                </button>
+                <div id="uploadMenu" class="upload-menu" role="menu" hidden>
+                  <label class="upload-drop-option" role="menuitem">
+                    <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
+                    <span class="upload-drop-box">
+                      <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
+                        <path d="M24 34V12" />
+                        <path d="m14 22 10-10 10 10" />
+                        <path d="M12 36h24" />
+                      </svg>
+                      <strong>Upload PDF</strong>
+                      <small>Drop a file here or click to choose</small>
+                    </span>
+                  </label>
+                  <div class="arxiv-upload-panel" role="menuitem">
+                    <label for="arxivUploadInput">arXiv ID or URL</label>
+                    <div class="arxiv-upload-row">
+                      <input id="arxivUploadInput" type="text" placeholder="2401.12345 or arxiv.org/abs/..." autocomplete="off" />
+                      <button id="arxivUploadButton" type="button">Upload</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
           </div>
           <div id="paperList" class="paper-list"></div>
         </section>
