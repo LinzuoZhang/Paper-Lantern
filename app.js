@@ -19,6 +19,8 @@ const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton")
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiApiTestButton = document.querySelector("#aiApiTestButton");
+const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
 const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
 const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
@@ -35,6 +37,7 @@ let libraryTree = null;
 let selectedCategoryId = "";
 let apiBaseUrl = "";
 let searchQuery = "";
+let arxivDownloadOverlayTimer = null;
 
 loadLibrary();
 loadCloudSyncStatus();
@@ -81,6 +84,9 @@ cloudConfigOverlay.addEventListener("pointerdown", (event) => {
 cloudConfigForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveCloudSyncConfig();
+});
+aiApiTestButton.addEventListener("click", async () => {
+  await testAiApi();
 });
 
 uploadForm.addEventListener("dragenter", handleUploadDrag);
@@ -153,6 +159,8 @@ async function uploadPdfToLibrary(file, title, category) {
 
 async function uploadArxivPaper(arxivId) {
   setLibraryStatus("Downloading arXiv PDF...");
+  showArxivDownloadOverlay("Downloading arXiv PDF...", arxivId);
+  arxivUploadButton.disabled = true;
   try {
     const response = await apiFetch("/api/library/arxiv", {
       method: "POST",
@@ -162,14 +170,53 @@ async function uploadArxivPaper(arxivId) {
     const data = await readJsonResponse(response);
     if (!response.ok) {
       setLibraryStatus(data.detail || data.error || "arXiv upload failed.", true);
+      showArxivDownloadOverlay(data.detail || data.error || "arXiv upload failed.", arxivId, true);
       return;
     }
     reportSyncResult(data.sync);
+    showArxivDownloadOverlay("Opening paper...", arxivId);
     openPaperReader(data.paper.id, true);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "arXiv upload failed.", true);
+    showArxivDownloadOverlay(error.message || "arXiv upload failed.", arxivId, true);
+  } finally {
+    arxivUploadButton.disabled = false;
   }
+}
+
+function showArxivDownloadOverlay(message, arxivId = "", isError = false) {
+  window.clearTimeout(arxivDownloadOverlayTimer);
+  let overlay = document.querySelector("#arxivDownloadOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "arxivDownloadOverlay";
+    overlay.className = "arxiv-download-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <section class="arxiv-download-card">
+        <div class="arxiv-download-spinner" aria-hidden="true"></div>
+        <div>
+          <strong class="arxiv-download-title"></strong>
+          <p class="arxiv-download-detail"></p>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+  }
+
+  overlay.classList.toggle("error", isError);
+  overlay.querySelector(".arxiv-download-title").textContent = message;
+  overlay.querySelector(".arxiv-download-detail").textContent = arxivId ? `arXiv: ${arxivId}` : "";
+  if (isError) {
+    arxivDownloadOverlayTimer = window.setTimeout(hideArxivDownloadOverlay, 2600);
+  }
+}
+
+function hideArxivDownloadOverlay() {
+  window.clearTimeout(arxivDownloadOverlayTimer);
+  document.querySelector("#arxivDownloadOverlay")?.remove();
 }
 
 function getActiveUploadCategory() {
@@ -698,6 +745,51 @@ async function saveCloudSyncConfig() {
   } finally {
     setCloudSyncBusy(false);
   }
+}
+
+async function testAiApi() {
+  setAiApiTestStatus("Testing...", false);
+  setAiApiTestBusy(true);
+  try {
+    const response = await apiFetch("/api/settings/test-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput.value.trim(),
+          model: aiModelInput.value.trim(),
+          apiKey: aiApiKeyInput.value,
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      setAiApiTestStatus(formatAiApiTestError(data), true);
+      return;
+    }
+    const message = data.message ? ` · ${data.message}` : "";
+    setAiApiTestStatus(`Connected: ${data.model || aiModelInput.value.trim() || "model"}${message}`, false);
+  } catch (error) {
+    console.error(error);
+    setAiApiTestStatus(error.message || "AI API test failed.", true);
+  } finally {
+    setAiApiTestBusy(false);
+  }
+}
+
+function setAiApiTestBusy(isBusy) {
+  aiApiTestButton.disabled = isBusy;
+  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
+}
+
+function setAiApiTestStatus(message, isError) {
+  aiApiTestStatus.textContent = message;
+  aiApiTestStatus.classList.toggle("error", Boolean(isError));
+}
+
+function formatAiApiTestError(data) {
+  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
+  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
 }
 
 async function runCloudSync() {

@@ -208,6 +208,40 @@ body {
   font: inherit;
 }
 
+.ai-api-test-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-api-test-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.ai-api-test-row svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
+.ai-api-test-status {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .cloud-auto-sync-row {
   display: flex !important;
   grid-template-columns: none;
@@ -1146,6 +1180,70 @@ button {
   font-weight: 800;
 }
 
+.arxiv-download-overlay {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(23, 33, 29, 0.24);
+  backdrop-filter: blur(4px);
+}
+
+.arxiv-download-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  width: min(360px, calc(100vw - 36px));
+  padding: 18px;
+  border: 1px solid rgba(191, 204, 199, 0.8);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(23, 33, 29, 0.2);
+  color: var(--ink);
+}
+
+.arxiv-download-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(45, 125, 96, 0.18);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: arxiv-download-spin 800ms linear infinite;
+}
+
+.arxiv-download-title {
+  display: block;
+  color: var(--accent-strong);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.arxiv-download-detail {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.arxiv-download-overlay.error .arxiv-download-spinner {
+  border-color: rgba(138, 75, 21, 0.18);
+  border-top-color: var(--warn);
+}
+
+.arxiv-download-overlay.error .arxiv-download-title {
+  color: var(--warn);
+}
+
+@keyframes arxiv-download-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .upload-menu-icon-file {
   position: relative;
 }
@@ -1243,6 +1341,7 @@ select {
   overflow: auto;
   padding: 18px;
   background: #e7eceb;
+  user-select: none;
 }
 
 .pdf-pages {
@@ -1265,6 +1364,7 @@ select {
   margin: 0 0 18px;
   background: #fff;
   box-shadow: 0 10px 26px rgba(29, 37, 32, 0.16);
+  user-select: none;
 }
 
 .pdf-page canvas,
@@ -1276,6 +1376,7 @@ select {
 
 .pdf-page canvas {
   z-index: 1;
+  user-select: none;
 }
 
 .pdf-highlight-layer {
@@ -1311,6 +1412,7 @@ select {
   line-height: 1;
   opacity: 1;
   text-size-adjust: none;
+  user-select: none;
 }
 
 .pdf-text-layer span,
@@ -1320,6 +1422,14 @@ select {
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  user-select: text;
+}
+
+body.selecting-pdf-text .summary-pane,
+body.selecting-pdf-text .toolbar,
+body.selecting-pdf-text .reader-library-drawer,
+body.selecting-pdf-text .selection-menu {
+  user-select: none;
 }
 
 .pdf-text-layer ::selection {
@@ -2645,19 +2755,29 @@ select {
 
 .formula-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin: 14px 0 4px;
+}
+
+.formula-explanation {
+  display: grid;
+  gap: 6px;
 }
 
 .formula-display {
   display: block;
   width: 100%;
   overflow-x: auto;
-  padding: 8px 12px;
+  padding: 8px 12px 4px;
   border: 0;
   background: transparent;
   color: #1f2723;
   text-align: center;
+}
+
+.formula-explanation-text {
+  line-height: 1.55;
+  text-align: left;
 }
 
 .term-inline,
@@ -2872,6 +2992,7 @@ button:hover:not(:disabled),
 }
 
 button.ghost,
+.secondary-button,
 .refresh-button,
 .drawer-close-button,
 .category-menu-button,
@@ -2897,6 +3018,7 @@ button.ghost,
 }
 
 button.ghost:hover,
+.secondary-button:hover,
 .refresh-button:hover,
 .drawer-close-button:hover,
 .category-menu-button:hover,

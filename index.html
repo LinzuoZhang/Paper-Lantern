@@ -100,6 +100,17 @@
           <span>API Key</span>
           <input id="aiApiKeyInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" />
         </label>
+        <div class="ai-api-test-row">
+          <button id="aiApiTestButton" class="secondary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5h8" />
+              <path d="M12 5v5" />
+              <path d="M9 10h6l4 8a2 2 0 0 1-1.8 3H6.8A2 2 0 0 1 5 18l4-8z" />
+            </svg>
+            <span>Test API</span>
+          </button>
+          <p id="aiApiTestStatus" class="ai-api-test-status" role="status"></p>
+        </div>
         <div class="settings-section-title">Cloud Sync</div>
         <label>
           <span>Sync Provider</span>

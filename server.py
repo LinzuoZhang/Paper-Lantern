@@ -24,15 +24,16 @@ CONFIG_FILE = BASE_DIR / ".env" / "paperlantern_config.json"
 LEGACY_AI_ENV_FILE = BASE_DIR / ".env" / "ai.env"
 LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
 PROMPT_DIR = BASE_DIR / "prompts" / "ai"
-MAX_PAPER_CHARS = 30000
+MAX_PAPER_CHARS = 5_000_000
 MAX_TRANSLATE_CHARS = 4000
 MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
 MAX_METHOD_POINT_WORKERS = 5
-MAX_EXTRACTED_TEXT_CHARS = 2_000_000
+MAX_EXTRACTED_TEXT_CHARS = 40_000_000
 EXTRACTED_TEXT_FILE = "extracted_text.txt"
+AI_RUNS_DIR = "ai_runs"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
@@ -61,12 +62,15 @@ def get_ai_config():
     api_key = get_secret(config, "ai", "apiKey").strip()
     model = str(config.get("ai", {}).get("model", "")).strip() or "gpt-4o-mini"
     base_url = str(config.get("ai", {}).get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
-    base_url = base_url.rstrip("/")
-    if base_url.endswith("/chat/completions"):
-        chat_completions_url = base_url
-    else:
-        chat_completions_url = f"{base_url}/chat/completions"
+    chat_completions_url = build_chat_completions_url(base_url)
     return api_key, model, chat_completions_url
+
+
+def build_chat_completions_url(base_url):
+    base_url = str(base_url or DEFAULT_API_BASE_URL).strip().rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        return base_url
+    return f"{base_url}/chat/completions"
 
 
 def parse_query_value(path, name):
@@ -296,6 +300,55 @@ def read_text_file(path):
 def write_text_file(path, text):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(str(text), encoding="utf-8")
+
+
+def create_ai_run_dir(paper_id):
+    paper_dir = paper_dir_from_id(paper_id)
+    if not paper_dir:
+        return None
+    run_root = paper_dir / AI_RUNS_DIR
+    run_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = run_root / stamp
+    suffix = 1
+    while run_dir.exists():
+        suffix += 1
+        run_dir = run_root / f"{stamp}-{suffix}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def paper_dir_from_id(paper_id):
+    db = load_library_db()
+    record = db["papers"].get(str(paper_id or ""))
+    if not record:
+        return None
+    paper_dir = paper_dir_from_record(record)
+    return paper_dir if paper_dir.exists() else None
+
+
+def write_ai_stage(run_dir, name, data):
+    if not run_dir:
+        return
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("_") or "stage"
+    write_json(run_dir / f"{safe_name}.json", data)
+
+
+def write_ai_error(run_dir, name, exc):
+    data = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+    }
+    raw = getattr(exc, "raw", None)
+    if raw is not None:
+        data["raw"] = raw
+    write_ai_stage(run_dir, f"error_{name}", data)
+
+
+class AIResponseError(RuntimeError):
+    def __init__(self, message, raw=None):
+        super().__init__(message)
+        self.raw = raw
 
 
 def get_cloud_sync_config():
@@ -817,6 +870,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/settings":
             self._handle_settings_save()
             return
+        if request_path == "/api/settings/test-ai":
+            self._handle_ai_api_test()
+            return
 
         if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss"}:
             self.send_error(404, "Not found")
@@ -893,7 +949,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     question,
                     payload.get("summary", {}),
                     payload.get("history", []),
+                    stream=bool(payload.get("stream")),
                 )
+                if bool(payload.get("stream")):
+                    first_chunk = next(answer, None)
+                    self._send_discussion_stream(answer, first_chunk)
+                    return
                 self._send_json(200, {"answer": answer})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -907,13 +968,18 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
+            run_dir = create_ai_run_dir(payload.get("paperId", ""))
+            write_ai_stage(run_dir, "request_overview", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
             try:
-                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text)
+                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+                write_ai_stage(run_dir, "overview_final", {"overviewInfo": overview})
                 self._send_json(200, {"overviewInfo": overview, "raw": raw})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
+                write_ai_stage(run_dir, "error_overview_http", {"status": exc.code, "detail": detail})
                 self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
             except Exception as exc:
+                write_ai_error(run_dir, "overview", exc)
                 self._send_json(500, {"error": "Failed to extract paper overview.", "detail": str(exc)})
             return
 
@@ -922,12 +988,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
-            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text)
+            run_dir = create_ai_run_dir(payload.get("paperId", ""))
+            write_ai_stage(run_dir, "request_summary", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
+            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+            write_ai_stage(run_dir, "summary_final", {"summary": summary})
             self._send_json(200, {"summary": summary, "raw": raw})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            write_ai_stage(locals().get("run_dir"), "error_summary_http", {"status": exc.code, "detail": detail})
             self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
         except Exception as exc:
+            write_ai_error(locals().get("run_dir"), "summary", exc)
             self._send_json(500, {"error": "Failed to summarize paper.", "detail": str(exc)})
 
     def do_GET(self):
@@ -1013,6 +1084,26 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_discussion_stream(self, chunks, first_chunk=None):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            if first_chunk:
+                data = json.dumps({"delta": first_chunk}, ensure_ascii=False)
+                self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+            for chunk in chunks:
+                data = json.dumps({"delta": chunk}, ensure_ascii=False)
+                self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _handle_library_upload(self):
         form = cgi.FieldStorage(
@@ -1216,29 +1307,46 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         except OSError as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _handle_ai_api_test(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            result = test_ai_api(payload)
+            self._send_json(200, result)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            self._send_json(exc.code, {"error": "AI API test failed.", "detail": detail})
+        except Exception as exc:
+            self._send_json(500, {"error": "AI API test failed.", "detail": str(exc)})
 
-def summarize_paper(api_key, model, chat_completions_url, paper_text):
+
+def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt)
+    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir)
     method_points = normalize_method_points(overview.get("methodPoints", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
-    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points)
+    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=run_dir)
     point_details = [item["detail"] for item in point_results]
     point_raws = [item["raw"] for item in point_results]
 
+    polish_prompt = build_method_polish_prompt(paper_excerpt, method_points, point_details)
     polished, polished_raw = call_chat_completions(
         api_key,
         model,
         chat_completions_url,
-        build_method_polish_prompt(paper_excerpt, method_points, point_details),
+        polish_prompt,
         system_prompt=build_method_polish_system_prompt(),
     )
+    write_ai_stage(run_dir, "method_polish", {"prompt": polish_prompt, "parsed": polished, "raw": polished_raw})
+    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir)
 
     three_line = overview.get("threeLineSummary", {})
-    method_sections = normalize_method_sections(polished.get("methodSections", []))
-    method_text = polished.get("method", "") or sections_to_text(method_sections)
+    method_sections = normalize_method_sections(formatted.get("methodSections", []))
+    method_text = formatted.get("method", "") or sections_to_text(method_sections)
     summary = {
         "paperTitle": str(overview.get("paperTitle", "")).strip(),
         "keywords": normalize_keywords(overview.get("keywords", [])),
@@ -1248,30 +1356,134 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text):
             "method": method_text,
             "conclusion": three_line.get("conclusion", ""),
         },
-        "methodOverview": str(polished.get("methodOverview", "")).strip(),
+        "methodOverview": str(formatted.get("methodOverview", "")).strip(),
         "methodSections": method_sections,
-        "methodConclusion": str(polished.get("methodConclusion", "")).strip(),
+        "methodConclusion": str(formatted.get("methodConclusion", "")).strip(),
     }
     raw = {
         "overview": overview_raw,
         "method_point_details": point_raws,
         "method_polish": polished_raw,
+        "method_format": format_raw,
         "method_points": method_points,
         "point_details": point_details,
     }
     return summary, raw
 
 
-def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points):
+def test_ai_api(payload):
+    config = load_config(BASE_DIR)
+    ai_payload = payload.get("ai", {}) if isinstance(payload.get("ai"), dict) else {}
+    saved_ai = config.get("ai", {})
+    api_key = str(ai_payload.get("apiKey", "")).strip() or get_secret(config, "ai", "apiKey").strip()
+    model = str(ai_payload.get("model", "")).strip() or str(saved_ai.get("model", "")).strip() or "gpt-4o-mini"
+    base_url = str(ai_payload.get("baseUrl", "")).strip() or str(saved_ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
+        raise ValueError("Missing AI API key. Enter an API key or save one first.")
+
+    upstream_payload = {
+        "model": model,
+        "temperature": 0,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are testing an AI API connection. Reply with exactly: OK",
+            },
+            {"role": "user", "content": "Connection test."},
+        ],
+    }
+    raw = post_chat_completion(api_key, build_chat_completions_url(base_url), upstream_payload, timeout=30)
+    content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return {
+        "ok": True,
+        "baseUrl": base_url.rstrip("/"),
+        "model": raw.get("model") or model,
+        "message": str(content or "").strip()[:200],
+    }
+
+
+def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None):
+    format_prompt = build_method_format_prompt(method_json)
+    try:
+        formatted, raw = call_chat_completions(
+            api_key,
+            model,
+            chat_completions_url,
+            format_prompt,
+            system_prompt=build_method_format_system_prompt(),
+            temperature=0,
+        )
+        write_ai_stage(run_dir, "method_format", {"prompt": format_prompt, "parsed": formatted, "raw": raw})
+    except Exception as exc:
+        formatted = method_json if isinstance(method_json, dict) else {}
+        raw = {"format_error": str(exc)}
+        write_ai_error(run_dir, "method_format", exc)
+    return sanitize_method_formula_format(merge_method_breakdown(method_json, formatted)), raw
+
+
+def merge_method_breakdown(original, formatted):
+    original = original if isinstance(original, dict) else {}
+    formatted = formatted if isinstance(formatted, dict) else {}
+    merged = dict(original)
+    for key in ("method", "methodOverview", "methodConclusion"):
+        if str(formatted.get(key, "")).strip():
+            merged[key] = formatted[key]
+
+    original_sections = original.get("methodSections", [])
+    formatted_sections = formatted.get("methodSections", [])
+    if isinstance(formatted_sections, list) and formatted_sections:
+        merged_sections = []
+        for index, section in enumerate(formatted_sections):
+            if not isinstance(section, dict):
+                continue
+            fallback = original_sections[index] if isinstance(original_sections, list) and index < len(original_sections) and isinstance(original_sections[index], dict) else {}
+            merged_section = dict(fallback)
+            for key in ("title", "motivation", "summary", "bullets", "formulas"):
+                value = section.get(key)
+                if value:
+                    merged_section[key] = value
+            merged_sections.append(merged_section)
+        if merged_sections:
+            merged["methodSections"] = merged_sections
+    return merged
+
+
+def sanitize_method_formula_format(method_json):
+    if not isinstance(method_json, dict):
+        return {}
+    sanitized = dict(method_json)
+    sections = []
+    for section in sanitized.get("methodSections", []):
+        if not isinstance(section, dict):
+            continue
+        item = dict(section)
+        item["formulas"] = [sanitize_formula_item(formula) for formula in normalize_list(item.get("formulas", []))]
+        sections.append(item)
+    sanitized["methodSections"] = sections
+    return sanitized
+
+
+def sanitize_formula_item(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return fix_multicharacter_subscripts(text)
+
+
+def fix_multicharacter_subscripts(text):
+    return re.sub(r"_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})", r"_{\1}", text)
+
+
+def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None):
     total = len(method_points)
     max_workers = min(MAX_METHOD_POINT_WORKERS, total)
     if max_workers <= 1:
-        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total) for index, point in enumerate(method_points, start=1)]
+        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir) for index, point in enumerate(method_points, start=1)]
 
     results = [None] * total
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
-            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total): index - 1
+            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir): index - 1
             for index, point in enumerate(method_points, start=1)
         }
         for future in as_completed(future_to_index):
@@ -1279,14 +1491,15 @@ def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt,
     return results
 
 
-def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total):
+def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None):
+    prompt = build_method_point_prompt(paper_excerpt, point, index, total)
     detail, detail_raw = call_chat_completions(
         api_key,
         model,
         chat_completions_url,
-        build_method_point_prompt(paper_excerpt, point, index, total),
+        prompt,
     )
-    return {
+    result = {
         "detail": {
             "title": detail.get("title") or point["title"],
             "motivation": detail.get("motivation", ""),
@@ -1296,25 +1509,27 @@ def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, 
         },
         "raw": detail_raw,
     }
+    write_ai_stage(run_dir, f"method_point_{index:02d}", {"prompt": prompt, "parsed": result["detail"], "raw": detail_raw})
+    return result
 
 
-def extract_paper_overview(api_key, model, chat_completions_url, paper_text):
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, raw = call_chat_completions(api_key, model, chat_completions_url, build_overview_prompt(paper_excerpt))
+    prompt = build_overview_prompt(paper_excerpt)
+    overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt)
     three_line = overview.get("threeLineSummary", {})
-    return (
-        {
-            "paperTitle": str(overview.get("paperTitle", "")).strip(),
-            "keywords": normalize_keywords(overview.get("keywords", [])),
-            "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
-            "methodPoints": normalize_method_points(overview.get("methodPoints", [])),
-            "threeLineSummary": {
-                "challenges": str(three_line.get("challenges", "")).strip(),
-                "conclusion": str(three_line.get("conclusion", "")).strip(),
-            },
+    parsed = {
+        "paperTitle": str(overview.get("paperTitle", "")).strip(),
+        "keywords": normalize_keywords(overview.get("keywords", [])),
+        "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
+        "methodPoints": normalize_method_points(overview.get("methodPoints", [])),
+        "threeLineSummary": {
+            "challenges": str(three_line.get("challenges", "")).strip(),
+            "conclusion": str(three_line.get("conclusion", "")).strip(),
         },
-        raw,
-    )
+    }
+    write_ai_stage(run_dir, "overview", {"prompt": prompt, "parsed": parsed, "raw": raw})
+    return parsed, raw
 
 
 def translate_text(api_key, model, chat_completions_url, text):
@@ -1385,7 +1600,16 @@ def extract_selected_role_section(text):
     return f"## 这段话在论文中的作用\n{body}".strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None):
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, stream=False):
+    upstream_payload = build_discussion_payload(model, paper_text, question, summary, history)
+    if stream:
+        return stream_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
+
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
+    return raw["choices"][0]["message"]["content"].strip()
+
+
+def build_discussion_payload(model, paper_text, question, summary=None, history=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
     history_messages = build_discussion_context_messages(history)
@@ -1411,14 +1635,11 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
         *history_messages,
         {"role": "user", "content": question},
     ]
-    upstream_payload = {
+    return {
         "model": model,
         "temperature": 0.18,
         "messages": messages,
     }
-
-    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
-    return raw["choices"][0]["message"]["content"].strip()
 
 
 def build_discussion_context_messages(history):
@@ -1462,10 +1683,10 @@ def format_earlier_discussion_context(messages):
     return "\n".join(lines)
 
 
-def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None):
+def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12):
     upstream_payload = {
         "model": model,
-        "temperature": 0.12,
+        "temperature": temperature,
         "response_format": {"type": "json_object"},
         "messages": [
             {
@@ -1483,7 +1704,13 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
         timeout=120,
         retry_without_response_format=True,
     )
-    content = raw["choices"][0]["message"]["content"]
+    try:
+        content = raw["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        error_detail = raw.get("error") if isinstance(raw.get("error"), dict) else None
+        error_msg = error_detail.get("message") if error_detail else (raw.get("msg") or raw.get("message"))
+        display_msg = f"AI API returned an unexpected response without choices: {error_msg}" if error_msg else "AI API returned an unexpected response without choices."
+        raise AIResponseError(display_msg, raw=raw) from exc
     return json.loads(content), raw
 
 
@@ -1511,6 +1738,37 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
 
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def stream_chat_completion(api_key, chat_completions_url, payload, timeout):
+    stream_payload = dict(payload)
+    stream_payload["stream"] = True
+    request = urllib.request.Request(
+        chat_completions_url,
+        data=json.dumps(stream_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        for raw_line in response:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            delta = event.get("choices", [{}])[0].get("delta", {})
+            content = delta.get("content")
+            if content:
+                yield content
 
 
 def normalize_discussion_history(history, limit=DISCUSSION_RECENT_MESSAGE_COUNT):
@@ -1710,6 +1968,17 @@ def build_method_polish_prompt(paper_text, method_points, point_details):
 
 def build_method_polish_system_prompt():
     return render_prompt("method_polish_system.txt")
+
+
+def build_method_format_prompt(method_json):
+    return render_prompt(
+        "method_format.txt",
+        method_json=json.dumps(method_json, ensure_ascii=False),
+    )
+
+
+def build_method_format_system_prompt():
+    return render_prompt("method_format_system.txt")
 
 
 if __name__ == "__main__":

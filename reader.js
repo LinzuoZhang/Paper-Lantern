@@ -52,12 +52,17 @@ let lastExtractedText = "";
 let currentPdfTask = null;
 let currentPdfDocument = null;
 let pdfZoom = 1;
+let renderedPdfZoom = 1;
 let zoomRenderTimer = null;
 let paneRenderTimer = null;
 let savedHighlights = [];
 let selectedPdfText = "";
 let selectedPdfRange = null;
 let lastSelectionRect = null;
+let isPdfTextSelecting = false;
+let pdfSelectionPointerId = null;
+let pendingPdfSelectionRect = null;
+let pdfSelectionStartPageNumber = null;
 let isResizingPanes = false;
 let currentPaper = null;
 let currentVisiblePage = 0;
@@ -269,7 +274,12 @@ pdfViewer.addEventListener("scroll", () => {
   updatePageIndicator();
   hideReferencePopover();
 });
+pdfViewer.addEventListener("pointerdown", handlePdfSelectionPointerDown);
+pdfViewer.addEventListener("lostpointercapture", resetPdfSelectionPointerState);
 pdfViewer.addEventListener("click", handlePdfClick);
+document.addEventListener("pointerup", handlePdfSelectionPointerFinish);
+document.addEventListener("pointercancel", handlePdfSelectionPointerFinish);
+window.addEventListener("blur", resetPdfSelectionPointerState);
 document.addEventListener("pointerdown", (event) => {
   const translationBubble = document.querySelector("#translationBubble");
   const commentBubble = document.querySelector("#commentBubble");
@@ -436,21 +446,20 @@ async function handleDiscussionSubmit(event) {
   pending.classList.add("pending");
 
   try {
-    const response = await apiFetch("/api/discuss", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paperText,
-        question,
-        summary: paperToSummary(currentPaper),
-        history: thread.messages,
-      }),
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question,
+      summary: paperToSummary(currentPaper),
+      history: thread.messages,
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
+      },
     });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
 
     pending.classList.remove("pending");
-    thread.messages.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    thread.messages.push({ role: "user", content: question }, { role: "assistant", content: answer || "" });
     thread.updatedAt = new Date().toISOString();
     if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
     thread.hash = await makeDiscussionThreadHash(thread);
@@ -698,24 +707,23 @@ async function regenerateDiscussionAnswer(messageNode) {
   setDiscussionMessageContent(body, "Thinking...", "assistant");
 
   try {
-    const response = await apiFetch("/api/discuss", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paperText,
-        question,
-        summary: paperToSummary(currentPaper),
-        history: thread.messages.slice(0, userIndex),
-      }),
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question,
+      summary: paperToSummary(currentPaper),
+      history: thread.messages.slice(0, userIndex),
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(body, answer || "Thinking...", "assistant");
+      },
     });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
 
-    thread.messages[assistantIndex].content = data.answer || "";
+    thread.messages[assistantIndex].content = answer || "";
     thread.updatedAt = new Date().toISOString();
     thread.hash = await makeDiscussionThreadHash(thread);
     messageNode.classList.remove("pending", "error");
-    setDiscussionMessageContent(body, data.answer || "No response", "assistant");
+    setDiscussionMessageContent(body, answer || "No response", "assistant");
     renderDiscussionThreadList();
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
@@ -726,6 +734,80 @@ async function regenerateDiscussionAnswer(messageNode) {
     setDiscussionMessageContent(body, error.message || "重新生成失败，请稍后重试。", "assistant");
   } finally {
     setDiscussionBusy(false);
+  }
+}
+
+async function requestDiscussionAnswer({ paperText, question, summary, history, onDelta }) {
+  const response = await apiFetch("/api/discuss", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paperText,
+      question,
+      summary,
+      history,
+      stream: true,
+    }),
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok) {
+    const data = await readJsonResponse(response);
+    throw new Error(data.detail || data.error || "Discussion failed.");
+  }
+
+  if (contentType.includes("text/event-stream") && response.body) {
+    return readDiscussionEventStream(response, onDelta);
+  }
+
+  const data = await readJsonResponse(response);
+  const answer = data.answer || "";
+  if (answer) onDelta?.(answer);
+  return answer;
+}
+
+async function readDiscussionEventStream(response, onDelta) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+    events.forEach((eventText) => {
+      const delta = parseDiscussionStreamEvent(eventText);
+      if (!delta) return;
+      answer += delta;
+      onDelta?.(delta);
+    });
+  }
+
+  buffer += decoder.decode();
+  const finalDelta = parseDiscussionStreamEvent(buffer);
+  if (finalDelta) {
+    answer += finalDelta;
+    onDelta?.(finalDelta);
+  }
+  return answer;
+}
+
+function parseDiscussionStreamEvent(eventText) {
+  const dataLines = String(eventText || "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim());
+  if (!dataLines.length) return "";
+  const data = dataLines.join("\n");
+  if (data === "[DONE]") return "";
+  try {
+    return JSON.parse(data).delta || "";
+  } catch (error) {
+    console.warn("Failed to parse discussion stream event.", error);
+    return "";
   }
 }
 
@@ -1273,7 +1355,7 @@ function refreshPdfAfterPaneResize() {
   window.clearTimeout(paneRenderTimer);
   paneRenderTimer = window.setTimeout(async () => {
     const renderId = Symbol("paneResizeRender");
-    await renderPdfPages(renderId);
+    await renderPdfPages(renderId, { keepExisting: true });
     setViewerScrollRatio(scrollRatio);
   }, 120);
 }
@@ -1285,6 +1367,9 @@ async function renderPdf(file) {
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
+  renderedPdfZoom = 1;
+  window.clearTimeout(zoomRenderTimer);
+  setPdfZoomPreviewScale(1);
   const loadingNode = document.createElement("div");
   loadingNode.className = "pdf-loading";
   loadingNode.textContent = "Loading PDF...";
@@ -1301,27 +1386,34 @@ async function renderPdf(file) {
   await renderPdfPages(renderId);
 }
 
-async function renderPdfPages(renderId = Symbol("pdfRender")) {
+async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   if (!currentPdfDocument) return;
+  const { keepExisting = false } = options;
+  const renderZoom = pdfZoom;
   currentPdfTask = renderId;
-  pdfViewer.innerHTML = "";
+  if (!keepExisting) pdfViewer.innerHTML = "";
   const pagesHost = document.createElement("div");
   pagesHost.className = "pdf-pages";
-  pdfViewer.appendChild(pagesHost);
+  if (!keepExisting) pdfViewer.appendChild(pagesHost);
   for (let pageNumber = 1; pageNumber <= currentPdfDocument.numPages; pageNumber += 1) {
     const page = await currentPdfDocument.getPage(pageNumber);
     if (currentPdfTask !== renderId) return;
-    await renderPdfPage(page, pageNumber, renderId, pagesHost);
+    await renderPdfPage(page, pageNumber, renderId, pagesHost, renderZoom);
     if (currentPdfTask !== renderId) return;
   }
+  if (keepExisting) {
+    pdfViewer.replaceChildren(pagesHost);
+  }
+  renderedPdfZoom = renderZoom;
+  setPdfZoomPreviewScale(1);
   restoreHighlights();
   updatePageIndicator();
 }
 
-async function renderPdfPage(page, pageNumber, renderId, pagesHost = pdfViewer) {
+async function renderPdfPage(page, pageNumber, renderId, pagesHost = pdfViewer, zoom = pdfZoom) {
   const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
   const baseViewport = page.getViewport({ scale: 1 });
-  const scale = Math.min(containerWidth / baseViewport.width, 1.6) * pdfZoom;
+  const scale = Math.min(containerWidth / baseViewport.width, 1.6) * zoom;
   const viewport = page.getViewport({ scale });
   const outputScale = window.devicePixelRatio || 1;
 
@@ -1376,22 +1468,32 @@ function handlePdfWheel(event) {
   window.getSelection()?.removeAllRanges();
 
   const previousZoom = pdfZoom;
-  const direction = event.deltaY < 0 ? 1 : -1;
-  const nextZoom = clamp(pdfZoom + direction * 0.12, 0.6, 2.8);
+  const zoomFactor = clamp(Math.exp(-event.deltaY * 0.0025), 0.72, 1.38);
+  const nextZoom = clamp(pdfZoom * zoomFactor, 0.6, 2.8);
   if (nextZoom === previousZoom) return;
 
-  const scrollRatio = getViewerScrollRatio();
+  const anchor = getPdfViewportAnchor(event.clientX, event.clientY);
   pdfZoom = nextZoom;
-  schedulePdfRerender(scrollRatio);
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  restorePdfViewportAnchor(anchor);
+  schedulePdfRerender(anchor);
 }
 
-function schedulePdfRerender(scrollRatio) {
+function schedulePdfRerender(anchor) {
   window.clearTimeout(zoomRenderTimer);
   zoomRenderTimer = window.setTimeout(async () => {
     const renderId = Symbol("pdfZoomRender");
-    await renderPdfPages(renderId);
-    setViewerScrollRatio(scrollRatio);
-  }, 80);
+    await renderPdfPages(renderId, { keepExisting: true });
+    if (currentPdfTask === renderId) restorePdfViewportAnchor(anchor);
+  }, 140);
+}
+
+function setPdfZoomPreviewScale(scale) {
+  const pagesHost = pdfViewer.querySelector(".pdf-pages");
+  if (!pagesHost) return;
+  pagesHost.style.transform = scale === 1 ? "" : `scale(${scale})`;
+  pagesHost.style.transformOrigin = "0 0";
 }
 
 async function extractPdfText(file) {
@@ -1526,7 +1628,7 @@ async function summarizeText(text) {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
   });
   const data = await readJsonResponse(response);
 
@@ -1548,7 +1650,7 @@ async function refreshOverviewInfo(text) {
   const response = await apiFetch("/api/overview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
   });
   const data = await readJsonResponse(response);
 
@@ -1593,11 +1695,54 @@ function cleanPaperTitle(value) {
     .trim();
 }
 
+function handlePdfSelectionPointerDown(event) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
+  const textSpan = getPdfTextSpanForNode(event.target);
+  const pageNode = textSpan?.closest(".pdf-page");
+  isPdfTextSelecting = Boolean(textSpan && pageNode);
+  pdfSelectionPointerId = isPdfTextSelecting ? event.pointerId : null;
+  pdfSelectionStartPageNumber = isPdfTextSelecting ? Number(pageNode.dataset.pageNumber) || null : null;
+  pendingPdfSelectionRect = null;
+  if (!isPdfTextSelecting) {
+    resetPdfSelectionPointerState();
+    clearPdfSelectionState({ clearBrowserSelection: true });
+    return;
+  }
+  hideSelectionMenu();
+  hideTranslationBubble();
+  hideReferencePopover();
+  document.body.classList.add("selecting-pdf-text");
+}
+
+function handlePdfSelectionPointerFinish(event) {
+  if (!isPdfTextSelecting || event.pointerId !== pdfSelectionPointerId) return;
+  resetPdfSelectionPointerState();
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    pendingPdfSelectionRect = null;
+    return;
+  }
+  if (!isPdfSelection(selection)) {
+    clearPdfSelectionState({ clearBrowserSelection: true });
+    return;
+  }
+  if (pendingPdfSelectionRect || lastSelectionRect) {
+    showSelectionMenu(pendingPdfSelectionRect || lastSelectionRect);
+  }
+  pendingPdfSelectionRect = null;
+}
+
+function resetPdfSelectionPointerState() {
+  isPdfTextSelecting = false;
+  pdfSelectionPointerId = null;
+  pdfSelectionStartPageNumber = null;
+  document.body.classList.remove("selecting-pdf-text");
+}
+
 function handlePdfSelectionChange() {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
     return;
   }
 
@@ -1606,16 +1751,19 @@ function handlePdfSelectionChange() {
     ? range.commonAncestorContainer.parentElement
     : range.commonAncestorContainer;
   if (!pdfViewer.contains(commonNode)) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
+    return;
+  }
+
+  if (!isPdfSelection(selection)) {
+    clearPdfSelectionState({ clearBrowserSelection: isPdfTextSelecting });
     return;
   }
 
   const text = selection.toString().trim();
   const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
   if (!text || !rects.length) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
     return;
   }
 
@@ -1624,7 +1772,70 @@ function handlePdfSelectionChange() {
   lastSelectionRect = rects[rects.length - 1];
   hideTranslationBubble();
   hideReferencePopover();
+  if (isPdfTextSelecting) {
+    pendingPdfSelectionRect = lastSelectionRect;
+    hideSelectionMenu();
+    return;
+  }
   showSelectionMenu(lastSelectionRect);
+}
+
+function clearPdfSelectionState(options = {}) {
+  const { clearBrowserSelection = false } = options;
+  selectedPdfText = "";
+  selectedPdfRange = null;
+  lastSelectionRect = null;
+  pendingPdfSelectionRect = null;
+  hideSelectionMenu();
+  hideTranslationBubble();
+  if (clearBrowserSelection) window.getSelection()?.removeAllRanges();
+}
+
+function isPdfSelection(selection) {
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  const startPage = getPdfPageForNode(range.startContainer);
+  const endPage = getPdfPageForNode(range.endContainer);
+  const anchorPage = getPdfPageForNode(selection.anchorNode);
+  const focusPage = getPdfPageForNode(selection.focusNode);
+  if (!startPage || !endPage || !anchorPage || !focusPage) return false;
+  if (isPdfTextSelecting) {
+    const startPageNumber = Number(startPage.dataset.pageNumber) || null;
+    const endPageNumber = Number(endPage.dataset.pageNumber) || null;
+    const anchorPageNumber = Number(anchorPage.dataset.pageNumber) || null;
+    const focusPageNumber = Number(focusPage.dataset.pageNumber) || null;
+    if (
+      !pdfSelectionStartPageNumber ||
+      startPageNumber !== pdfSelectionStartPageNumber ||
+      endPageNumber !== pdfSelectionStartPageNumber ||
+      anchorPageNumber !== pdfSelectionStartPageNumber ||
+      focusPageNumber !== pdfSelectionStartPageNumber
+    ) {
+      return false;
+    }
+  }
+  const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+  if (!rects.length) return false;
+  return rects.every((rect) => {
+    const pageNode = getPageNodeForRect(rect);
+    if (!pageNode) return false;
+    return !isPdfTextSelecting || Number(pageNode.dataset.pageNumber) === pdfSelectionStartPageNumber;
+  });
+}
+
+function getPdfTextLayerForNode(node) {
+  const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return element?.closest?.(".pdf-text-layer") || null;
+}
+
+function getPdfTextSpanForNode(node) {
+  const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return element?.closest?.(".pdf-text-layer span") || null;
+}
+
+function getPdfPageForNode(node) {
+  const textSpan = getPdfTextSpanForNode(node);
+  return textSpan?.closest(".pdf-page") || null;
 }
 
 function showSelectionMenu(rect) {
@@ -2535,6 +2746,63 @@ function setViewerScrollRatio(ratio) {
   updatePageIndicator();
 }
 
+function getPdfViewportAnchor(clientX, clientY) {
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const x = Number.isFinite(clientX) ? clientX : viewerRect.left + viewerRect.width / 2;
+  const y = Number.isFinite(clientY) ? clientY : viewerRect.top + viewerRect.height * 0.42;
+  const pages = Array.from(pdfViewer.querySelectorAll(".pdf-page"));
+  let pageNode = pages.find((node) => {
+    const rect = node.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  });
+
+  if (!pageNode) {
+    pageNode = pages.find((node) => {
+      const rect = node.getBoundingClientRect();
+      return y >= rect.top && y <= rect.bottom;
+    });
+  }
+
+  if (!pageNode) {
+    return {
+      clientX: x,
+      clientY: y,
+      scrollRatio: getViewerScrollRatio(),
+    };
+  }
+
+  const pageRect = pageNode.getBoundingClientRect();
+  return {
+    pageNumber: Number(pageNode.dataset.pageNumber) || 1,
+    ratioX: clamp((x - pageRect.left) / Math.max(pageRect.width, 1), 0, 1),
+    ratioY: clamp((y - pageRect.top) / Math.max(pageRect.height, 1), 0, 1),
+    clientX: x,
+    clientY: y,
+    scrollRatio: getViewerScrollRatio(),
+  };
+}
+
+function restorePdfViewportAnchor(anchor) {
+  if (!anchor) return;
+  if (!anchor.pageNumber) {
+    setViewerScrollRatio(anchor.scrollRatio || { top: 0, left: 0 });
+    return;
+  }
+
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${anchor.pageNumber}"]`);
+  if (!pageNode) {
+    setViewerScrollRatio(anchor.scrollRatio || { top: 0, left: 0 });
+    return;
+  }
+
+  const pageRect = pageNode.getBoundingClientRect();
+  const targetX = pageRect.left + pageRect.width * anchor.ratioX;
+  const targetY = pageRect.top + pageRect.height * anchor.ratioY;
+  pdfViewer.scrollLeft += targetX - anchor.clientX;
+  pdfViewer.scrollTop += targetY - anchor.clientY;
+  updatePageIndicator();
+}
+
 function updatePageIndicator() {
   if (!currentPdfDocument) {
     setPageIndicator(0, 0);
@@ -2786,10 +3054,7 @@ function renderMethodSections(sections, options = {}) {
       const formulaBox = document.createElement("div");
       formulaBox.className = "formula-list";
       formulas.forEach((formula) => {
-        const formulaNode = document.createElement("div");
-        formulaNode.className = "formula-display";
-        renderFormula(formulaNode, String(formula), true);
-        formulaBox.appendChild(formulaNode);
+        formulaBox.appendChild(createFormulaExplanationBlock(formula));
       });
       article.appendChild(formulaBox);
     }
@@ -2851,6 +3116,135 @@ function extractFormulaLikeText(text) {
   );
 }
 
+function createFormulaExplanationBlock(value) {
+  const parsed = splitFormulaAndExplanation(value);
+  const block = document.createElement("div");
+  block.className = "formula-explanation";
+
+  const formulaNode = document.createElement("div");
+  formulaNode.className = "formula-display";
+  if (isFormulaRenderCandidate(parsed.formula)) {
+    renderFormula(formulaNode, parsed.formula, true);
+  } else {
+    formulaNode.textContent = parsed.formula;
+  }
+  block.appendChild(formulaNode);
+
+  if (parsed.explanation) {
+    const explanationNode = document.createElement("div");
+    explanationNode.className = "formula-explanation-text";
+    explanationNode.textContent = parsed.explanation;
+    block.appendChild(explanationNode);
+  }
+
+  return block;
+}
+
+function splitFormulaAndExplanation(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return { formula: "", explanation: "" };
+
+  const explicitFormula = splitExplicitFormulaAndExplanation(text);
+  if (explicitFormula) return explicitFormula;
+
+  const patterns = [
+    /\s*(?:，|,|；|;)\s*(?:其中|where|with|in which)\s*/i,
+    /\s*(?:：|:)\s*(?:其中|where|with|in which)\s*/i,
+    /\s+(?:where|with|in which)\s+/i,
+    /\s*(?:——|--|–|—)\s*/,
+  ];
+  for (const pattern of patterns) {
+    const parsed = splitFormulaTextAtPattern(text, pattern);
+    if (parsed) return parsed;
+  }
+
+  const generalSeparator = findFormulaExplanationSeparator(text);
+  if (generalSeparator > 0) {
+    return {
+      formula: text.slice(0, generalSeparator).trim(),
+      explanation: text.slice(generalSeparator + 1).trim(),
+    };
+  }
+
+  return { formula: text, explanation: "" };
+}
+
+function splitExplicitFormulaAndExplanation(text) {
+  const formulaEnd = findLeadingFormulaEnd(text);
+  if (formulaEnd <= 0) return null;
+  return {
+    formula: text.slice(0, formulaEnd).trim(),
+    explanation: stripFormulaExplanationPrefix(text.slice(formulaEnd).trim()),
+  };
+}
+
+function findLeadingFormulaEnd(text) {
+  if (text.startsWith("$$")) {
+    const end = text.indexOf("$$", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  if (text.startsWith("\\[")) {
+    const end = text.indexOf("\\]", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  if (text.startsWith("$")) {
+    const end = findUnescapedDollar(text, 1);
+    return end > 0 ? end + 1 : -1;
+  }
+  if (text.startsWith("\\(")) {
+    const end = text.indexOf("\\)", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  return -1;
+}
+
+function findUnescapedDollar(text, startIndex) {
+  for (let index = startIndex; index < text.length; index += 1) {
+    if (text[index] === "$" && text[index - 1] !== "\\") return index;
+  }
+  return -1;
+}
+
+function stripFormulaExplanationPrefix(value) {
+  return String(value || "")
+    .replace(/^\s*(?:：|:|；|;|，|,|——|--|–|—)\s*/u, "")
+    .replace(/^(?:其中|where|with|in which)\s*/i, "")
+    .trim();
+}
+
+function splitFormulaTextAtPattern(text, pattern) {
+  const match = text.match(pattern);
+  if (!match || match.index <= 0) return null;
+  return {
+    formula: text.slice(0, match.index).trim(),
+    explanation: text.slice(match.index + match[0].length).trim(),
+  };
+}
+
+function findFormulaExplanationSeparator(text) {
+  const separators = ["：", ":", "；", ";", "，", ","];
+  for (const separator of separators) {
+    let index = text.indexOf(separator);
+    while (index >= 0) {
+      const before = text.slice(0, index).trim();
+      const after = text.slice(index + separator.length).trim();
+      if (before.length >= 3 && after.length >= 3 && looksLikeStandaloneFormula(before) && looksLikeExplanation(after)) {
+        return index;
+      }
+      index = text.indexOf(separator, index + separator.length);
+    }
+  }
+  return -1;
+}
+
+function looksLikeStandaloneFormula(value) {
+  return /=|\\frac|\\sum|\\min|\\max|[_^]|\([^)]+\)|\{[^}]+\}/.test(value);
+}
+
+function looksLikeExplanation(value) {
+  return /^(?:[\u4e00-\u9fff]|where\b|denote\b|means\b|represents\b|is the\b|为|表示)/i.test(value.trim());
+}
+
 function formatInlineTechnicalText(text) {
   const source = String(text || "");
   const renderer = getDiscussionMarkdownRenderer();
@@ -2862,11 +3256,31 @@ function formatInlineTechnicalText(text) {
 }
 
 function normalizeFormulaSource(value) {
-  return String(value || "")
-    .replace(/^\s*(?:\$\$|\\\[|\\\()/, "")
-    .replace(/(?:\$\$|\\\]|\\\))\s*$/, "")
+  const formula = String(value || "")
+    .replace(/^\s*(?:\$\$|\$|\\\[|\\\()/, "")
+    .replace(/(?:\$\$|\$|\\\]|\\\))\s*$/, "")
     .replace(/\s+/g, " ")
     .trim();
+  return fixFormulaSubscripts(formula);
+}
+
+function isFormulaRenderCandidate(value) {
+  const text = String(value || "").trim();
+  return isExplicitFormulaSource(text) || looksLikeStandaloneFormula(text);
+}
+
+function isExplicitFormulaSource(value) {
+  const text = String(value || "").trim();
+  return (
+    (text.startsWith("$$") && text.endsWith("$$")) ||
+    (text.startsWith("$") && text.endsWith("$")) ||
+    (text.startsWith("\\[") && text.endsWith("\\]")) ||
+    (text.startsWith("\\(") && text.endsWith("\\)"))
+  );
+}
+
+function fixFormulaSubscripts(value) {
+  return String(value || "").replace(/(^|[^\\])_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})/g, "$1_{$2}");
 }
 
 function renderFormula(node, source, displayMode = false) {
