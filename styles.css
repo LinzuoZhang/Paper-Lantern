@@ -80,7 +80,7 @@ body {
 .sync-refresh-button svg {
   width: 22px;
   height: 22px;
-  color: var(--accent-strong);
+  color: var(--ink);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -119,7 +119,7 @@ body {
 .settings-trigger svg {
   width: 21px;
   height: 21px;
-  color: var(--accent-strong);
+  color: var(--ink);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -164,7 +164,7 @@ body {
 
 .settings-section-title {
   padding-top: 6px;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
@@ -244,7 +244,7 @@ body {
   bottom: -18px;
   min-height: 40px;
   margin: 6px -18px -18px;
-  border-color: var(--accent);
+  border-color: var(--ink);
   border-radius: 0 0 8px 8px;
   background: var(--accent);
   color: #fff;
@@ -263,17 +263,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 6px;
-  border: 1px dashed rgba(37, 109, 133, 0.2);
+  padding: 0;
+  border: 0;
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.56);
+  background: transparent;
   transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
 .upload-form.drag-over {
-  border-color: var(--accent);
-  background: var(--soft);
-  box-shadow: 0 12px 28px rgba(23, 75, 94, 0.12);
+  background: transparent;
+  box-shadow: none;
 }
 
 .library-layout {
@@ -394,12 +393,13 @@ body {
   border-color: transparent;
   background: transparent;
   color: var(--ink);
+  font-size: 14px;
   font-weight: 650;
 }
 
 .recent-category-item {
   background: #f7faf8;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .category-menu-button,
@@ -419,7 +419,7 @@ body {
 .category-menu-button:hover,
 .paper-menu-button:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .category-menu,
@@ -469,7 +469,7 @@ body {
 .paper-menu button:hover,
 .paper-menu a:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .category-menu button:disabled,
@@ -490,7 +490,7 @@ body {
 .move-category-custom {
   margin-top: 6px;
   border-top: 1px solid var(--line) !important;
-  color: var(--accent-strong) !important;
+  color: var(--ink) !important;
 }
 
 .paper-list-panel {
@@ -500,6 +500,84 @@ body {
   min-height: 0;
   min-width: 0;
   padding: 2px 0 0;
+}
+
+.paper-info-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  width: 340px;
+  flex: 0 0 340px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.paper-info-panel[hidden] {
+  display: none;
+}
+
+.paper-info-header {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.paper-info-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.paper-info-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.paper-info-section {
+  display: grid;
+  gap: 10px;
+}
+
+.paper-info-section h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.paper-info-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.paper-info-list dt {
+  padding-top: 10px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.paper-info-list dd {
+  margin: 0;
+  padding: 3px 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.paper-info-list dd:last-child {
+  border-bottom: 0;
 }
 
 .paper-list-header {
@@ -520,9 +598,9 @@ body {
 
 .paper-card,
 .library-empty {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .paper-card {
@@ -532,9 +610,10 @@ body {
   gap: 12px;
   align-items: start;
   min-height: 58px;
-  padding: 16px 16px 20px;
+  padding: 16px 4px 20px 0;
+  border-bottom: 1px solid var(--line);
   cursor: pointer;
-  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .paper-card-text {
@@ -545,8 +624,7 @@ body {
 .paper-card:hover,
 .paper-card:focus-visible {
   z-index: 2;
-  border-color: rgba(37, 109, 133, 0.55);
-  box-shadow: 0 14px 30px rgba(29, 37, 32, 0.1);
+  background: rgba(255, 255, 255, 0.46);
   outline: none;
 }
 
@@ -581,69 +659,13 @@ body {
   padding: 0 8px;
   border-radius: 999px;
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 700;
 }
 
-.paper-card-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.paper-hover-summary {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 7px;
-  max-height: 0;
-  margin-top: 0;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: #ffffff;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transition: max-height 160ms ease, margin-top 160ms ease, padding 160ms ease, border-color 160ms ease, opacity 120ms ease;
-}
-
-.paper-card:hover .paper-hover-summary,
-.paper-card:focus-within .paper-hover-summary {
-  max-height: min(420px, 42vh);
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-color: rgba(37, 109, 133, 0.22);
-  opacity: 1;
-  overflow-y: auto;
-}
-
 body.upload-menu-open .paper-card:hover {
   transform: none;
-}
-
-body.upload-menu-open .paper-card:hover .paper-hover-summary,
-body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
-  max-height: 0;
-  margin-top: 0;
-  padding: 0 14px;
-  border-color: transparent;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.paper-hover-summary p {
-  color: #2b352f;
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: normal;
-}
-
-.paper-hover-summary strong {
-  color: var(--accent-strong);
-  font-weight: 800;
 }
 
 .library-empty {
@@ -694,7 +716,7 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
   border-radius: 8px;
   background: transparent;
   border-color: var(--line);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
   transition: background 140ms ease, color 140ms ease;
 }
@@ -754,7 +776,7 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 
 .reader-library-back-button:hover {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-library-back-button svg {
@@ -776,7 +798,7 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 
 .drawer-close-button:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .drawer-close-button::before,
@@ -803,25 +825,25 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 .reader-library-section h2 {
   margin: 0 0 10px;
   font-size: 15px;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-category-list,
 .reader-paper-list {
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .reader-category-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
 }
 
 .reader-category-row-root-separated {
-  margin-top: 6px;
-  padding-top: 8px;
+  margin-top: 4px;
+  padding-top: 6px;
   border-top: 1px solid rgba(191, 204, 199, 0.48);
 }
 
@@ -858,14 +880,18 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 }
 
 .reader-category-item {
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
   font-weight: 800;
   min-width: 0;
 }
 
 .reader-category-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -880,10 +906,10 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 }
 
 .reader-category-menu-button {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -895,7 +921,7 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 
 .reader-category-menu-button:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-category-menu {
@@ -907,7 +933,7 @@ body.upload-menu-open .paper-card:focus-within .paper-hover-summary {
 .reader-paper-item:hover,
 .reader-paper-item.active {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-library-empty {
@@ -1059,7 +1085,7 @@ h3 {
 .refresh-button {
   position: relative;
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
   border-color: transparent;
 }
 
@@ -1106,7 +1132,7 @@ button {
   padding: 0;
   background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: #fff;
-  border-color: var(--accent);
+  border-color: var(--ink);
   border-radius: 50%;
   box-shadow: 0 12px 24px rgba(23, 75, 94, 0.18);
 }
@@ -1127,7 +1153,9 @@ button {
 }
 
 .file-button[aria-expanded="true"] {
-  background: var(--accent-strong);
+  background: #eaf6ef;
+  border-color: rgba(45, 125, 96, 0.45);
+  color: var(--ink);
 }
 
 .upload-menu-wrap {
@@ -1191,21 +1219,24 @@ button {
   border: 2px dashed rgba(37, 109, 133, 0.38);
   border-radius: 8px;
   background: #ffffff;
-  color: var(--accent-strong);
+  color: var(--ink);
   text-align: center;
 }
 
 .upload-drop-option:hover .upload-drop-box,
 .upload-form.drag-over .upload-drop-box {
-  border-color: var(--accent);
+  border-color: var(--ink);
   background: var(--soft);
 }
 
 .upload-drop-arrow {
   width: 42px;
   height: 42px;
+  padding: 9px;
+  border-radius: 8px;
+  background: #eef8f2;
   fill: none;
-  stroke: currentColor;
+  stroke: var(--accent);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 4;
@@ -1224,7 +1255,7 @@ button {
 
 .upload-menu-item:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .upload-menu-item span:not(.upload-menu-icon) {
@@ -1250,7 +1281,7 @@ button {
   flex: 0 0 34px;
   border-radius: 8px;
   background: #e7f2f4;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 11px;
   font-weight: 900;
 }
@@ -1287,7 +1318,7 @@ button {
 .arxiv-upload-row button {
   min-height: 34px;
   padding: 0 10px;
-  border-color: var(--accent);
+  border-color: var(--ink);
   background: var(--accent);
   color: #fff;
   font-size: 12px;
@@ -1323,14 +1354,14 @@ button {
   width: 34px;
   height: 34px;
   border: 3px solid rgba(45, 125, 96, 0.18);
-  border-top-color: var(--accent);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: arxiv-download-spin 800ms linear infinite;
 }
 
 .arxiv-download-title {
   display: block;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 15px;
   line-height: 1.35;
 }
@@ -1386,8 +1417,9 @@ button {
 }
 
 .upload-form.drag-over .file-button {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--soft);
+  border-color: rgba(44, 117, 140, 0.32);
+  color: var(--ink);
 }
 
 .file-button input {
@@ -1397,7 +1429,7 @@ button {
 button {
   background: var(--accent);
   color: #fff;
-  border-color: var(--accent);
+  border-color: var(--ink);
   font-weight: 650;
 }
 
@@ -1408,7 +1440,7 @@ button:disabled {
 
 button.ghost {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 select {
@@ -1435,7 +1467,7 @@ select {
   border: 1px solid rgba(37, 109, 133, 0.18);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: 0 8px 18px rgba(29, 37, 32, 0.1);
   font-size: 12px;
   font-weight: 800;
@@ -1590,7 +1622,7 @@ body.selecting-pdf-text .selection-menu {
   padding: 8px 10px 8px 12px;
   border-bottom: 1px solid var(--line);
   background: #f8faf9;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 800;
 }
@@ -1620,7 +1652,7 @@ body.selecting-pdf-text .selection-menu {
 
 .reference-close:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reference-popover-body {
@@ -1639,7 +1671,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .reference-entry strong {
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reference-entry p {
@@ -1686,7 +1718,7 @@ body.selecting-pdf-text .selection-menu {
 
 .selection-menu button:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .translation-window {
@@ -1720,7 +1752,7 @@ body.selecting-pdf-text .selection-menu {
   padding: 6px 8px 6px 12px;
   border-bottom: 1px solid var(--line);
   background: #f8faf9;
-  color: var(--accent-strong);
+  color: var(--ink);
   cursor: move;
   font-size: 13px;
   font-weight: 700;
@@ -1745,7 +1777,7 @@ body.selecting-pdf-text .selection-menu {
 
 .translation-close:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .translation-text {
@@ -1788,7 +1820,7 @@ body.selecting-pdf-text .selection-menu {
 
 .comment-actions .comment-cancel {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .annotation-editor {
@@ -1854,7 +1886,7 @@ body.selecting-pdf-text .selection-menu {
   border-color: var(--line);
   border-bottom-color: #fff;
   background: #fff;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .annotation-mode-toggle {
@@ -1924,7 +1956,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .color-swatch.active {
-  border-color: var(--accent-strong);
+  border-color: var(--ink);
   box-shadow: 0 0 0 2px rgba(23, 75, 94, 0.12);
 }
 
@@ -1944,7 +1976,7 @@ body.selecting-pdf-text .selection-menu {
   width: 16px;
   height: 16px;
   border: 2px solid rgba(23, 75, 94, 0.18);
-  border-top-color: var(--accent-strong);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: summary-spin 0.8s linear infinite;
 }
@@ -2057,7 +2089,7 @@ body.selecting-pdf-text .selection-menu {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
 }
 
@@ -2075,7 +2107,7 @@ body.selecting-pdf-text .selection-menu {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
 }
 
@@ -2125,13 +2157,13 @@ body.selecting-pdf-text .selection-menu {
 
 .reader-tab:hover {
   border-color: rgba(37, 109, 133, 0.32);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-tab.active {
   border-color: rgba(37, 109, 133, 0.42);
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .reader-tab-panel {
@@ -2274,7 +2306,7 @@ body.selecting-pdf-text .selection-menu {
 
 .summary-card-toggle:hover {
   background: #f7faf8;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .ai-summary-panel,
@@ -2394,7 +2426,7 @@ body.selecting-pdf-text .selection-menu {
 .message-action-button {
   border-color: transparent;
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
 }
 
@@ -2417,7 +2449,7 @@ body.selecting-pdf-text .selection-menu {
 .copy-section-button.copied,
 .message-action-button.copied {
   background: var(--soft);
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .three-lines {
@@ -2427,7 +2459,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .three-lines dt {
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -2453,7 +2485,7 @@ body.selecting-pdf-text .selection-menu {
   padding: 0 10px;
   border-radius: 999px;
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
 }
@@ -2477,7 +2509,7 @@ body.selecting-pdf-text .selection-menu {
 
 .method-boundary h4 {
   margin: 0 0 8px;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 14px;
 }
 
@@ -2514,7 +2546,7 @@ body.selecting-pdf-text .selection-menu {
   flex: 0 0 auto;
   border-radius: 0;
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
 }
@@ -2609,7 +2641,7 @@ body.selecting-pdf-text .selection-menu {
 
 .basic-info-list dt {
   padding-top: 12px;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -2728,14 +2760,14 @@ body.selecting-pdf-text .selection-menu {
   margin-right: 6px;
   border: 1px solid var(--line);
   background: #fff;
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: 0 2px 8px rgba(29, 37, 32, 0.08);
 }
 
 .discussion-back-button:hover,
 .discussion-back-button:focus-visible {
   background: #fff;
-  color: var(--accent);
+  color: var(--ink);
   border-color: rgba(45, 125, 96, 0.32);
 }
 
@@ -2846,7 +2878,7 @@ body.selecting-pdf-text .selection-menu {
 .discussion-message.user .discussion-message-body {
   border-color: rgba(37, 109, 133, 0.32);
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .discussion-message.pending .discussion-message-body {
@@ -2876,7 +2908,7 @@ body.selecting-pdf-text .selection-menu {
   border: 1px solid rgba(37, 109, 133, 0.32);
   border-radius: 8px;
   background: #fff;
-  color: var(--accent-strong);
+  color: var(--ink);
   font: inherit;
   line-height: 1.55;
 }
@@ -2896,7 +2928,7 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-edit-cancel {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 .markdown-body p,
@@ -2937,7 +2969,7 @@ body.selecting-pdf-text .selection-menu {
 .markdown-body h5,
 .markdown-body h6 {
   margin: 2px 0 6px;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-size: 14px;
   line-height: 1.35;
 }
@@ -3016,7 +3048,7 @@ body.selecting-pdf-text .selection-menu {
 
 .markdown-body th {
   background: #f4f8f6;
-  color: var(--accent-strong);
+  color: var(--ink);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -3056,7 +3088,7 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-form textarea:focus {
   outline: 2px solid rgba(37, 109, 133, 0.2);
-  border-color: var(--accent);
+  border-color: var(--ink);
 }
 
 .discussion-form button {
@@ -3067,6 +3099,20 @@ body.selecting-pdf-text .selection-menu {
   min-height: 40px;
   padding: 0;
   border-radius: 8px;
+}
+
+.discussion-form .send-discussion-button {
+  border-color: rgba(25, 35, 30, 0.36);
+  background: #fff;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.discussion-form .send-discussion-button:hover:not(:disabled) {
+  border-color: rgba(25, 35, 30, 0.52);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
 }
 
 .send-discussion-button svg {
@@ -3198,6 +3244,7 @@ body.selecting-pdf-text .selection-menu {
 
 .category-panel,
 .paper-list-panel,
+.paper-info-panel,
 .paper-frame,
 .summary-card,
 .cloud-config-card,
@@ -3211,7 +3258,8 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .category-panel,
-.paper-list-panel {
+.paper-list-panel,
+.paper-info-panel {
   border: 1px solid rgba(217, 226, 223, 0.82);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.74);
@@ -3261,21 +3309,21 @@ body.selecting-pdf-text .selection-menu {
 .reader-category-item.active,
 .reader-paper-item.active {
   background: var(--soft-strong);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .paper-card {
-  border-color: rgba(217, 226, 223, 0.9);
-  background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
-  box-shadow: var(--shadow-xs);
+  border-bottom-color: rgba(191, 204, 199, 0.72);
+  background: transparent;
+  box-shadow: none;
 }
 
 .paper-card:hover,
 .paper-card:focus-visible {
-  border-color: rgba(44, 117, 140, 0.48);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 10px 24px rgba(29, 37, 32, 0.1);
+  transform: none;
 }
 
 .paper-card h3,
@@ -3285,7 +3333,6 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .paper-card p,
-.paper-hover-summary p,
 .method-boundary p,
 .method-bullets li,
 .discussion-message-body,
@@ -3296,7 +3343,7 @@ body.selecting-pdf-text .selection-menu {
 .keyword-chip,
 .paper-card-keywords span {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
   border: 1px solid rgba(44, 117, 140, 0.12);
 }
 
@@ -3304,7 +3351,7 @@ body.selecting-pdf-text .selection-menu {
 button,
 .arxiv-upload-row button,
 .cloud-config-card > button[type="submit"] {
-  border-color: var(--accent);
+  border-color: var(--ink);
   background: linear-gradient(180deg, #327f96 0%, var(--accent-strong) 100%);
   color: #fff;
   box-shadow: var(--shadow-xs);
@@ -3313,6 +3360,21 @@ button,
 
 button:hover:not(:disabled),
 .file-button:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.upload-form .file-button {
+  border-color: rgba(191, 204, 199, 0.82);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.upload-form .file-button:hover,
+.upload-form .file-button[aria-expanded="true"] {
+  border-color: rgba(44, 117, 140, 0.32);
+  background: var(--soft);
+  color: var(--ink);
   box-shadow: var(--shadow-sm);
 }
 
@@ -3338,7 +3400,7 @@ button.ghost,
 .annotation-delete,
 .color-swatch {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
 }
 
@@ -3364,7 +3426,7 @@ button.ghost:hover,
 .translation-close:hover,
 .annotation-delete:hover {
   background: var(--soft);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: none;
 }
 
@@ -3389,7 +3451,6 @@ button.ghost:hover,
 .upload-form,
 .upload-drop-option,
 .upload-drop-box,
-.paper-hover-summary,
 .discussion-messages {
   background: var(--panel-muted);
 }
@@ -3536,13 +3597,13 @@ button.ghost:hover,
 .reader-category-item.active,
 .reader-paper-item.active {
   background: var(--soft-strong);
-  color: var(--accent-strong);
+  color: var(--ink);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .annotation-tab.active {
   background: #fff;
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {
@@ -3623,6 +3684,11 @@ button.ghost:hover,
 
   .library-layout {
     flex-direction: column;
+  }
+
+  .paper-info-panel {
+    width: auto;
+    flex-basis: auto;
   }
 
   .library-brand h1 {

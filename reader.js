@@ -175,7 +175,7 @@ function renderReaderLibrary() {
     button.type = "button";
     button.className = "reader-category-item";
     button.classList.toggle("active", category.id === readerSelectedCategoryId);
-    button.style.paddingLeft = `${10 + category.depth * 14}px`;
+    button.style.paddingLeft = `${8 + category.depth * 12}px`;
     if (isReaderUncategorizedCategory(category)) {
       button.appendChild(createReaderUncategorizedIcon());
     }

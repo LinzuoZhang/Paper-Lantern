@@ -2,6 +2,7 @@ const libraryRoot = document.querySelector("#libraryRoot");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
 const paperList = document.querySelector("#paperList");
+const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const librarySearchInput = document.querySelector("#librarySearchInput");
 const uploadForm = document.querySelector("#uploadForm");
@@ -253,6 +254,7 @@ async function loadLibrary(focusPaperId = "") {
 function renderLibrary() {
   categoryTree.innerHTML = "";
   paperList.innerHTML = "";
+  hidePaperInfoPanel();
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
   categories.forEach((category) => renderCategoryRow(category));
@@ -335,6 +337,8 @@ function renderPaperList(papers) {
     const card = document.createElement("article");
     card.className = "paper-card";
     card.tabIndex = 0;
+    card.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
+    card.addEventListener("focus", () => renderPaperInfoPanel(paper));
     card.addEventListener("click", () => openPaperReader(paper.id));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openPaperReader(paper.id);
@@ -349,9 +353,6 @@ function renderPaperList(papers) {
     const text = document.createElement("div");
     text.className = "paper-card-text";
     text.append(title, meta);
-
-    const summary = createPaperHoverSummary(paper);
-    if (summary) text.appendChild(summary);
 
     const actions = document.createElement("button");
     actions.type = "button";
@@ -368,25 +369,66 @@ function renderPaperList(papers) {
   });
 }
 
-function createPaperHoverSummary(paper) {
-  const lines = paper.threeLineSummary || {};
-  const values = [
-    ["Challenges", lines.challenges],
-    ["Method", lines.method],
-    ["Conclusion", lines.conclusion],
-  ].filter(([, value]) => String(value || "").trim());
-  if (!values.length) return null;
+function renderPaperInfoPanel(paper) {
+  if (!paperInfoPanel || !paper) return;
+  paperInfoPanel.hidden = false;
+  paperInfoPanel.classList.add("open");
+  paperInfoPanel.innerHTML = "";
 
-  const box = document.createElement("div");
-  box.className = "paper-hover-summary";
-  values.forEach(([label, value]) => {
-    const line = document.createElement("p");
-    const labelNode = document.createElement("strong");
-    labelNode.textContent = `${label}: `;
-    line.append(labelNode, document.createTextNode(String(value)));
-    box.appendChild(line);
+  const header = document.createElement("header");
+  header.className = "paper-info-header";
+  const title = document.createElement("h2");
+  title.textContent = paper.title || "Untitled paper";
+  const meta = document.createElement("p");
+  meta.textContent = paper.categoryName || paper.category || "Uncategorized";
+  header.append(title, meta);
+
+  const basicInfo = paper.basicInfo || {};
+  const basicSection = createPaperInfoSection("Basic Info", [
+    ["Authors", formatPaperInfoValue(basicInfo.authors)],
+    ["Venue", formatPaperInfoValue(basicInfo.venue)],
+    ["Date", formatPaperInfoValue(basicInfo.publishedDate)],
+    ["Institutions", formatPaperInfoValue(basicInfo.institutions)],
+  ]);
+
+  const lines = paper.threeLineSummary || {};
+  const summarySection = createPaperInfoSection("Three-Line Summary", [
+    ["Challenges", formatPaperInfoValue(lines.challenges)],
+    ["Method", formatPaperInfoValue(lines.method)],
+    ["Conclusion", formatPaperInfoValue(lines.conclusion)],
+  ]);
+
+  paperInfoPanel.append(header, basicSection, summarySection);
+}
+
+function hidePaperInfoPanel() {
+  if (!paperInfoPanel) return;
+  paperInfoPanel.hidden = true;
+  paperInfoPanel.classList.remove("open");
+  paperInfoPanel.innerHTML = "";
+}
+
+function createPaperInfoSection(title, rows) {
+  const section = document.createElement("section");
+  section.className = "paper-info-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  const list = document.createElement("dl");
+  list.className = "paper-info-list";
+  rows.forEach(([label, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value || "Not available";
+    list.append(dt, dd);
   });
-  return box;
+  section.append(heading, list);
+  return section;
+}
+
+function formatPaperInfoValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join("; ");
+  return String(value || "").trim();
 }
 
 function showCategoryMenu(category, anchor) {
