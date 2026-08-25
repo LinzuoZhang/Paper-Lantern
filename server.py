@@ -487,6 +487,7 @@ def new_db():
                 "name": UNCATEGORIZED_NAME,
                 "parentId": "",
                 "locked": True,
+                "sortOrder": 0,
             }
         },
         "papers": {},
@@ -504,6 +505,7 @@ def load_library_db():
         save_library_db(db)
     ensure_uncategorized(db)
     reconcile_paper_storage(db)
+    ensure_library_sort_orders(db)
     save_library_db(db)
     return db
 
@@ -516,12 +518,46 @@ def save_library_db(db):
 def ensure_uncategorized(db):
     db.setdefault("categories", {})
     db.setdefault("papers", {})
+    existing = db["categories"].get(UNCATEGORIZED_ID, {})
     db["categories"][UNCATEGORIZED_ID] = {
         "id": UNCATEGORIZED_ID,
         "name": UNCATEGORIZED_NAME,
         "parentId": "",
         "locked": True,
+        "sortOrder": existing.get("sortOrder", 0),
     }
+
+
+def sort_order_value(item, fallback=0):
+    try:
+        return int(item.get("sortOrder", fallback))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def ensure_library_sort_orders(db):
+    """Give existing records stable manual-order values without moving data."""
+    categories = db.setdefault("categories", {})
+    papers = db.setdefault("papers", {})
+    parent_ids = {str(item.get("parentId", "")) for item in categories.values()}
+    for parent_id in parent_ids:
+        siblings = [item for item in categories.values() if str(item.get("parentId", "")) == parent_id]
+        siblings.sort(key=lambda item: (sort_order_value(item, 10**9), str(item.get("name", "")).lower()))
+        for index, item in enumerate(siblings):
+            item["sortOrder"] = index
+
+    category_ids = {str(item.get("categoryId") or UNCATEGORIZED_ID) for item in papers.values()}
+    for category_id in category_ids:
+        siblings = [item for item in papers.values() if str(item.get("categoryId") or UNCATEGORIZED_ID) == category_id]
+        siblings.sort(key=lambda item: (sort_order_value(item, 10**9), str(item.get("uploadedAt", ""))), reverse=False)
+        if not any("sortOrder" in item for item in siblings):
+            siblings.sort(key=lambda item: str(item.get("uploadedAt", "")), reverse=True)
+        for index, item in enumerate(siblings):
+            item["sortOrder"] = index
+
+
+def next_sort_order(items):
+    return max((sort_order_value(item, -1) for item in items), default=-1) + 1
 
 
 def reconcile_paper_storage(db):
@@ -544,6 +580,7 @@ def reconcile_paper_storage(db):
             "categoryId": category_id,
             "folder": f"papers/{paper_dir.name}",
             "uploadedAt": metadata.get("uploadedAt") or datetime.fromtimestamp(paper_dir.stat().st_mtime, timezone.utc).isoformat(),
+            "sortOrder": next_sort_order([item for item in papers.values() if item.get("categoryId") == category_id]),
         }
 
 
@@ -576,6 +613,7 @@ def migrate_existing_library(db):
             "categoryId": category_id,
             "folder": f"papers/{paper_id}",
             "uploadedAt": metadata["uploadedAt"],
+            "sortOrder": next_sort_order([item for item in db["papers"].values() if item.get("categoryId") == category_id]),
         }
 
 
@@ -588,7 +626,14 @@ def ensure_category_path(db, category_path):
     for part in [clean_folder_name(item) for item in re.split(r"[/\\]+", value) if item.strip()]:
         current_id = f"{parent_id}/{part}".strip("/")
         if current_id not in db["categories"]:
-            db["categories"][current_id] = {"id": current_id, "name": part, "parentId": parent_id, "locked": False}
+            siblings = [item for item in db["categories"].values() if item.get("parentId", "") == parent_id]
+            db["categories"][current_id] = {
+                "id": current_id,
+                "name": part,
+                "parentId": parent_id,
+                "locked": False,
+                "sortOrder": next_sort_order(siblings),
+            }
         parent_id = current_id
     return current_id or UNCATEGORIZED_ID
 
@@ -612,12 +657,17 @@ def build_category_node(db, category_id):
         locked = False
     folders = [
         build_category_node(db, child["id"])
-        for child in sorted(db["categories"].values(), key=lambda item: item["name"].lower())
-        if child.get("parentId", "") == category_id
+        for child in sorted(
+            (item for item in db["categories"].values() if item.get("parentId", "") == category_id),
+            key=lambda item: (sort_order_value(item, 10**9), item["name"].lower()),
+        )
     ]
     papers = [
         read_paper(paper_id, db)
-        for paper_id, paper in sorted(db["papers"].items(), key=lambda item: item[1].get("uploadedAt", ""), reverse=True)
+        for paper_id, paper in sorted(
+            db["papers"].items(),
+            key=lambda item: (sort_order_value(item[1], 10**9), item[1].get("uploadedAt", "")),
+        )
         if paper.get("categoryId") == category_id
     ]
     papers = [paper for paper in papers if paper]
@@ -667,7 +717,14 @@ def create_category(parent_id, name):
     category_id = f"{parent_id}/{child_name}".strip("/")
     if category_id in db["categories"]:
         raise FileExistsError("Category already exists.")
-    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False}
+    siblings = [item for item in db["categories"].values() if item.get("parentId", "") == parent_id]
+    db["categories"][category_id] = {
+        "id": category_id,
+        "name": child_name,
+        "parentId": parent_id,
+        "locked": False,
+        "sortOrder": next_sort_order(siblings),
+    }
     save_library_db(db)
     return category_id
 
@@ -768,6 +825,36 @@ def move_paper(paper_id, category_id):
     return read_paper(paper_id, db)
 
 
+def reorder_category_siblings(parent_id, ordered_ids):
+    db = load_library_db()
+    parent_id = str(parent_id or "")
+    if parent_id and parent_id not in db["categories"]:
+        raise ValueError("Invalid parent category.")
+    siblings = [item for item in db["categories"].values() if item.get("parentId", "") == parent_id]
+    current_ids = [item["id"] for item in siblings]
+    requested_ids = [str(item) for item in ordered_ids] if isinstance(ordered_ids, list) else []
+    if len(requested_ids) != len(current_ids) or set(requested_ids) != set(current_ids):
+        raise ValueError("Category order does not match the current sibling categories.")
+    for index, category_id in enumerate(requested_ids):
+        db["categories"][category_id]["sortOrder"] = index
+    save_library_db(db)
+
+
+def reorder_category_papers(category_id, ordered_ids):
+    db = load_library_db()
+    category_id = str(category_id or UNCATEGORIZED_ID)
+    if category_id not in db["categories"]:
+        raise ValueError("Invalid category.")
+    siblings = [item for item in db["papers"].values() if item.get("categoryId") == category_id]
+    current_ids = [item["id"] for item in siblings]
+    requested_ids = [str(item) for item in ordered_ids] if isinstance(ordered_ids, list) else []
+    if len(requested_ids) != len(current_ids) or set(requested_ids) != set(current_ids):
+        raise ValueError("Paper order does not match the current category.")
+    for index, paper_id in enumerate(requested_ids):
+        db["papers"][paper_id]["sortOrder"] = index
+    save_library_db(db)
+
+
 def delete_paper(paper_id):
     db = load_library_db()
     record = db["papers"].pop(str(paper_id), None)
@@ -801,6 +888,7 @@ def add_paper_to_db(title, category, pdf_file):
         "categoryId": category_id,
         "folder": f"papers/{paper_id}",
         "uploadedAt": metadata["uploadedAt"],
+        "sortOrder": next_sort_order([item for item in db["papers"].values() if item.get("categoryId") == category_id]),
     }
     save_library_db(db)
     return read_paper(paper_id, db)
@@ -1146,6 +1234,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             except OSError as exc:
                 self._send_json(400, {"error": str(exc)})
             return
+        if action == "reorder":
+            try:
+                reorder_category_papers(str(payload.get("category", "")), payload.get("orderedIds", []))
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
 
         db = load_library_db()
         record = db["papers"].get(str(payload.get("id", "")))
@@ -1216,6 +1312,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 return
             if action == "delete":
                 delete_category(str(payload.get("id", "")))
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
+                return
+            if action == "reorder":
+                reorder_category_siblings(str(payload.get("parentId", "")), payload.get("orderedIds", []))
                 sync = maybe_auto_sync_library()
                 self._send_json(200, {"tree": read_library_tree(), "sync": sync})
                 return

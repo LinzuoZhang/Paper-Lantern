@@ -2,6 +2,8 @@ const libraryRoot = document.querySelector("#libraryRoot");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
 const paperList = document.querySelector("#paperList");
+const libraryLayout = document.querySelector(".library-layout");
+const libraryPaneResizer = document.querySelector("#libraryPaneResizer");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const librarySearchInput = document.querySelector("#librarySearchInput");
 const uploadForm = document.querySelector("#uploadForm");
@@ -32,16 +34,22 @@ const RECENT_CATEGORY_ID = "__recent";
 const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
 const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
+const LIBRARY_SIDEBAR_WIDTH_KEY = "paperLanternLibrarySidebarWidth";
 
 let libraryTree = null;
 let selectedCategoryId = "";
 let apiBaseUrl = "";
 let searchQuery = "";
+let draggedCategory = null;
+let draggedPaperId = "";
+let suppressPaperOpenUntil = 0;
+let isResizingLibrarySidebar = false;
 
 loadLibrary();
 loadCloudSyncStatus();
 loadSettings();
 migrateLegacyRecentPapers();
+initLibraryPaneResizer();
 
 libraryPdfInput.addEventListener("change", async () => {
   const file = libraryPdfInput.files && libraryPdfInput.files[0];
@@ -105,6 +113,19 @@ uploadForm.addEventListener("drop", async (event) => {
   uploadForm.reset();
 });
 
+categoryTree.addEventListener("dragenter", handleLibrarySidebarDrag);
+categoryTree.addEventListener("dragover", handleLibrarySidebarDrag);
+categoryTree.addEventListener("dragleave", (event) => {
+  if (!categoryTree.contains(event.relatedTarget)) categoryTree.classList.remove("file-drag-over");
+});
+categoryTree.addEventListener("drop", async (event) => {
+  const file = getDroppedPdf(event);
+  if (!file) return;
+  event.preventDefault();
+  categoryTree.classList.remove("file-drag-over");
+  await handlePdfUpload(file);
+});
+
 document.addEventListener("pointerdown", (event) => {
   if (!uploadForm.contains(event.target)) closeUploadMenu();
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
@@ -131,8 +152,99 @@ function handleUploadDrag(event) {
   }
 }
 
-async function handlePdfUpload(file) {
-  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), getActiveUploadCategory());
+async function handlePdfUpload(file, category = "") {
+  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), category || getActiveUploadCategory());
+}
+
+function getDroppedPdf(event) {
+  return Array.from(event.dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
+}
+
+function isFileDrag(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function handleLibrarySidebarDrag(event) {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  categoryTree.classList.add("file-drag-over");
+}
+
+function clearLibraryDragState() {
+  draggedCategory = null;
+  draggedPaperId = "";
+  document.querySelectorAll(".dragging, .drag-over-reorder, .file-drag-over").forEach((element) => {
+    element.classList.remove("dragging", "drag-over-reorder", "file-drag-over");
+  });
+}
+
+function getLibrarySidebarWidthBounds() {
+  const min = 220;
+  const available = Math.max(libraryLayout?.clientWidth || 0, window.innerWidth || 0);
+  const max = available > 0 ? Math.max(min, Math.min(520, available - 380)) : 520;
+  return { min, max };
+}
+
+function setLibrarySidebarWidth(width, persist = true) {
+  if (!libraryLayout || window.matchMedia("(max-width: 900px)").matches) return;
+  const { min, max } = getLibrarySidebarWidthBounds();
+  const next = Math.round(Math.min(max, Math.max(min, Number(width) || min)));
+  document.documentElement.style.setProperty("--library-category-width", `${next}px`);
+  libraryPaneResizer?.setAttribute("aria-valuemin", String(min));
+  libraryPaneResizer?.setAttribute("aria-valuemax", String(max));
+  libraryPaneResizer?.setAttribute("aria-valuenow", String(next));
+  if (persist) localStorage.setItem(LIBRARY_SIDEBAR_WIDTH_KEY, String(next));
+}
+
+function initLibraryPaneResizer() {
+  if (!libraryLayout || !libraryPaneResizer) return;
+  window.requestAnimationFrame(() => {
+    const savedWidth = Number(localStorage.getItem(LIBRARY_SIDEBAR_WIDTH_KEY));
+    if (Number.isFinite(savedWidth)) setLibrarySidebarWidth(savedWidth, false);
+    else setLibrarySidebarWidth(280, false);
+  });
+
+  libraryPaneResizer.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    event.preventDefault();
+    isResizingLibrarySidebar = true;
+    libraryPaneResizer.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-library-sidebar");
+  });
+  libraryPaneResizer.addEventListener("pointermove", (event) => {
+    if (!isResizingLibrarySidebar) return;
+    setLibrarySidebarWidth(event.clientX - libraryLayout.getBoundingClientRect().left, false);
+  });
+  const finishResize = (event) => {
+    if (!isResizingLibrarySidebar) return;
+    isResizingLibrarySidebar = false;
+    document.body.classList.remove("resizing-library-sidebar");
+    if (libraryPaneResizer.hasPointerCapture(event.pointerId)) libraryPaneResizer.releasePointerCapture(event.pointerId);
+    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width"));
+    if (Number.isFinite(current)) setLibrarySidebarWidth(current, true);
+  };
+  libraryPaneResizer.addEventListener("pointerup", finishResize);
+  libraryPaneResizer.addEventListener("pointercancel", finishResize);
+  libraryPaneResizer.addEventListener("keydown", (event) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
+    const { min, max } = getLibrarySidebarWidthBounds();
+    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width")) || 280;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      setLibrarySidebarWidth(current + (event.key === "ArrowRight" ? 16 : -16));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setLibrarySidebarWidth(min);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setLibrarySidebarWidth(max);
+    }
+  });
+  window.addEventListener("resize", () => {
+    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width"));
+    if (Number.isFinite(current)) setLibrarySidebarWidth(current, false);
+  });
 }
 
 async function uploadPdfToLibrary(file, title, category) {
@@ -229,6 +341,9 @@ function renderCategoryRow(category) {
   const row = document.createElement("div");
   row.className = "category-row";
   row.style.paddingLeft = `${category.depth * 18}px`;
+  row.dataset.categoryId = category.id;
+  row.dataset.parentId = category.parentId || "";
+  row.draggable = Boolean(category.id);
 
   const button = document.createElement("button");
   button.type = "button";
@@ -248,6 +363,52 @@ function renderCategoryRow(category) {
   menuButton.addEventListener("click", (event) => {
     event.stopPropagation();
     showCategoryMenu(category, menuButton);
+  });
+
+  row.addEventListener("dragstart", (event) => {
+    if (!category.id || event.target.closest(".category-menu-button")) {
+      event.preventDefault();
+      return;
+    }
+    draggedCategory = { id: category.id, parentId: category.parentId || "" };
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", category.id);
+    row.classList.add("dragging");
+  });
+  row.addEventListener("dragend", clearLibraryDragState);
+  row.addEventListener("dragover", (event) => {
+    if (isFileDrag(event)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      row.classList.add("file-drag-over");
+      return;
+    }
+    if (!draggedCategory || draggedCategory.id === category.id || draggedCategory.parentId !== (category.parentId || "")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    row.classList.add("drag-over-reorder");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drag-over-reorder", "file-drag-over"));
+  row.addEventListener("drop", async (event) => {
+    const file = getDroppedPdf(event);
+    if (file) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearLibraryDragState();
+      await handlePdfUpload(file, category.id || UNCATEGORIZED_LABEL);
+      return;
+    }
+    if (!draggedCategory || draggedCategory.id === category.id || draggedCategory.parentId !== (category.parentId || "")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const placeAfter = event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+    const siblings = Array.from(categoryTree.querySelectorAll(`.category-row[data-parent-id="${CSS.escape(draggedCategory.parentId)}"]`));
+    const orderedIds = siblings.map((item) => item.dataset.categoryId).filter(Boolean).filter((id) => id !== draggedCategory.id);
+    const targetIndex = orderedIds.indexOf(category.id);
+    orderedIds.splice(Math.max(0, targetIndex + (placeAfter ? 1 : 0)), 0, draggedCategory.id);
+    const parentId = draggedCategory.parentId;
+    clearLibraryDragState();
+    await updateCategory({ action: "reorder", parentId, orderedIds });
   });
 
   row.append(button, menuButton);
@@ -285,12 +446,18 @@ function renderPaperList(papers) {
     return;
   }
 
+  const canReorder = Boolean(selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID && !searchQuery);
   papers.forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
     const card = document.createElement("article");
     card.className = "paper-card";
     card.tabIndex = 0;
-    card.addEventListener("click", () => openPaperReader(paper.id));
+    card.dataset.paperId = paper.id;
+    card.draggable = canReorder;
+    card.addEventListener("click", () => {
+      if (Date.now() < suppressPaperOpenUntil) return;
+      openPaperReader(paper.id);
+    });
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openPaperReader(paper.id);
     });
@@ -316,6 +483,41 @@ function renderPaperList(papers) {
     actions.addEventListener("click", (event) => {
       event.stopPropagation();
       showPaperMenu(paper, actions);
+    });
+
+    card.addEventListener("dragstart", (event) => {
+      if (!canReorder || event.target.closest("button, a")) {
+        event.preventDefault();
+        return;
+      }
+      draggedPaperId = paper.id;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", paper.id);
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => {
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+    });
+    card.addEventListener("dragover", (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      card.classList.add("drag-over-reorder");
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-over-reorder"));
+    card.addEventListener("drop", async (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      const placeAfter = event.clientY > card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2;
+      const orderedIds = Array.from(paperList.querySelectorAll(".paper-card[data-paper-id]"))
+        .map((item) => item.dataset.paperId)
+        .filter((id) => id !== draggedPaperId);
+      const targetIndex = orderedIds.indexOf(paper.id);
+      orderedIds.splice(Math.max(0, targetIndex + (placeAfter ? 1 : 0)), 0, draggedPaperId);
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+      await updatePaper({ action: "reorder", category: selectedCategoryId, orderedIds });
     });
 
     card.append(text, actions);
@@ -352,22 +554,18 @@ function showCategoryMenu(category, anchor) {
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.textContent = "Add subcategory";
-  addButton.addEventListener("click", async () => {
+  addButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("Subcategory name");
-    if (!name?.trim()) return;
-    await updateCategory({ action: "create", parentId: category.id, name: name.trim() });
+    beginInlineSubcategoryCreate(category);
   });
 
   const renameButton = document.createElement("button");
   renameButton.type = "button";
   renameButton.textContent = "Rename";
   renameButton.disabled = category.locked || !category.id;
-  renameButton.addEventListener("click", async () => {
+  renameButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("New category name", category.name);
-    if (!name?.trim() || name.trim() === category.name) return;
-    await updateCategory({ action: "rename", id: category.id, name: name.trim() });
+    beginInlineCategoryRename(category);
   });
 
   const deleteButton = document.createElement("button");
@@ -383,6 +581,108 @@ function showCategoryMenu(category, anchor) {
   menu.append(addButton, renameButton, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+function getCategoryRow(categoryId) {
+  return Array.from(categoryTree.querySelectorAll(".category-row[data-category-id]")).find((row) => row.dataset.categoryId === categoryId) || null;
+}
+
+function createCategoryInlineInput(value, label) {
+  const input = document.createElement("input");
+  input.className = "category-inline-input";
+  input.type = "text";
+  input.value = value;
+  input.maxLength = 80;
+  input.placeholder = label;
+  input.setAttribute("aria-label", label);
+  return input;
+}
+
+function normalizedCategoryName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function beginInlineCategoryRename(category) {
+  const row = getCategoryRow(category.id);
+  const button = row?.querySelector(".category-item");
+  if (!row || !button) return;
+
+  document.querySelector(".category-create-row")?.remove();
+  const input = createCategoryInlineInput(category.name, "分类名称");
+  button.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const name = normalizedCategoryName(input.value);
+    if (save && name && name !== category.name) {
+      const updated = await updateCategory({ action: "rename", id: category.id, name });
+      if (!updated) renderLibrary();
+      return;
+    }
+    renderLibrary();
+  };
+
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function beginInlineSubcategoryCreate(category) {
+  document.querySelector(".category-create-row")?.remove();
+  const parentRow = getCategoryRow(category.id);
+  if (!parentRow) return;
+
+  const editorRow = document.createElement("div");
+  editorRow.className = "category-row category-create-row";
+  editorRow.style.paddingLeft = `${(category.depth + 1) * 18}px`;
+  const input = createCategoryInlineInput("", "新建子分类名称");
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "category-inline-cancel";
+  cancelButton.textContent = "×";
+  cancelButton.setAttribute("aria-label", "取消新建分类");
+  editorRow.append(input, cancelButton);
+  parentRow.after(editorRow);
+  input.focus();
+
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const name = normalizedCategoryName(input.value);
+    if (save && name) {
+      const created = await updateCategory({ action: "create", parentId: category.id, name });
+      if (!created) renderLibrary();
+      return;
+    }
+    editorRow.remove();
+  };
+
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+  cancelButton.addEventListener("mousedown", (event) => event.preventDefault());
+  cancelButton.addEventListener("click", () => finish(false));
 }
 
 function showPaperMenu(paper, anchor) {
@@ -484,7 +784,7 @@ async function updateCategory(payload) {
     const data = await readJsonResponse(response);
     if (!response.ok) {
       setLibraryStatus(data.error || "Category operation failed.", true);
-      return;
+      return false;
     }
     libraryTree = data.tree;
     if (payload.action === "rename" && selectedCategoryId === payload.id) {
@@ -496,9 +796,11 @@ async function updateCategory(payload) {
     renderLibrary();
     setLibraryStatus("");
     reportSyncResult(data.sync);
+    return true;
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Category operation failed.", true);
+    return false;
   }
 }
 
@@ -547,17 +849,18 @@ function formatViewedDate(value) {
   return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function flattenCategories(node, depth = 0) {
+function flattenCategories(node, depth = 0, parentId = "") {
   if (!node) return [];
   const current = {
     id: node.id || "",
     name: node.name || "Library",
     depth,
+    parentId,
     locked: Boolean(node.locked),
     paperCount: collectPapers(node).length,
     papers: node.papers || [],
   };
-  return [current, ...(node.folders || []).flatMap((folder) => flattenCategories(folder, depth + 1))];
+  return [current, ...(node.folders || []).flatMap((folder) => flattenCategories(folder, depth + 1, current.id))];
 }
 
 function collectPapers(node) {
