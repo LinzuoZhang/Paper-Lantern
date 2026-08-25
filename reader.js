@@ -44,6 +44,7 @@ const discussionThreadView = document.querySelector("#discussionThreadView");
 const discussionThreadList = document.querySelector("#discussionThreadList");
 const backToDiscussionsButton = document.querySelector("#backToDiscussionsButton");
 const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
+const discussionThreadMenuButton = document.querySelector("#discussionThreadMenuButton");
 const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
@@ -86,6 +87,7 @@ let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
 let discussionInputResizeState = null;
+let discussionThreadMenu = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
 
@@ -289,6 +291,7 @@ document.addEventListener("pointerdown", (event) => {
     translationBubble?.contains(event.target) ||
     commentBubble?.contains(event.target) ||
     annotationEditor?.contains(event.target);
+  const clickedDiscussionMenu = event.target.closest(".discussion-thread-menu") || event.target.closest(".discussion-thread-more-button");
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
     document.querySelector(".library-menu")?.remove();
   }
@@ -296,6 +299,7 @@ document.addEventListener("pointerdown", (event) => {
     hideTranslationBubble();
     hideAnnotationEditor();
   }
+  if (!clickedDiscussionMenu) closeDiscussionThreadMenu();
 
   if (!selectionMenu.contains(event.target) && !pdfViewer.contains(event.target)) {
     hideSelectionMenu();
@@ -318,6 +322,12 @@ clearDiscussionButton?.addEventListener("click", () => {
   clearActiveDiscussion();
 });
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
+discussionThreadMenuButton?.addEventListener("click", (event) => {
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) return;
+  event.stopPropagation();
+  toggleDiscussionThreadMenu(thread, discussionThreadTitle, discussionThreadMenuButton);
+});
 
 summarizeButton.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -604,10 +614,14 @@ function renderDiscussionThreadList() {
     return;
   }
   discussionThreads.forEach((thread) => {
-    const button = document.createElement("button");
-    button.className = "discussion-thread-item";
-    button.type = "button";
-    button.dataset.threadId = thread.id;
+    const item = document.createElement("div");
+    item.className = "discussion-thread-item";
+    const openButton = document.createElement("div");
+    openButton.className = "discussion-thread-open-button";
+    openButton.dataset.threadId = thread.id;
+    openButton.tabIndex = 0;
+    openButton.setAttribute("role", "button");
+    openButton.setAttribute("aria-label", `打开 Discussion：${thread.title || "未命名 Discussion"}`);
     const title = document.createElement("span");
     title.className = "discussion-thread-item-title";
     title.textContent = thread.title || "New discussion";
@@ -615,10 +629,134 @@ function renderDiscussionThreadList() {
     meta.className = "discussion-thread-item-meta";
     const turnCount = Math.ceil((thread.messages || []).length / 2);
     meta.textContent = `${turnCount || 0} turns`;
-    button.append(title, meta);
-    button.addEventListener("click", () => showDiscussionThread(thread.id));
-    discussionThreadList.appendChild(button);
+    openButton.append(title, meta);
+    openButton.addEventListener("click", () => showDiscussionThread(thread.id));
+    openButton.addEventListener("keydown", (event) => {
+      if (event.target !== openButton) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        showDiscussionThread(thread.id);
+      }
+    });
+
+    const moreButton = document.createElement("button");
+    moreButton.className = "discussion-thread-more-button";
+    moreButton.type = "button";
+    moreButton.textContent = "•••";
+    moreButton.setAttribute("aria-label", "会话选项");
+    moreButton.title = "会话选项";
+    moreButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleDiscussionThreadMenu(thread, title, moreButton);
+    });
+    item.append(openButton, moreButton);
+    discussionThreadList.appendChild(item);
   });
+}
+
+function toggleDiscussionThreadMenu(thread, titleNode, anchor) {
+  if (discussionThreadMenu?.dataset.threadId === thread.id) {
+    closeDiscussionThreadMenu();
+    return;
+  }
+  closeDiscussionThreadMenu();
+  const menu = document.createElement("div");
+  menu.className = "discussion-thread-menu";
+  menu.dataset.threadId = thread.id;
+
+  const renameButton = document.createElement("button");
+  renameButton.type = "button";
+  renameButton.textContent = "重命名";
+  renameButton.addEventListener("click", () => {
+    closeDiscussionThreadMenu();
+    beginDiscussionRename(thread, titleNode);
+  });
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "danger";
+  deleteButton.textContent = "删除会话";
+  deleteButton.addEventListener("click", () => showDiscussionDeleteConfirmation(thread));
+  menu.append(renameButton, deleteButton);
+  document.body.appendChild(menu);
+  discussionThreadMenu = menu;
+
+  const rect = anchor.getBoundingClientRect();
+  const width = 154;
+  menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 92)}px`;
+}
+
+function showDiscussionDeleteConfirmation(thread) {
+  if (!discussionThreadMenu) return;
+  discussionThreadMenu.replaceChildren();
+  const message = document.createElement("p");
+  message.textContent = "删除这个会话？";
+  const actions = document.createElement("div");
+  actions.className = "discussion-thread-menu-actions";
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.textContent = "取消";
+  cancelButton.addEventListener("click", closeDiscussionThreadMenu);
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.className = "danger";
+  confirmButton.textContent = "确认删除";
+  confirmButton.addEventListener("click", async () => {
+    discussionThreads = discussionThreads.filter((item) => item.id !== thread.id);
+    const wasActive = activeDiscussionId === thread.id;
+    closeDiscussionThreadMenu();
+    if (wasActive) showDiscussionList();
+    else renderDiscussionThreadList();
+    await saveDiscussionThreads();
+  });
+  actions.append(cancelButton, confirmButton);
+  discussionThreadMenu.append(message, actions);
+}
+
+function closeDiscussionThreadMenu() {
+  discussionThreadMenu?.remove();
+  discussionThreadMenu = null;
+}
+
+function beginDiscussionRename(thread, titleNode) {
+  const input = document.createElement("input");
+  input.className = "discussion-thread-title-input";
+  input.type = "text";
+  input.value = thread.title || "";
+  input.maxLength = 80;
+  input.setAttribute("aria-label", "Discussion 名称");
+  titleNode.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const title = String(input.value).replace(/\s+/g, " ").trim().slice(0, 80);
+    if (save && title && title !== thread.title) {
+      thread.title = title;
+      thread.updatedAt = new Date().toISOString();
+      thread.hash = await makeDiscussionThreadHash(thread);
+      if (thread.id === activeDiscussionId) renderDiscussionThreadHeader(thread);
+      await saveDiscussionThreads();
+    }
+    renderDiscussionThreadList();
+  };
+
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 function appendDiscussionMessage(role, content) {

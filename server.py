@@ -298,7 +298,22 @@ def read_json(path, fallback):
 
 
 def write_json(path, data):
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temp_file:
+        temp_file.write(json.dumps(data, ensure_ascii=False, indent=2))
+        temp_path = Path(temp_file.name)
+    try:
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def read_text_file(path):
@@ -488,6 +503,7 @@ def load_library_db():
         migrate_existing_library(db)
         save_library_db(db)
     ensure_uncategorized(db)
+    reconcile_paper_storage(db)
     save_library_db(db)
     return db
 
@@ -506,6 +522,29 @@ def ensure_uncategorized(db):
         "parentId": "",
         "locked": True,
     }
+
+
+def reconcile_paper_storage(db):
+    """Restore index records for paper folders that still exist on disk."""
+    papers = db.setdefault("papers", {})
+    categories = db.setdefault("categories", {})
+    if not PAPER_STORAGE_DIR.exists():
+        return
+
+    for paper_dir in PAPER_STORAGE_DIR.iterdir():
+        if not paper_dir.is_dir() or paper_dir.name in papers or not (paper_dir / "paper.pdf").exists():
+            continue
+        metadata = read_json(paper_dir / "metadata.json", default_metadata(paper_dir.name, UNCATEGORIZED_ID))
+        category_id = str(metadata.get("category") or UNCATEGORIZED_ID)
+        if category_id not in categories:
+            category_id = UNCATEGORIZED_ID
+        papers[paper_dir.name] = {
+            "id": paper_dir.name,
+            "title": metadata.get("title") or paper_dir.name,
+            "categoryId": category_id,
+            "folder": f"papers/{paper_dir.name}",
+            "uploadedAt": metadata.get("uploadedAt") or datetime.fromtimestamp(paper_dir.stat().st_mtime, timezone.utc).isoformat(),
+        }
 
 
 def migrate_existing_library(db):

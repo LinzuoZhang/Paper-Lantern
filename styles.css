@@ -2270,17 +2270,35 @@ select {
   gap: 10px;
   align-items: center;
   width: 100%;
-  padding: 9px 4px;
+  padding: 5px 4px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
+}
+
+.discussion-thread-item:hover,
+.discussion-thread-item:focus-within {
+  background: var(--soft);
+}
+
+.discussion-thread-open-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
   background: transparent;
   color: var(--ink);
+  cursor: pointer;
+  font: inherit;
   text-align: left;
 }
 
-.discussion-thread-item:hover {
-  background: var(--soft);
+.discussion-thread-open-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .discussion-thread-item-title {
@@ -2301,7 +2319,7 @@ select {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   padding: 4px 0 6px;
@@ -2315,6 +2333,93 @@ select {
   min-height: 28px;
   padding: 0;
   margin-right: 6px;
+}
+
+.discussion-thread-more-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+
+.discussion-thread-more-button:hover,
+.discussion-thread-more-button:focus-visible {
+  background: rgba(37, 109, 133, 0.1);
+  color: var(--accent-strong);
+}
+
+.discussion-thread-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  gap: 2px;
+  min-width: 154px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 24px rgba(29, 37, 32, 0.16);
+}
+
+.discussion-thread-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.discussion-thread-menu button:hover,
+.discussion-thread-menu button:focus-visible {
+  background: var(--soft);
+}
+
+.discussion-thread-menu button.danger {
+  color: var(--warn);
+}
+
+.discussion-thread-menu p {
+  margin: 3px 4px 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.discussion-thread-menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.discussion-thread-menu-actions button {
+  padding: 7px 5px;
+  text-align: center;
+}
+
+.discussion-thread-title-input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 3px 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .discussion-thread-title {
@@ -2331,6 +2436,7 @@ select {
   display: grid;
   gap: 10px;
   min-height: 180px;
+  min-width: 0;
   overflow: visible;
   padding: 12px;
   border: 1px solid #d7e6eb;
@@ -2350,6 +2456,7 @@ select {
   display: grid;
   gap: 4px;
   max-width: 92%;
+  min-width: 0;
 }
 
 .discussion-message.user {
@@ -2372,6 +2479,8 @@ select {
 }
 
 .discussion-message-body {
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2450,6 +2559,8 @@ select {
 }
 
 .markdown-table-wrap {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -2458,8 +2569,8 @@ select {
 }
 
 .markdown-table-wrap table {
-  width: 100%;
-  min-width: max-content;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   line-height: 1.5;
