@@ -3,7 +3,6 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
-const collapseLibraryButton = document.querySelector("#collapseLibraryButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const createReaderCategoryButton = document.querySelector("#createReaderCategoryButton");
@@ -64,6 +63,14 @@ const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
 const basicInfoVenue = document.querySelector("#basicInfoVenue");
 const basicInfoDate = document.querySelector("#basicInfoDate");
 const basicInfoInstitutions = document.querySelector("#basicInfoInstitutions");
+const notesEditor = document.querySelector("#notesEditor");
+const notesWorkspace = document.querySelector("#notesWorkspace");
+const notesPreview = document.querySelector("#notesPreview");
+const notesStatus = document.querySelector("#notesStatus");
+const toggleNotesModeButton = document.querySelector("#toggleNotesModeButton");
+const clearNotesButton = document.querySelector("#clearNotesButton");
+const saveNotesButton = document.querySelector("#saveNotesButton");
+const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -95,6 +102,10 @@ let discussionIsBusy = false;
 let discussionMarkdownRenderer = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
+let notesAutoSaveTimer = null;
+let notesLastSavedValue = "";
+let notesIsSaving = false;
+let notesMode = "edit";
 let referenceEntries = new Map();
 
 const highlightColors = {
@@ -111,6 +122,7 @@ initReaderTabs();
 initReaderSettings();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
+initNotesPanel();
 openReaderFromUrl();
 
 function initReaderLibraryDrawer() {
@@ -120,10 +132,6 @@ function initReaderLibraryDrawer() {
       return;
     }
     openReaderLibraryDrawer();
-  });
-  collapseLibraryButton?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeReaderLibraryDrawer();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
@@ -400,6 +408,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   renderDiscussionHistory(currentPaper.discussion || []);
+  renderNotes(currentPaper.notes || "");
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo);
   setReaderPaperTitle(currentPaper.title);
@@ -595,6 +604,135 @@ async function exportCurrentPaperPdf() {
     setStatus(error.message || "Export failed.", true);
   } finally {
     exportPdfButton.disabled = false;
+  }
+}
+
+function initNotesPanel() {
+  notesEditor?.addEventListener("input", () => {
+    renderNotesPreview(notesEditor.value);
+    setNotesStatus("Unsaved");
+    window.clearTimeout(notesAutoSaveTimer);
+    notesAutoSaveTimer = window.setTimeout(() => {
+      saveNotes().catch((error) => console.error("Failed to auto-save notes.", error));
+    }, 700);
+  });
+  toggleNotesModeButton?.addEventListener("click", toggleNotesMode);
+  clearNotesButton?.addEventListener("click", clearNotes);
+  saveNotesButton?.addEventListener("click", () => saveNotes());
+  exportNotesPdfButton?.addEventListener("click", exportNotesPdf);
+  renderNotes("");
+}
+
+function renderNotes(value) {
+  const notes = String(value || "");
+  if (notesEditor) notesEditor.value = notes;
+  notesLastSavedValue = notes;
+  renderNotesPreview(notes);
+  setNotesMode("edit");
+  setNotesStatus(notes ? "Saved" : "");
+}
+
+function renderNotesPreview(value) {
+  if (!notesPreview) return;
+  const source = String(value || "").trim();
+  notesPreview.innerHTML = source ? renderDiscussionMarkdown(source) : "<p>Notes preview</p>";
+}
+
+function setNotesMode(mode) {
+  notesMode = mode === "preview" ? "preview" : "edit";
+  if (notesWorkspace) notesWorkspace.dataset.mode = notesMode;
+  if (notesEditor) notesEditor.hidden = notesMode !== "edit";
+  if (notesPreview) notesPreview.hidden = notesMode !== "preview";
+  if (!toggleNotesModeButton) return;
+  const isPreview = notesMode === "preview";
+  toggleNotesModeButton.setAttribute("aria-label", isPreview ? "Edit notes" : "Preview notes");
+  toggleNotesModeButton.title = isPreview ? "Edit notes" : "Preview notes";
+  toggleNotesModeButton.innerHTML = isPreview
+    ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+      </svg>`
+    : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+      </svg>`;
+}
+
+function toggleNotesMode() {
+  if (notesMode === "edit") renderNotesPreview(notesEditor?.value || "");
+  setNotesMode(notesMode === "edit" ? "preview" : "edit");
+}
+
+function clearNotes() {
+  if (!notesEditor) return;
+  notesEditor.value = "";
+  renderNotesPreview("");
+  setNotesMode("edit");
+  setNotesStatus("Unsaved");
+  window.clearTimeout(notesAutoSaveTimer);
+  notesAutoSaveTimer = window.setTimeout(() => {
+    saveNotes().catch((error) => console.error("Failed to clear notes.", error));
+  }, 120);
+}
+
+function setNotesStatus(message, isError = false) {
+  if (!notesStatus) return;
+  notesStatus.textContent = message || "";
+  notesStatus.classList.toggle("error", Boolean(isError));
+}
+
+async function saveNotes() {
+  if (!currentPaper?.id || !notesEditor || notesIsSaving) return;
+  const notes = notesEditor.value;
+  window.clearTimeout(notesAutoSaveTimer);
+  if (notes === notesLastSavedValue) {
+    setNotesStatus(notes ? "Saved" : "");
+    return;
+  }
+  notesIsSaving = true;
+  if (saveNotesButton) saveNotesButton.disabled = true;
+  setNotesStatus("Saving...");
+  try {
+    await saveCurrentPaper({ notes });
+    notesLastSavedValue = String(currentPaper?.notes || notes);
+    setNotesStatus("Saved");
+  } catch (error) {
+    console.error(error);
+    setNotesStatus(error.message || "Notes save failed.", true);
+  } finally {
+    notesIsSaving = false;
+    if (saveNotesButton) saveNotesButton.disabled = false;
+  }
+}
+
+async function exportNotesPdf() {
+  if (!currentPaper?.id) {
+    setNotesStatus("No paper is open.", true);
+    return;
+  }
+  await saveNotes();
+  if (exportNotesPdfButton) exportNotesPdfButton.disabled = true;
+  try {
+    const response = await apiFetch(`/api/library/pdf?notes=1&id=${encodeURIComponent(currentPaper.id)}`);
+    const blob = await response.blob();
+    if (!response.ok) {
+      const detail = await blob.text();
+      throw new Error(detail || "Notes export failed.");
+    }
+    const link = document.createElement("a");
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    link.download = `${currentPaper.title || "paper"}-notes.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+    setNotesStatus("Exported");
+  } catch (error) {
+    console.error(error);
+    setNotesStatus(error.message || "Notes export failed.", true);
+  } finally {
+    if (exportNotesPdfButton) exportNotesPdfButton.disabled = false;
   }
 }
 
@@ -1483,6 +1621,7 @@ async function saveCurrentPaper(extra = {}) {
     body: JSON.stringify({ id: currentPaper.id, highlights: savedHighlights, ...extra }),
   });
   const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Paper save failed.");
   if (response.ok) currentPaper = data.paper;
 }
 

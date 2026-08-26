@@ -754,7 +754,7 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-left-rail.library-open .reader-logo-button {
   justify-content: flex-start;
-  width: calc(100% - 42px);
+  width: 100%;
   padding: 0 8px;
 }
 
@@ -765,43 +765,6 @@ body.upload-menu-open .paper-card:hover {
 .reader-logo-button:hover,
 .reader-logo-button.open {
   background: var(--soft);
-}
-
-.reader-library-collapse-button {
-  position: absolute;
-  top: 20px;
-  right: 10px;
-  z-index: 2;
-  display: none;
-  place-items: center;
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  min-height: 34px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--ink);
-  box-shadow: none;
-}
-
-.reader-left-rail.library-open .reader-library-collapse-button {
-  display: inline-grid;
-}
-
-.reader-library-collapse-button:hover {
-  background: var(--soft);
-}
-
-.reader-library-collapse-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
 }
 
 .reader-library-drawer {
@@ -2308,6 +2271,115 @@ body.selecting-pdf-text .selection-menu {
 
 .reader-tab-panel.active {
   display: flex;
+}
+
+.notes-panel {
+  min-height: 0;
+  gap: 0;
+}
+
+.notes-card {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.notes-header {
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notes-toolbar {
+  display: flex;
+  margin-left: auto;
+  overflow: hidden;
+  border: 1px solid #111;
+  border-radius: 0;
+  background: #fff;
+}
+
+.notes-toolbar .icon-button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #111;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.notes-toolbar .icon-button:last-child {
+  border-right: 0;
+}
+
+.notes-toolbar .icon-button:hover {
+  background: #f7f9f8;
+  color: #111;
+  box-shadow: none;
+}
+
+.notes-toolbar .icon-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.notes-workspace {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding-top: 12px;
+}
+
+.notes-editor,
+.notes-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+}
+
+.notes-editor[hidden],
+.notes-preview[hidden] {
+  display: none;
+}
+
+.notes-editor {
+  width: 100%;
+  resize: none;
+  padding: 12px;
+  color: var(--ink);
+  font: 13px/1.55 "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+}
+
+.notes-preview {
+  overflow: auto;
+  padding: 12px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .summary-scroll {

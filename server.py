@@ -32,6 +32,7 @@ MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
 MAX_METHOD_POINT_WORKERS = 5
 MAX_EXTRACTED_TEXT_CHARS = 40_000_000
+MAX_NOTES_CHARS = 300_000
 EXTRACTED_TEXT_FILE = "extracted_text.txt"
 AI_RUNS_DIR = "ai_runs"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
@@ -301,6 +302,94 @@ def clean_export_filename(value):
     return f"{name}.pdf"
 
 
+def export_notes_pdf(title, notes):
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError("PyMuPDF is required to export notes PDFs.") from exc
+
+    doc = fitz.open()
+    page_rect = fitz.paper_rect("a4")
+    margin = 54
+    content_width = page_rect.width - margin * 2
+    page = doc.new_page(width=page_rect.width, height=page_rect.height)
+    y = margin
+
+    def add_page():
+        return doc.new_page(width=page_rect.width, height=page_rect.height)
+
+    def write_block(text, size=11, leading=15, indent=0):
+        nonlocal page, y
+        text = str(text or "").rstrip()
+        if not text:
+            y += leading * 0.55
+            return
+        chars_per_line = max(18, int((content_width - indent) / max(size * 0.48, 1)))
+        line_count = sum(max(1, (len(part) // chars_per_line) + 1) for part in text.splitlines() or [""])
+        needed = max(leading, line_count * leading)
+        if y + min(needed, 120) > page_rect.height - margin:
+            page = add_page()
+            y = margin
+        rect = fitz.Rect(margin + indent, y, margin + content_width, page_rect.height - margin)
+        page.insert_textbox(rect, text, fontsize=size, fontname="china-s", color=(0.12, 0.16, 0.14), lineheight=1.18)
+        y += needed + 5
+
+    write_block(str(title or "Paper Notes"), size=18, leading=24)
+    write_block(f"Exported {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", size=9, leading=12)
+    y += 8
+
+    in_code = False
+    code_lines = []
+    for raw_line in str(notes or "").splitlines():
+        line = raw_line.rstrip()
+        if line.strip().startswith("```"):
+            if in_code:
+                write_block("\n".join(code_lines) or " ", size=9.5, leading=13, indent=10)
+                code_lines = []
+            in_code = not in_code
+            continue
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            write_block("")
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            write_block(clean_markdown_text(heading.group(2)), size=max(12, 18 - level), leading=max(16, 23 - level))
+            continue
+        quote = re.match(r"^>\s*(.+)$", stripped)
+        if quote:
+            write_block(clean_markdown_text(quote.group(1)), size=10.5, leading=14, indent=12)
+            continue
+        bullet = re.match(r"^([-*+]|\d+[.)])\s+(.+)$", stripped)
+        if bullet:
+            write_block(f"- {clean_markdown_text(bullet.group(2))}", size=11, leading=15, indent=8)
+            continue
+        write_block(clean_markdown_text(stripped), size=11, leading=15)
+
+    if in_code and code_lines:
+        write_block("\n".join(code_lines), size=9.5, leading=13, indent=10)
+
+    data = doc.tobytes(garbage=4, deflate=True)
+    doc.close()
+    return data
+
+
+def clean_markdown_text(value):
+    text = str(value or "")
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"(`+)(.*?)\1", r"\2", text)
+    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
+    text = re.sub(r"~~(.*?)~~", r"\1", text)
+    return text.replace("\\", "")
+
+
 def clean_category_path(value):
     if str(value).strip() in {"", "Uncategorized"}:
         return Path(UNCATEGORIZED_NAME)
@@ -437,6 +526,7 @@ def default_metadata(title, category):
         "methodSections": [],
         "methodConclusion": "",
         "basicInfo": {},
+        "notes": "",
     }
 
 
@@ -486,6 +576,7 @@ def read_paper(paper_id):
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
+        "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
     }
 
 
@@ -740,6 +831,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
+        "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
         "discussion": discussion,
         "extractedText": extracted_text,
     }
@@ -1090,6 +1182,28 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/pdf":
             paper_id = parse_query_value(self.path, "id")
             db = load_library_db()
+            if parse_query_value(self.path, "notes") == "1" or "notes=1" in self.path:
+                record = db["papers"].get(paper_id)
+                paper_dir = paper_dir_from_record(record) if record else None
+                if not record or not paper_dir or not paper_dir.exists():
+                    self._send_json(404, {"error": "Paper not found."})
+                    return
+                try:
+                    metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
+                    title = metadata.get("title") or record.get("title") or paper_id or "paper"
+                    notes = str(metadata.get("notes", "")).strip()
+                    data = export_notes_pdf(f"{title} - Notes", notes or "No notes.")
+                except Exception as exc:
+                    self._send_json(500, {"error": "Failed to export notes PDF.", "detail": str(exc)})
+                    return
+                filename = clean_export_filename(f"{title}-notes.pdf")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             record = db["papers"].get(paper_id)
             paper_dir = paper_dir_from_record(record) if record else None
             pdf_path = paper_dir / "paper.pdf" if paper_dir else None
@@ -1108,18 +1222,27 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             db = load_library_db()
             record = db["papers"].get(paper_id)
             paper_dir = paper_dir_from_record(record) if record else None
-            pdf_path = paper_dir / "paper.pdf" if paper_dir else None
-            if not pdf_path or not pdf_path.exists():
-                self.send_error(404, "PDF not found")
+            if not record or not paper_dir or not paper_dir.exists():
+                self._send_json(404, {"error": "Paper not found."})
                 return
             try:
-                title = record.get("title") or paper_id or "paper"
-                highlights = read_json(paper_dir / "highlights.json", [])
-                data = export_annotated_pdf(pdf_path, highlights)
+                metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
+                title = metadata.get("title") or record.get("title") or paper_id or "paper"
+                if parse_query_value(self.path, "type") == "notes":
+                    notes = str(metadata.get("notes", "")).strip()
+                    data = export_notes_pdf(f"{title} - Notes", notes or "No notes.")
+                    filename = clean_export_filename(f"{title}-notes.pdf")
+                else:
+                    pdf_path = paper_dir / "paper.pdf"
+                    if not pdf_path.exists():
+                        self.send_error(404, "PDF not found")
+                        return
+                    highlights = read_json(paper_dir / "highlights.json", [])
+                    data = export_annotated_pdf(pdf_path, highlights)
+                    filename = clean_export_filename(f"{title}-export.pdf")
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to export PDF.", "detail": str(exc)})
                 return
-            filename = clean_export_filename(f"{title}-export.pdf")
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
@@ -1290,6 +1413,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if isinstance(payload.get("discussion"), (list, dict)):
             write_json(paper_dir / "discussion.json", normalize_discussion_payload(payload["discussion"]))
             update_paper_sync_hash(paper_dir)
+            sync_relevant_changed = True
+        if isinstance(payload.get("notes"), str):
+            metadata["notes"] = payload["notes"][:MAX_NOTES_CHARS]
             sync_relevant_changed = True
         if isinstance(payload.get("extractedText"), str):
             extracted_text = payload["extractedText"].strip()
