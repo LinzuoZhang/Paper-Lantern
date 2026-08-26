@@ -4,11 +4,13 @@ import json
 import os
 from ctypes import wintypes
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 CONFIG_FILE_NAME = "paperlantern_config.json"
 AI_TASK_NAMES = ("summary", "translate", "explain", "discuss")
 RESERVED_API_EXTRA_PARAM_KEYS = {"model", "messages", "stream", "response_format"}
+DEFAULT_DISCUSSION_WEB_URL = "https://chatgpt.com/"
 
 
 def config_path(base_dir):
@@ -45,6 +47,9 @@ def default_config():
             "passwordTail": secret_tail(os.environ.get("CLOUD_SYNC_WEBDAV_PASSWORD", "")),
             "autoSync": os.environ.get("CLOUD_SYNC_AUTO_PUSH", "").lower() in {"1", "true", "yes", "on"},
         },
+        "web": {
+            "discussionUrl": os.environ.get("PAPER_LANTERN_DISCUSSION_WEB_URL", DEFAULT_DISCUSSION_WEB_URL),
+        },
     }
 
 
@@ -67,6 +72,9 @@ def load_config(base_dir):
                     merged["ai"]["tasks"][name].update(saved_tasks[name])
     if isinstance(data.get("sync"), dict):
         merged["sync"].update(data["sync"])
+    if isinstance(data.get("web"), dict):
+        merged["web"].update(data["web"])
+    merged["web"]["discussionUrl"] = normalize_discussion_web_url(merged["web"].get("discussionUrl"))
     merged["ai"]["extraParams"] = sanitize_api_extra_params(merged["ai"].get("extraParams"))
     for name in AI_TASK_NAMES:
         merged["ai"]["tasks"][name]["extraParams"] = sanitize_api_extra_params(
@@ -116,6 +124,8 @@ def save_config(base_dir, payload):
             password = str(sync.get("password", "")).strip()
             current["sync"]["password"] = protect_secret(password)
             current["sync"]["passwordTail"] = secret_tail(password)
+    if isinstance(payload.get("web"), dict) and "discussionUrl" in payload["web"]:
+        current["web"]["discussionUrl"] = normalize_discussion_web_url(payload["web"].get("discussionUrl"))
     ensure_secret_tails(current)
     path = config_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +166,9 @@ def public_config(config):
             "passwordTail": config.get("sync", {}).get("passwordTail", "") or secret_tail(unprotect_secret(config.get("sync", {}).get("password", ""))),
             "autoSync": bool(config.get("sync", {}).get("autoSync", False)),
         },
+        "web": {
+            "discussionUrl": normalize_discussion_web_url(config.get("web", {}).get("discussionUrl")),
+        },
     }
 
 
@@ -176,6 +189,14 @@ def validate_api_extra_params(value, label):
     if blocked:
         raise ValueError(f"{label} cannot override: {', '.join(blocked)}.")
     return dict(value)
+
+
+def normalize_discussion_web_url(value):
+    url = str(value or "").strip() or DEFAULT_DISCUSSION_WEB_URL
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Discussion web URL must be a complete http(s) URL.")
+    return url
 
 
 def secret_tail(value):

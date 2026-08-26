@@ -28,6 +28,7 @@
       <section class="reader-pane" aria-label="Paper reader">
         <header class="toolbar">
           <h1 id="fileName" class="paper-title">Loading paper...</h1>
+          <button id="readerPaperMenuButton" class="paper-menu-button menu-button" type="button" aria-label="Paper actions" aria-haspopup="menu" disabled>...</button>
         </header>
         <div class="pdf-controls" role="toolbar" aria-label="PDF controls">
           <div class="pdf-control-group">
@@ -191,7 +192,10 @@
               <div class="discussion-input-target"><span>发送到</span><strong id="discussionInputTarget">新建 Discussion</strong></div>
               <textarea id="discussionInput" rows="3" placeholder="输入问题后将新建一个 Discussion..." aria-label="Discussion question"></textarea>
             </div>
-            <button id="sendDiscussionButton" type="submit">Send</button>
+            <div class="discussion-form-actions">
+              <button id="continueInWebButton" class="discussion-web-button" type="button">在 ChatGPT 网页中继续</button>
+              <button id="sendDiscussionButton" type="submit">Send</button>
+            </div>
           </form>
         </div>
 

@@ -2759,7 +2759,7 @@ select {
   flex: 0 0 auto;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: end;
   width: 100%;
@@ -2846,11 +2846,26 @@ body.resizing-discussion-input {
   border-color: var(--accent);
 }
 
-.discussion-form button {
-  grid-column: 2;
-  grid-row: 2;
-  min-height: 40px;
-  padding: 0 14px;
+.discussion-form-actions {
+  grid-column: 1;
+  grid-row: 3;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.discussion-form-actions button {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.discussion-web-button {
+  border-color: var(--line);
+  background: var(--panel-muted);
+  color: var(--accent-strong);
+  font-weight: 700;
 }
 
 .formula-list {

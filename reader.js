@@ -21,6 +21,7 @@ const translateWithContextButton = document.querySelector("#translateWithContext
 const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
+const readerPaperMenuButton = document.querySelector("#readerPaperMenuButton");
 const pageIndicator = document.querySelector("#pageIndicator");
 const pdfZoomOutButton = document.querySelector("#pdfZoomOutButton");
 const pdfZoomInButton = document.querySelector("#pdfZoomInButton");
@@ -51,6 +52,7 @@ const discussionInput = document.querySelector("#discussionInput");
 const discussionInputTarget = document.querySelector("#discussionInputTarget");
 const discussionResizeHandle = document.querySelector("#discussionResizeHandle");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
+const continueInWebButton = document.querySelector("#continueInWebButton");
 const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
 const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
@@ -90,6 +92,7 @@ let discussionInputResizeState = null;
 let discussionThreadMenu = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
+let discussionWebUrl = "https://chatgpt.com/";
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -105,7 +108,13 @@ initReaderTabs();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initDiscussionInputResizer();
+loadDiscussionWebSettings().catch((error) => console.error("Failed to load discussion web settings.", error));
 openReaderFromUrl();
+
+readerPaperMenuButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (currentPaper) showReaderPaperMenu(currentPaper, readerPaperMenuButton);
+});
 
 backToLibraryButton?.addEventListener("click", () => {
   window.location.href = "./index.html";
@@ -222,6 +231,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 
   currentPaper = data.paper;
+  readerPaperMenuButton.disabled = false;
   readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   renderDiscussionHistory(currentPaper.discussion || []);
@@ -273,6 +283,151 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 }
 
+function showReaderPaperMenu(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu library-menu reader-paper-menu";
+  menu.setAttribute("role", "menu");
+
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.textContent = "Move category";
+  moveButton.addEventListener("click", () => {
+    menu.remove();
+    showReaderMovePaperMenu(paper, anchor).catch((error) => {
+      console.error(error);
+      setStatus(error.message || "Failed to load categories.", true);
+    });
+  });
+
+  const exportLink = document.createElement("a");
+  exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+  exportLink.download = `${paper.title || "paper"}-export.pdf`;
+  exportLink.textContent = "Export";
+  exportLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    menu.remove();
+    const link = document.createElement("a");
+    link.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+    link.download = `${paper.title || "paper"}-export.pdf`;
+    link.click();
+  });
+
+  const revealButton = document.createElement("button");
+  revealButton.type = "button";
+  revealButton.textContent = "Show in folder";
+  revealButton.addEventListener("click", async () => {
+    menu.remove();
+    try {
+      await updateReaderPaper({ action: "reveal", id: paper.id });
+      setStatus("Opened the paper in File Explorer.");
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || "Failed to show the paper in its folder.", true);
+    }
+  });
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete paper";
+  deleteButton.addEventListener("click", async () => {
+    menu.remove();
+    if (!window.confirm(`Delete paper "${paper.title}"?`)) return;
+    try {
+      await updateReaderPaper({ action: "delete", id: paper.id });
+      window.location.href = "./index.html";
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || "Failed to delete the paper.", true);
+    }
+  });
+
+  menu.append(moveButton, exportLink, revealButton, deleteButton);
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 190);
+}
+
+async function showReaderMovePaperMenu(paper, anchor) {
+  if (!readerLibraryTree) await loadReaderLibrary();
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu move-paper-menu library-menu reader-paper-menu";
+  menu.setAttribute("role", "menu");
+
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "Move to category";
+  menu.appendChild(heading);
+
+  flattenReaderCategories(readerLibraryTree)
+    .forEach((category) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "move-category-option";
+      button.style.paddingLeft = `${14 + category.depth * 14}px`;
+      button.disabled = category.id === paper.category;
+      button.textContent = category.id ? category.name : "Uncategorized";
+      button.addEventListener("click", async () => {
+        menu.remove();
+        try {
+          await updateReaderPaper({ action: "move", id: paper.id, category: category.id });
+          readerSelectedCategoryId = category.id;
+          await loadReaderLibrary();
+          setStatus(`Moved to ${category.id ? category.name : "Uncategorized"}.`);
+        } catch (error) {
+          console.error(error);
+          setStatus(error.message || "Failed to move the paper.", true);
+        }
+      });
+      menu.appendChild(button);
+    });
+
+  const customButton = document.createElement("button");
+  customButton.type = "button";
+  customButton.className = "move-category-custom";
+  customButton.textContent = "Enter new category...";
+  customButton.addEventListener("click", async () => {
+    menu.remove();
+    const category = window.prompt("Target category / subfolder", paper.categoryName || paper.category || "Uncategorized");
+    if (!category?.trim()) return;
+    try {
+      await updateReaderPaper({ action: "move", id: paper.id, category: category.trim() });
+      readerSelectedCategoryId = currentPaper?.category || "";
+      await loadReaderLibrary();
+      setStatus("Moved to the new category.");
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || "Failed to move the paper.", true);
+    }
+  });
+  menu.appendChild(customButton);
+
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 260);
+}
+
+function positionReaderPaperMenu(menu, anchor, width) {
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+}
+
+async function updateReaderPaper(payload) {
+  const response = await apiFetch("/api/library/paper", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Paper operation failed.");
+  if (data.paper && currentPaper) currentPaper = { ...currentPaper, ...data.paper, extractedText: currentPaper.extractedText };
+  if (data.tree) {
+    readerLibraryTree = data.tree;
+    renderReaderLibrary();
+  }
+  return data;
+}
+
 document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
 pdfViewer.addEventListener("scroll", updatePageIndicator);
@@ -318,6 +473,7 @@ translateWithContextButton.addEventListener("click", () => translateSelection(tr
 explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
+continueInWebButton?.addEventListener("click", continueDiscussionOnWeb);
 clearDiscussionButton?.addEventListener("click", () => {
   clearActiveDiscussion();
 });
@@ -427,6 +583,101 @@ function paperToSummary(paper) {
     methodSections: paper.methodSections || [],
     methodConclusion: paper.methodConclusion || "",
   };
+}
+
+async function loadDiscussionWebSettings() {
+  const response = await apiFetch("/api/settings");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+  discussionWebUrl = normalizeDiscussionWebUrl(data.settings?.web?.discussionUrl);
+}
+
+function normalizeDiscussionWebUrl(value) {
+  const url = String(value || "").trim() || "https://chatgpt.com/";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+  } catch {
+    // Fall back to the default site if a saved URL is invalid.
+  }
+  return "https://chatgpt.com/";
+}
+
+async function continueDiscussionOnWeb() {
+  if (!currentPaper) {
+    setStatus("请先打开一篇论文。", true);
+    return;
+  }
+
+  const targetUrl = normalizeDiscussionWebUrl(discussionWebUrl);
+  const targetWindow = window.open(targetUrl, "_blank");
+  if (targetWindow) targetWindow.opener = null;
+
+  const [copied, revealed] = await Promise.all([
+    copyTextToClipboard(buildDiscussionWebHandoff()),
+    updateReaderPaper({ action: "reveal", id: currentPaper.id }).then(() => true).catch((error) => {
+      console.warn("Failed to show the paper in its folder.", error);
+      return false;
+    }),
+  ]);
+  if (!targetWindow) {
+    setStatus(copied ? "已复制讨论上下文，但浏览器阻止了新窗口。" : "浏览器阻止了新窗口，且无法复制讨论上下文。", true);
+    return;
+  }
+  if (copied && revealed) setStatus("已复制讨论上下文、打开网页，并在文件夹中显示论文。");
+  else if (copied) setStatus("已复制讨论上下文并打开网页，但未能显示论文所在文件夹。", true);
+  else setStatus("已打开网页，但复制讨论上下文失败。", true);
+}
+
+function buildDiscussionWebHandoff() {
+  const summary = paperToSummary(currentPaper) || {};
+  const threeLine = summary.threeLineSummary || {};
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  const history = normalizeDiscussionHistory(thread?.messages || []);
+  const recentHistory = history.slice(-16).map((message) => `${message.role === "user" ? "我" : "Paper Lantern AI"}：${message.content}`);
+  const draft = discussionInput.value.trim();
+  const sections = [
+    "请基于以下论文与讨论上下文继续交流。若信息不足，请明确指出缺少什么。",
+    `论文标题：${currentPaper.title || "未命名论文"}`,
+  ];
+
+  const summaryLines = [
+    ["挑战", threeLine.challenges],
+    ["核心方法", threeLine.method],
+    ["结论", threeLine.conclusion],
+    ["方法概览", summary.methodOverview],
+  ]
+    .filter(([, value]) => String(value || "").trim())
+    .map(([label, value]) => `${label}：${String(value).trim()}`);
+  if (summaryLines.length) sections.push(`论文摘要：\n${summaryLines.join("\n")}`);
+  if (Array.isArray(summary.keywords) && summary.keywords.length) sections.push(`关键词：${summary.keywords.join("、")}`);
+  sections.push(`当前 Discussion：${thread?.title || "新建 Discussion"}`);
+  if (recentHistory.length) sections.push(`最近讨论记录：\n${recentHistory.join("\n\n")}`);
+  if (draft) sections.push(`我现在想问：\n${draft}`);
+  else sections.push("我接下来想继续讨论这篇论文，请结合以上内容回答。");
+  return sections.join("\n\n");
+}
+
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    console.warn("Clipboard API failed.", error);
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
 }
 
 function handleDiscussionInputKeydown(event) {
@@ -1129,14 +1380,18 @@ function setDiscussionBusy(isBusy) {
 
 async function saveCurrentPaper(extra = {}) {
   if (!currentPaper) return;
-  savedHighlights = normalizeHighlights(savedHighlights);
   const response = await apiFetch("/api/library/paper", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: currentPaper.id, highlights: savedHighlights, ...extra }),
+    body: JSON.stringify({ id: currentPaper.id, ...extra }),
   });
   const data = await readJsonResponse(response);
   if (response.ok) currentPaper = data.paper;
+}
+
+async function saveHighlights() {
+  savedHighlights = normalizeHighlights(savedHighlights);
+  await saveCurrentPaper({ highlights: savedHighlights });
 }
 
 function showPdf(file, displayTitle = "") {
@@ -1681,7 +1936,7 @@ function highlightSelection() {
   hideTranslationBubble();
   hideCommentBubble();
   window.getSelection()?.removeAllRanges();
-  saveCurrentPaper().catch((error) => console.error("Failed to save highlights.", error));
+  saveHighlights().catch((error) => console.error("Failed to save highlights.", error));
 }
 
 function createHighlightsFromRange(range, extra = {}) {
@@ -1795,7 +2050,7 @@ async function translateSelection(withContext = false) {
       if (pageNode) drawHighlight(pageNode, annotation);
     });
     window.getSelection()?.removeAllRanges();
-    await saveCurrentPaper();
+    await saveHighlights();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
@@ -1863,7 +2118,7 @@ async function explainSelection() {
     window.getSelection()?.removeAllRanges();
     hideSelectionMenu();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
-    saveCurrentPaper().catch((error) => console.error("Failed to save explanation annotation.", error));
+    saveHighlights().catch((error) => console.error("Failed to save explanation annotation.", error));
   } catch (error) {
     setStatus(error.message || "\u89e3\u91ca\u5931\u8d25", true);
   } finally {
@@ -1951,7 +2206,7 @@ async function saveCommentDraft() {
     if (hasSavedDraft) {
       savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, draftGroupId));
       redrawHighlights();
-      await saveCurrentPaper();
+      await saveHighlights();
     }
     return;
   }
@@ -1972,7 +2227,7 @@ async function saveCommentDraft() {
   }
 
   window.getSelection()?.removeAllRanges();
-  await saveCurrentPaper();
+  await saveHighlights();
 }
 
 function handlePdfClick(event) {
@@ -2180,7 +2435,7 @@ async function saveAnnotationEdit() {
     return next;
   });
   redrawHighlights();
-  await saveCurrentPaper();
+  await saveHighlights();
 }
 
 function deleteActiveHighlight() {
@@ -2188,7 +2443,7 @@ function deleteActiveHighlight() {
   savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
   redrawHighlights();
   hideAnnotationEditor();
-  saveCurrentPaper().catch((error) => console.error("Failed to delete annotation.", error));
+  saveHighlights().catch((error) => console.error("Failed to delete annotation.", error));
 }
 
 function initTranslationWindow(bubble, closeHandler = hideTranslationBubble) {

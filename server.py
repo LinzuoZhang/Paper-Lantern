@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 import urllib.error
@@ -866,6 +867,19 @@ def delete_paper(paper_id):
     save_library_db(db)
 
 
+def reveal_paper_in_folder(paper_id):
+    db = load_library_db()
+    record = db["papers"].get(str(paper_id))
+    if not record:
+        raise FileNotFoundError("Paper not found.")
+    pdf_path = paper_dir_from_record(record) / "paper.pdf"
+    if not pdf_path.exists():
+        raise FileNotFoundError("PDF not found.")
+    if os.name != "nt":
+        raise OSError("Showing files in a folder is only supported on Windows.")
+    subprocess.Popen(["explorer.exe", "/select,", str(pdf_path)], close_fds=True)
+
+
 def add_paper_to_db(title, category, pdf_file):
     db = load_library_db()
     category_id = ensure_category_path(db, category)
@@ -1214,6 +1228,15 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         action = str(payload.get("action", "save")).strip() or "save"
+        if action == "reveal":
+            try:
+                reveal_paper_in_folder(str(payload.get("id", "")))
+                self._send_json(200, {"revealed": True})
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except OSError as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if action == "move":
             try:
                 paper = move_paper(str(payload.get("id", "")), str(payload.get("category", "")))

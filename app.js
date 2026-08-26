@@ -23,6 +23,7 @@ const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
 const aiExtraParamsInput = document.querySelector("#aiExtraParamsInput");
 const aiTaskConfigSections = Array.from(document.querySelectorAll("[data-ai-task]"));
+const discussionWebUrlInput = document.querySelector("#discussionWebUrlInput");
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
 const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
 const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
@@ -712,6 +713,14 @@ function showPaperMenu(paper, anchor) {
     link.click();
   });
 
+  const revealButton = document.createElement("button");
+  revealButton.type = "button";
+  revealButton.textContent = "Show in folder";
+  revealButton.addEventListener("click", async () => {
+    menu.remove();
+    await revealPaperInFolder(paper.id);
+  });
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.textContent = "Delete paper";
@@ -721,9 +730,25 @@ function showPaperMenu(paper, anchor) {
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton, exportLink, deleteButton);
+  menu.append(moveButton, exportLink, revealButton, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+async function revealPaperInFolder(paperId) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reveal", id: paperId }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to show the paper in its folder.");
+    setLibraryStatus("Opened the paper in File Explorer.");
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Failed to show the paper in its folder.", true);
+  }
 }
 
 function showMovePaperMenu(paper, anchor) {
@@ -981,6 +1006,9 @@ async function saveCloudSyncConfig() {
           extraParams: parseApiExtraParams(aiExtraParamsInput.value, "Unified API extra parameters"),
           tasks: collectAiTaskSettings(),
         },
+        web: {
+          discussionUrl: discussionWebUrlInput.value.trim(),
+        },
         sync: {
           provider: cloudProviderSelect.value,
           localDir: cloudLocalDirInput.value.trim(),
@@ -1072,11 +1100,13 @@ function setCloudSyncBusy(isBusy) {
 function renderSettings(settings) {
   const ai = settings?.ai || {};
   const sync = settings?.sync || {};
+  const web = settings?.web || {};
   aiBaseUrlInput.value = ai.baseUrl || "";
   aiModelInput.value = ai.model || "";
   aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
   aiExtraParamsInput.value = formatApiExtraParams(ai.extraParams);
   renderAiTaskSettings(ai.tasks || {});
+  discussionWebUrlInput.value = web.discussionUrl || "https://chatgpt.com/";
   cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
   cloudLocalDirInput.value = sync.localDir || "";
   cloudWebdavUrlInput.value = sync.webdavUrl || "";
