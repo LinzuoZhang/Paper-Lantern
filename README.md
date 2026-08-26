@@ -8,7 +8,7 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 
 ## 功能
 
-- 文献库首页：按分类管理论文，支持搜索、最近阅读、本地 PDF 拖拽上传和 arXiv 导入。
+- 文献库首页：按分类管理论文，支持搜索、最近阅读、本地 PDF 拖拽上传、PDF URL 和 arXiv 导入。
 - PDF 阅读器：基于本地 `vendor/pdfjs/` 渲染 PDF，不依赖外部 CDN。
 - AI 论文解析：生成关键词、基本信息、三行摘要、方法概览、方法拆解和结论。
 - 论文讨论：围绕当前论文上下文问答，支持多讨论线程和历史保存。
@@ -106,7 +106,7 @@ CLOUD_SYNC_AUTO_PUSH=true
 ## 使用流程
 
 1. 打开文献库首页。
-2. 点击上传入口选择 `Upload PDF`，拖拽本地 PDF 到上传区域，或使用 `arXiv upload` 导入 arXiv 论文。
+2. 点击上传入口选择 `Upload PDF`，拖拽本地 PDF 到上传区域，或使用 `PDF URL or arXiv` 导入远程 PDF / arXiv 论文。
 3. 进入阅读器后，PDF 会在左侧显示，右侧显示 AI 摘要、基本信息、方法拆解和讨论区。
 4. 在 PDF 中选中文本，可以高亮、写评论、翻译，或让 AI 解释这段话在论文中的作用。
 5. 点击刷新/解析按钮，可以重新生成当前论文摘要或基本信息。
@@ -154,7 +154,8 @@ WebDAV 注意事项：
 - `GET /api/library/pdf?id=...`：读取论文 PDF。
 - `GET /api/library/export?id=...`：导出带批注的 PDF。
 - `POST /api/library/upload`：上传本地 PDF。
-- `POST /api/library/arxiv`：从 arXiv 导入 PDF。
+- `POST /api/library/remote-pdf`：从 PDF URL 或 arXiv 导入 PDF。
+- `POST /api/library/arxiv`：兼容旧版 arXiv 导入调用。
 - `POST /api/library/paper`：移动、删除或保存论文相关数据。
 - `POST /api/library/category`：新增、重命名或删除分类。
 - `GET /api/settings` / `POST /api/settings`：读取或保存 AI 与同步设置。

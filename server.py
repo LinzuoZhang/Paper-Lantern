@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
 from cloud_sync import auto_sync_library, get_sync_config, public_status, save_sync_config, sync_library, update_paper_sync_hash
@@ -39,6 +39,7 @@ DB_FILE = LIBRARY_DIR / "library_db.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
+MAX_REMOTE_PDF_BYTES = 200 * 1024 * 1024
 
 
 def load_env_file(path):
@@ -105,17 +106,83 @@ def normalize_arxiv_id(value):
     return text if re.match(pattern, text, re.I) else ""
 
 
-def download_arxiv_pdf(arxiv_id):
+def normalize_remote_pdf_source(value):
+    text = str(value or "").strip()
+    arxiv_id = normalize_arxiv_id(text)
+    if arxiv_id:
+        return {
+            "url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+            "label": f"arXiv {arxiv_id}",
+            "arxiv_id": arxiv_id,
+        }
+
+    parsed = urlparse(text)
+    if not parsed.scheme and re.match(r"^(?:www\.)?arxiv\.org/(?:abs|pdf)/", text, re.I):
+        arxiv_id = normalize_arxiv_id(f"https://{text}")
+        if arxiv_id:
+            return {
+                "url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+                "label": f"arXiv {arxiv_id}",
+                "arxiv_id": arxiv_id,
+            }
+
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Please provide a valid PDF URL or arXiv ID.")
+    return {"url": text, "label": text, "arxiv_id": ""}
+
+
+def read_limited_response(response, limit=MAX_REMOTE_PDF_BYTES):
+    chunks = []
+    total = 0
+    while True:
+        chunk = response.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise ValueError("Remote PDF is too large.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def filename_from_content_disposition(value):
+    if not value:
+        return ""
+    _, params = cgi.parse_header(value)
+    filename = params.get("filename*") or params.get("filename") or ""
+    if filename.lower().startswith("utf-8''"):
+        filename = filename[7:]
+    return unquote(filename).strip().strip('"')
+
+
+def remote_pdf_title(source, final_url, headers):
+    if source.get("arxiv_id"):
+        return f"arXiv {source['arxiv_id']}"
+
+    filename = filename_from_content_disposition(headers.get("Content-Disposition", ""))
+    if not filename:
+        path = urlparse(final_url or source["url"]).path
+        filename = unquote(Path(path).name)
+    title = re.sub(r"\.pdf$", "", filename, flags=re.I).strip()
+    return title or "Remote PDF"
+
+
+def download_remote_pdf(source):
     request = urllib.request.Request(
-        f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-        headers={"User-Agent": "PaperLantern/1.0"},
+        source["url"],
+        headers={
+            "Accept": "application/pdf,*/*;q=0.8",
+            "User-Agent": "PaperLantern/1.0",
+        },
     )
     with urllib.request.urlopen(request, timeout=45) as response:
         content_type = response.headers.get("Content-Type", "")
-        data = response.read()
-    if b"%PDF" not in data[:1024] and "pdf" not in content_type.lower():
-        raise ValueError("arXiv did not return a PDF.")
-    return data
+        data = read_limited_response(response)
+        final_url = response.geturl()
+        headers = response.headers
+    if b"%PDF" not in data[:4096] and "pdf" not in content_type.lower():
+        raise ValueError("The URL did not return a PDF.")
+    return data, remote_pdf_title(source, final_url, headers)
 
 
 def export_annotated_pdf(pdf_path, highlights):
@@ -852,8 +919,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/upload":
             self._handle_library_upload()
             return
-        if request_path == "/api/library/arxiv":
-            self._handle_library_arxiv_upload()
+        if request_path in {"/api/library/arxiv", "/api/library/remote-pdf"}:
+            self._handle_library_remote_pdf_upload()
             return
         if request_path == "/api/library/paper":
             self._handle_library_save()
@@ -1126,7 +1193,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         sync = maybe_auto_sync_library()
         self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
 
-    def _handle_library_arxiv_upload(self):
+    def _handle_library_remote_pdf_upload(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -1134,15 +1201,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid JSON request."})
             return
 
-        arxiv_id = normalize_arxiv_id(payload.get("arxivId", ""))
-        if not arxiv_id:
-            self._send_json(400, {"error": "Please provide a valid arXiv ID or URL."})
+        raw_source = payload.get("pdfUrl", "") or payload.get("url", "") or payload.get("arxivId", "")
+        try:
+            source = normalize_remote_pdf_source(raw_source)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
             return
 
         category = str(payload.get("category", "")).strip() or UNCATEGORIZED_NAME
-        title = clean_folder_name(payload.get("title", "") or f"arXiv {arxiv_id}")
         try:
-            data = download_arxiv_pdf(arxiv_id)
+            data, downloaded_title = download_remote_pdf(source)
+            title = clean_folder_name(payload.get("title", "") or downloaded_title)
             with tempfile.TemporaryFile() as pdf_file:
                 pdf_file.write(data)
                 pdf_file.seek(0)
@@ -1150,9 +1219,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             sync = maybe_auto_sync_library()
             self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
         except urllib.error.HTTPError as exc:
-            self._send_json(exc.code, {"error": "Failed to download arXiv PDF.", "detail": str(exc)})
+            self._send_json(exc.code, {"error": "Failed to download remote PDF.", "detail": str(exc)})
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-            self._send_json(400, {"error": "Failed to download arXiv PDF.", "detail": str(exc)})
+            self._send_json(400, {"error": "Failed to download remote PDF.", "detail": str(exc)})
 
     def _handle_library_save(self):
         try:

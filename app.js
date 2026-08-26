@@ -61,10 +61,10 @@ uploadMenuButton.addEventListener("click", () => {
 });
 
 arxivUploadButton.addEventListener("click", async () => {
-  const arxivId = arxivUploadInput.value;
-  if (!arxivId?.trim()) return;
+  const source = arxivUploadInput.value;
+  if (!source?.trim()) return;
   closeUploadMenu();
-  await uploadArxivPaper(arxivId.trim());
+  await uploadRemotePdf(source.trim());
   arxivUploadInput.value = "";
 });
 
@@ -161,29 +161,29 @@ async function uploadPdfToLibrary(file, title, category) {
   }
 }
 
-async function uploadArxivPaper(arxivId) {
-  setLibraryStatus("Downloading arXiv PDF...");
-  showArxivDownloadOverlay("Downloading arXiv PDF...", arxivId);
+async function uploadRemotePdf(source) {
+  setLibraryStatus("Downloading PDF...");
+  showArxivDownloadOverlay("Downloading PDF...", source);
   arxivUploadButton.disabled = true;
   try {
-    const response = await apiFetch("/api/library/arxiv", {
+    const response = await apiFetch("/api/library/remote-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ arxivId, category: getActiveUploadCategory() }),
+      body: JSON.stringify({ pdfUrl: source, category: getActiveUploadCategory() }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) {
-      setLibraryStatus(data.detail || data.error || "arXiv upload failed.", true);
-      showArxivDownloadOverlay(data.detail || data.error || "arXiv upload failed.", arxivId, true);
+      setLibraryStatus(data.detail || data.error || "PDF import failed.", true);
+      showArxivDownloadOverlay(data.detail || data.error || "PDF import failed.", source, true);
       return;
     }
     reportSyncResult(data.sync);
-    showArxivDownloadOverlay("Opening paper...", arxivId);
+    showArxivDownloadOverlay("Opening paper...", source);
     openPaperReader(data.paper.id, true);
   } catch (error) {
     console.error(error);
-    setLibraryStatus(error.message || "arXiv upload failed.", true);
-    showArxivDownloadOverlay(error.message || "arXiv upload failed.", arxivId, true);
+    setLibraryStatus(error.message || "PDF import failed.", true);
+    showArxivDownloadOverlay(error.message || "PDF import failed.", source, true);
   } finally {
     arxivUploadButton.disabled = false;
   }
@@ -212,7 +212,7 @@ function showArxivDownloadOverlay(message, arxivId = "", isError = false) {
 
   overlay.classList.toggle("error", isError);
   overlay.querySelector(".arxiv-download-title").textContent = message;
-  overlay.querySelector(".arxiv-download-detail").textContent = arxivId ? `arXiv: ${arxivId}` : "";
+  overlay.querySelector(".arxiv-download-detail").textContent = arxivId || "";
   if (isError) {
     arxivDownloadOverlayTimer = window.setTimeout(hideArxivDownloadOverlay, 2600);
   }
@@ -950,8 +950,8 @@ async function apiFetch(path, options = {}) {
       lastError = error;
     }
   }
-  if (url === "/api/library/arxiv") {
-    throw new Error("arXiv upload API is not available. Restart python server.py so the new backend route is loaded.");
+  if (url === "/api/library/remote-pdf") {
+    throw new Error("Remote PDF import API is not available. Restart python server.py so the new backend route is loaded.");
   }
   throw new Error(`${lastError?.message || "Failed to fetch"} Tried: ${tried.join(", ")}. Please start the Python server and open http://127.0.0.1:8000/ or http://localhost:8000/.`);
 }

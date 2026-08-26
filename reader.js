@@ -2,11 +2,11 @@
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
-const backToLibraryButton = document.querySelector("#backToLibraryButton");
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
-const closeLibraryDrawerButton = document.querySelector("#closeLibraryDrawerButton");
+const collapseLibraryButton = document.querySelector("#collapseLibraryButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
+const createReaderCategoryButton = document.querySelector("#createReaderCategoryButton");
 const readerPaperList = document.querySelector("#readerPaperList");
 const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
 const readerLeftRail = document.querySelector("#readerLeftRail");
@@ -113,40 +113,50 @@ initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 openReaderFromUrl();
 
-backToLibraryButton?.addEventListener("click", () => {
-  window.location.href = "./index.html";
-});
-
 function initReaderLibraryDrawer() {
   openLibraryDrawerButton?.addEventListener("click", () => {
     if (readerLibraryDrawer.classList.contains("open")) {
-      closeReaderLibraryDrawer();
+      window.location.href = "./index.html";
       return;
     }
     openReaderLibraryDrawer();
   });
-  closeLibraryDrawerButton?.addEventListener("click", () => closeReaderLibraryDrawer());
+  collapseLibraryButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeReaderLibraryDrawer();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
   });
+  createReaderCategoryButton?.addEventListener("click", createTopLevelReaderCategory);
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
 }
 
 async function openReaderLibraryDrawer() {
   readerLibraryDrawer.classList.add("open");
+  readerLeftRail?.classList.add("library-open");
+  appShell?.classList.add("library-open");
   readerLibraryDrawer.setAttribute("aria-hidden", "false");
   openLibraryDrawerButton.classList.add("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "true");
-  openLibraryDrawerButton.setAttribute("aria-label", "Close library");
+  openLibraryDrawerButton.setAttribute("aria-label", "Back to library");
   await loadReaderLibrary();
 }
 
 function closeReaderLibraryDrawer() {
   readerLibraryDrawer.classList.remove("open");
+  readerLeftRail?.classList.remove("library-open");
+  appShell?.classList.remove("library-open");
   readerLibraryDrawer.setAttribute("aria-hidden", "true");
   openLibraryDrawerButton.classList.remove("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "false");
   openLibraryDrawerButton.setAttribute("aria-label", "Open library");
+}
+
+async function createTopLevelReaderCategory() {
+  const name = window.prompt("Category name");
+  if (!name?.trim()) return;
+  await updateReaderCategory({ action: "create", parentId: "", name: name.trim() });
 }
 
 async function loadReaderLibrary() {

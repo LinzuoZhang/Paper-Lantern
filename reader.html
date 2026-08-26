@@ -14,31 +14,35 @@
     <script defer src="./vendor/markdown-it-texmath/texmath.min.js"></script>
   </head>
   <body>
-    <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
-      <div class="reader-library-header">
-        <button id="backToLibraryButton" class="ghost reader-library-back-button" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-13z"></path>
-            <path d="M8 8h8"></path>
-            <path d="M8 12h8"></path>
-            <path d="M8 16h5"></path>
-          </svg>
-          <span>Library</span>
-        </button>
-      </div>
-      <section class="reader-library-section">
-        <div id="readerCategoryList" class="reader-category-list"></div>
-      </section>
-      <section class="reader-library-section reader-paper-section">
-        <h2 id="readerLibraryTitle" hidden>Papers</h2>
-        <div id="readerPaperList" class="reader-paper-list"></div>
-      </section>
-    </aside>
     <main class="app-shell">
       <nav id="readerLeftRail" class="reader-left-rail" aria-label="Reader library controls">
         <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
           <img class="site-logo reader-rail-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
+          <span>Paper Lantern</span>
         </button>
+        <button id="collapseLibraryButton" class="reader-library-collapse-button" type="button" aria-label="Collapse library" title="Collapse library">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m15 6-6 6 6 6"></path>
+            <path d="M20 12H9"></path>
+          </svg>
+        </button>
+        <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
+          <section class="reader-library-section">
+            <button id="createReaderCategoryButton" class="reader-create-category-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2H18.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z"></path>
+                <path d="M12 11v5"></path>
+                <path d="M9.5 13.5h5"></path>
+              </svg>
+              <span>New Category</span>
+            </button>
+            <div id="readerCategoryList" class="reader-category-list"></div>
+          </section>
+          <section class="reader-library-section reader-paper-section">
+            <h2 id="readerLibraryTitle" hidden>Papers</h2>
+            <div id="readerPaperList" class="reader-paper-list"></div>
+          </section>
+        </aside>
       </nav>
       <section class="reader-pane" aria-label="Paper reader">
         <div class="paper-frame">
@@ -220,6 +224,7 @@
           <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
           <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
         </svg>
+        <span>settings</span>
       </button>
       <button id="exportPdfButton" class="reader-export-button" type="button" aria-label="Export PDF" title="Export PDF">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -227,6 +232,7 @@
           <path d="m7 9 5 5 5-5"></path>
           <path d="M5 19h14"></path>
         </svg>
+        <span>Export PDF</span>
       </button>
     </main>
     <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
