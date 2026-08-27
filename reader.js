@@ -1163,19 +1163,63 @@ function editDiscussionMessage(messageNode) {
     event.preventDefault();
     const next = input.value.trim();
     if (!next) return;
-    thread.messages[index].content = next;
-    thread.updatedAt = new Date().toISOString();
-    const firstQuestion = thread.messages.find((message) => message.role === "user")?.content || next;
-    thread.title = makeDiscussionTitle(firstQuestion);
-    thread.hash = await makeDiscussionThreadHash(thread);
-    await saveDiscussionThreads();
-    renderDiscussionThreadList();
-    renderDiscussionThreadHeader(thread);
-    renderDiscussionMessages(thread.messages);
+    await restartDiscussionAfterEdit(thread, index, next);
   });
   body.after(form);
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+async function restartDiscussionAfterEdit(thread, index, next) {
+  // Truncate to the messages before the edited one, then the edited question.
+  const history = thread.messages.slice(0, index);
+  thread.messages = history.concat([{ role: "user", content: next }]);
+  thread.updatedAt = new Date().toISOString();
+  const firstQuestion = history.find((message) => message.role === "user")?.content || next;
+  thread.title = makeDiscussionTitle(firstQuestion);
+  thread.hash = await makeDiscussionThreadHash(thread);
+  await saveDiscussionThreads();
+  renderDiscussionThreadList();
+  renderDiscussionThreadHeader(thread);
+  renderDiscussionMessages(thread.messages);
+
+  const paperText = lastExtractedText.trim();
+  if (paperText.length < 80) {
+    appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再重新开始讨论。");
+    return;
+  }
+
+  setDiscussionBusy(true);
+  const pending = appendDiscussionMessage("assistant", "Thinking...");
+  pending.classList.add("pending");
+  try {
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question: next,
+      summary: paperToSummary(currentPaper),
+      history,
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
+      },
+    });
+    pending.classList.remove("pending");
+    thread.messages.push({ role: "assistant", content: answer || "" });
+    thread.updatedAt = new Date().toISOString();
+    thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionMessages(thread.messages);
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
+  } catch (error) {
+    console.error(error);
+    pending.classList.remove("pending");
+    pending.classList.add("error");
+    setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), error.message || "重新开始讨论失败，请稍后重试。", "assistant");
+  } finally {
+    setDiscussionBusy(false);
+  }
 }
 
 async function regenerateDiscussionAnswer(messageNode) {
