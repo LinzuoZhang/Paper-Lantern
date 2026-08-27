@@ -20,6 +20,12 @@
           <img class="site-logo reader-rail-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
           <span>Paper Lantern</span>
         </button>
+        <button id="collapseLibraryButton" class="reader-library-collapse-button" type="button" aria-label="Collapse library" title="Collapse library">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m15 6-6 6 6 6"></path>
+            <path d="M20 12H9"></path>
+          </svg>
+        </button>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
           <section class="reader-library-section">
             <button id="createReaderCategoryButton" class="reader-create-category-button" type="button">
@@ -213,7 +219,24 @@
               <dd id="basicInfoDate">Waiting</dd>
               <dt>机构</dt>
               <dd id="basicInfoInstitutions">Waiting</dd>
+              <dt>DOI</dt>
+              <dd id="basicInfoDoi">未识别</dd>
             </dl>
+          </section>
+
+          <section class="summary-card citation-card">
+            <div class="summary-group-header">
+              <h2>引用信息</h2>
+              <button id="generateCitationButton" class="citation-search-button" type="button" aria-label="搜索" title="搜索">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.35-4.35"></path>
+                </svg>
+                <span>搜索</span>
+              </button>
+            </div>
+            <p id="citationStatus" class="status" role="status">引用信息尚未生成，点击「搜索」通过 Crossref 检索。</p>
+            <div id="citationResults" class="citation-results" hidden></div>
           </section>
           </div>
 
@@ -222,13 +245,13 @@
             <div class="summary-group-header notes-header">
               <h2>Notes</h2>
               <div class="notes-toolbar" aria-label="Notes tools">
-                <button id="toggleNotesModeButton" class="icon-button notes-action-button" type="button" aria-label="Preview notes" title="Preview notes">
+                <button id="toggleNotesModeButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Preview notes" title="Preview notes">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
                     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
                   </svg>
                 </button>
-                <button id="clearNotesButton" class="icon-button notes-action-button" type="button" aria-label="Clear notes" title="Clear notes">
+                <button id="clearNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Clear notes" title="Clear notes">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M3 6h18"></path>
                     <path d="M8 6V4h8v2"></path>
@@ -237,14 +260,7 @@
                     <path d="M14 11v6"></path>
                   </svg>
                 </button>
-                <button id="saveNotesButton" class="icon-button" type="button" aria-label="Save notes" title="Save notes">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M5 3h12l2 2v16H5z"></path>
-                    <path d="M8 3v6h8V3"></path>
-                    <path d="M8 21v-7h8v7"></path>
-                  </svg>
-                </button>
-                <button id="exportNotesPdfButton" class="icon-button" type="button" aria-label="Export notes PDF" title="Export notes PDF">
+                <button id="exportNotesPdfButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Export notes PDF" title="Export notes PDF">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M12 3v11"></path>
                     <path d="m7 9 5 5 5-5"></path>
@@ -339,6 +355,32 @@
         </label>
         <button type="submit">Save Settings</button>
       </form>
+    </div>
+    <div id="citationOverlay" class="citation-overlay" hidden>
+      <div class="citation-overlay-card">
+        <div class="citation-overlay-header">
+          <h2 id="citationOverlayTitle">引用信息</h2>
+          <button id="citationOverlayCloseButton" class="drawer-close-button" type="button" aria-label="关闭"></button>
+        </div>
+        <p id="citationOverlayMeta" class="citation-overlay-meta"></p>
+        <div class="citation-overlay-toolbar">
+          <select id="citationFormatSelect" class="citation-format-select" aria-label="引用格式">
+            <option value="gbt7714">GB/T 7714</option>
+            <option value="bibtex">BibTeX</option>
+            <option value="ris">RIS</option>
+            <option value="apa">APA</option>
+            <option value="mla">MLA</option>
+            <option value="ieee">IEEE</option>
+          </select>
+          <button id="citationCopyButton" class="icon-button copy-section-button" type="button" aria-label="复制引用" title="复制引用">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <textarea id="citationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
+      </div>
     </div>
     <script src="./reader.js" type="module"></script>
   </body>

@@ -754,7 +754,7 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-left-rail.library-open .reader-logo-button {
   justify-content: flex-start;
-  width: 100%;
+  width: calc(100% - 42px);
   padding: 0 8px;
 }
 
@@ -765,6 +765,43 @@ body.upload-menu-open .paper-card:hover {
 .reader-logo-button:hover,
 .reader-logo-button.open {
   background: var(--soft);
+}
+
+.reader-library-collapse-button {
+  position: absolute;
+  top: 20px;
+  right: 10px;
+  z-index: 2;
+  display: none;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid #111;
+  border-radius: 4px;
+  background: #fff;
+  color: #111;
+  box-shadow: none;
+}
+
+.reader-left-rail.library-open .reader-library-collapse-button {
+  display: inline-grid;
+}
+
+.reader-library-collapse-button:hover {
+  background: #f7f9f8;
+}
+
+.reader-library-collapse-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .reader-library-drawer {
@@ -1864,32 +1901,6 @@ body.selecting-pdf-text .selection-menu {
   color: #9aa49e;
 }
 
-.comment-window {
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  height: 240px;
-}
-
-.comment-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--line);
-  background: #fbfcfb;
-}
-
-.comment-actions button {
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.comment-actions .comment-cancel {
-  background: transparent;
-  color: var(--ink);
-}
-
 .annotation-editor {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: 390px;
@@ -2303,44 +2314,22 @@ body.selecting-pdf-text .selection-menu {
   display: flex;
   margin-left: auto;
   overflow: hidden;
-  border: 1px solid #111;
+  gap: 6px;
+  border: 0;
   border-radius: 0;
-  background: #fff;
+  background: transparent;
 }
 
 .notes-toolbar .icon-button {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  border: 0;
-  border-right: 1px solid #111;
-  border-radius: 0;
-  background: #fff;
-  color: #111;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.notes-toolbar .icon-button:last-child {
-  border-right: 0;
-}
-
-.notes-toolbar .icon-button:hover {
-  background: #f7f9f8;
-  color: #111;
-  box-shadow: none;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
 }
 
 .notes-toolbar .icon-button svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
+  width: 20px;
+  height: 20px;
 }
 
 .notes-workspace {
@@ -2654,6 +2643,27 @@ body.selecting-pdf-text .selection-menu {
   color: var(--ink);
 }
 
+.copied-feedback {
+  position: fixed;
+  z-index: 1000;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.copied-feedback.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .three-lines {
   display: grid;
   gap: 10px;
@@ -2860,6 +2870,272 @@ body.selecting-pdf-text .selection-menu {
 
 .basic-info-list dd:last-child {
   border-bottom: 0;
+}
+
+.basic-info-list dd a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.basic-info-list dd a:hover {
+  text-decoration: underline;
+}
+
+.citation-card {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.citation-card .summary-group-header {
+  min-height: 42px;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.citation-card .summary-group-header h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.citation-search-button {
+  min-height: 32px;
+  padding: 0 10px;
+  gap: 6px;
+  background: transparent;
+  color: var(--ink);
+  border-color: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.citation-search-button:hover {
+  background: var(--soft);
+  box-shadow: none;
+}
+
+.citation-search-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.citation-results {
+  display: grid;
+  gap: 8px;
+}
+
+.citation-results-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.citation-candidate-list {
+  display: grid;
+  gap: 0;
+}
+
+.citation-candidate-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+
+.citation-current-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.citation-candidate {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  min-height: auto;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-radius: 0;
+  font-weight: 400;
+}
+
+.citation-current-candidate {
+  padding-right: 86px;
+}
+
+.citation-current-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  max-width: 72px;
+  padding: 2px 6px;
+  border: 1px solid rgba(37, 109, 133, 0.22);
+  border-radius: 4px;
+  background: rgba(37, 109, 133, 0.08);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.citation-candidate:hover {
+  background: var(--soft);
+}
+
+.citation-candidate.selected {
+  background: var(--soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.citation-apply-button {
+  flex: none;
+  align-self: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin-right: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.citation-apply-button:hover {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.citation-apply-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.citation-candidate-title {
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.citation-candidate-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.citation-candidate-doi {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.citation-expand-button {
+  min-height: 34px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.citation-expand-button:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.citation-format-select {
+  flex: 1;
+  background: transparent;
+}
+
+.citation-output {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.citation-overlay {
+  position: fixed;
+  z-index: 170;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(29, 37, 32, 0.18);
+}
+
+.citation-overlay-card {
+  display: grid;
+  gap: 12px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 54px rgba(29, 37, 32, 0.2);
+}
+
+.citation-overlay-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.citation-overlay-header h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.citation-overlay-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.citation-overlay-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .discussion-content,
@@ -3764,6 +4040,18 @@ button.ghost:hover,
 }
 
 .basic-info-card .summary-group-header:hover {
+  background: transparent;
+}
+
+.citation-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.citation-card .summary-group-header,
+.citation-card .summary-group-header:hover {
   background: transparent;
 }
 

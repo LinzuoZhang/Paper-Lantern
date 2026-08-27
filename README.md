@@ -13,7 +13,7 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 - AI 论文解析：生成关键词、基本信息、三行摘要、方法概览、方法拆解和结论。
 - 论文讨论：围绕当前论文上下文问答，支持多讨论线程和历史保存。
 - 划词工具：选中 PDF 文本后可以高亮、评论、翻译，或解释该段在论文中的作用。
-- 批注导出：可以导出带高亮和评论标记的 PDF；此功能需要额外安装 PyMuPDF。
+- 批注导出：可以导出带高亮和评论标记的 PDF；Notes 支持 Markdown 预览和 PDF 导出。
 - 本地数据保存：论文、元数据、摘要、批注、讨论历史和文本缓存都写入本地文献库。
 - 云同步：支持同步到本地文件夹或 WebDAV，并可开启自动同步。
 - Prompt 可编辑：AI 总结、方法拆解和翻译提示词集中放在 `prompts/ai/`。
@@ -43,11 +43,13 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 - 浏览器
 - AI API Key
 
-核心后端只使用 Python 标准库。只有导出带批注的 PDF 时需要额外安装：
+核心后端只使用 Python 标准库。导出 PDF 和 Notes Markdown PDF 时需要额外安装：
 
 ```powershell
-pip install pymupdf
+pip install pymupdf markdown-it-py matplotlib
 ```
+
+其中 `matplotlib` 用于把 Notes 中的 `$...$` / `$$...$$` 公式渲染为图片（未安装时公式会退化为纯文本）。
 
 ## 启动
 

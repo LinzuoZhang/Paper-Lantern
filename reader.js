@@ -3,6 +3,7 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
+const collapseLibraryButton = document.querySelector("#collapseLibraryButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const createReaderCategoryButton = document.querySelector("#createReaderCategoryButton");
@@ -63,13 +64,23 @@ const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
 const basicInfoVenue = document.querySelector("#basicInfoVenue");
 const basicInfoDate = document.querySelector("#basicInfoDate");
 const basicInfoInstitutions = document.querySelector("#basicInfoInstitutions");
+const basicInfoDoi = document.querySelector("#basicInfoDoi");
+const generateCitationButton = document.querySelector("#generateCitationButton");
+const citationStatus = document.querySelector("#citationStatus");
+const citationResults = document.querySelector("#citationResults");
+const citationOverlay = document.querySelector("#citationOverlay");
+const citationOverlayTitle = document.querySelector("#citationOverlayTitle");
+const citationOverlayMeta = document.querySelector("#citationOverlayMeta");
+const citationOverlayCloseButton = document.querySelector("#citationOverlayCloseButton");
+const citationFormatSelect = document.querySelector("#citationFormatSelect");
+const citationCopyButton = document.querySelector("#citationCopyButton");
+const citationOutput = document.querySelector("#citationOutput");
 const notesEditor = document.querySelector("#notesEditor");
 const notesWorkspace = document.querySelector("#notesWorkspace");
 const notesPreview = document.querySelector("#notesPreview");
 const notesStatus = document.querySelector("#notesStatus");
 const toggleNotesModeButton = document.querySelector("#toggleNotesModeButton");
 const clearNotesButton = document.querySelector("#clearNotesButton");
-const saveNotesButton = document.querySelector("#saveNotesButton");
 const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
 
 let lastExtractedText = "";
@@ -92,7 +103,6 @@ let currentPaper = null;
 let currentVisiblePage = 0;
 let apiBaseUrl = "";
 let translationDragState = null;
-let commentDraftHighlights = [];
 let activeHighlightGroupId = null;
 let readerLibraryTree = null;
 let readerSelectedCategoryId = "";
@@ -100,13 +110,18 @@ let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
 let discussionMarkdownRenderer = null;
-let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
 let notesAutoSaveTimer = null;
+let copiedToastTimer = null;
 let notesLastSavedValue = "";
 let notesIsSaving = false;
 let notesMode = "edit";
 let referenceEntries = new Map();
+let citationCandidates = [];
+let selectedCitationIndex = -1;
+let citationFormat = "gbt7714";
+let citationSelectedCandidate = null;
+let citationSearchSummaryVisible = false;
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -120,6 +135,7 @@ initReaderSideRail();
 initSummaryPaneToggle();
 initReaderTabs();
 initReaderSettings();
+initCitationOverlay();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
@@ -132,6 +148,10 @@ function initReaderLibraryDrawer() {
       return;
     }
     openReaderLibraryDrawer();
+  });
+  collapseLibraryButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeReaderLibraryDrawer();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
@@ -411,6 +431,9 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   renderNotes(currentPaper.notes || "");
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo);
+  renderDoi(currentPaper.doi);
+  resetCitationSection();
+  loadCurrentCitationInfo().catch((error) => console.error("Failed to load current citation info.", error));
   setReaderPaperTitle(currentPaper.title);
   renderReaderLibrary();
 
@@ -435,6 +458,8 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     refreshReferenceCitations();
     if (extraction.title) {
       setReaderPaperTitle(extraction.title);
+      currentPaper.title = extraction.title;
+      saveCurrentPaper({ title: extraction.title }).catch((error) => console.error("Failed to save extracted title.", error));
     }
 
     if (extractedText.trim().length < 80) {
@@ -472,13 +497,11 @@ document.addEventListener("pointercancel", handlePdfSelectionPointerFinish);
 window.addEventListener("blur", resetPdfSelectionPointerState);
 document.addEventListener("pointerdown", (event) => {
   const translationBubble = document.querySelector("#translationBubble");
-  const commentBubble = document.querySelector("#commentBubble");
   const annotationEditor = document.querySelector("#annotationEditor");
   const referencePopover = document.querySelector("#referencePopover");
   const clickedFloatingUi =
     selectionMenu.contains(event.target) ||
     translationBubble?.contains(event.target) ||
-    commentBubble?.contains(event.target) ||
     annotationEditor?.contains(event.target) ||
     referencePopover?.contains(event.target);
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
@@ -552,6 +575,10 @@ basicInfoButton?.addEventListener("click", async () => {
   }
 });
 
+generateCitationButton?.addEventListener("click", () => {
+  generateCitation();
+});
+
 function initReaderTabs() {
   readerTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -591,14 +618,7 @@ async function exportCurrentPaperPdf() {
       const detail = await blob.text();
       throw new Error(detail || "Export failed.");
     }
-    const link = document.createElement("a");
-    const objectUrl = URL.createObjectURL(blob);
-    link.href = objectUrl;
-    link.download = `${currentPaper.title || "paper"}-export.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(objectUrl);
+    triggerBlobDownload(blob, `${currentPaper.title || "paper"}-export.pdf`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Export failed.", true);
@@ -618,7 +638,6 @@ function initNotesPanel() {
   });
   toggleNotesModeButton?.addEventListener("click", toggleNotesMode);
   clearNotesButton?.addEventListener("click", clearNotes);
-  saveNotesButton?.addEventListener("click", () => saveNotes());
   exportNotesPdfButton?.addEventListener("click", exportNotesPdf);
   renderNotes("");
 }
@@ -690,7 +709,6 @@ async function saveNotes() {
     return;
   }
   notesIsSaving = true;
-  if (saveNotesButton) saveNotesButton.disabled = true;
   setNotesStatus("Saving...");
   try {
     await saveCurrentPaper({ notes });
@@ -701,7 +719,6 @@ async function saveNotes() {
     setNotesStatus(error.message || "Notes save failed.", true);
   } finally {
     notesIsSaving = false;
-    if (saveNotesButton) saveNotesButton.disabled = false;
   }
 }
 
@@ -712,21 +729,21 @@ async function exportNotesPdf() {
   }
   await saveNotes();
   if (exportNotesPdfButton) exportNotesPdfButton.disabled = true;
+  setNotesStatus("Downloading...");
   try {
-    const response = await apiFetch(`/api/library/pdf?notes=1&id=${encodeURIComponent(currentPaper.id)}`);
+    const notes = notesEditor?.value || "";
+    renderNotesPreview(notes);
+    const response = await apiFetch("/api/library/notes/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: currentPaper.id, notes }),
+    });
     const blob = await response.blob();
     if (!response.ok) {
       const detail = await blob.text();
       throw new Error(detail || "Notes export failed.");
     }
-    const link = document.createElement("a");
-    const objectUrl = URL.createObjectURL(blob);
-    link.href = objectUrl;
-    link.download = `${currentPaper.title || "paper"}-notes.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(objectUrl);
+    triggerBlobDownload(blob, `${currentPaper.title || "paper"}-notes.pdf`);
     setNotesStatus("Exported");
   } catch (error) {
     console.error(error);
@@ -734,6 +751,20 @@ async function exportNotesPdf() {
   } finally {
     if (exportNotesPdfButton) exportNotesPdfButton.disabled = false;
   }
+}
+
+function triggerBlobDownload(blob, filename) {
+  const link = document.createElement("a");
+  const objectUrl = URL.createObjectURL(blob);
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, 1000);
 }
 
 function setActiveReaderTab(activeTabId) {
@@ -987,8 +1018,6 @@ function getDiscussionMessageContent(messageNode, fallback = "") {
   const index = Number(messageNode?.dataset.messageIndex);
   const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
   if (thread && Number.isInteger(index) && thread.messages[index]) return thread.messages[index].content;
-  const body = messageNode?.querySelector(".discussion-message-body");
-  if (body?.innerText || body?.textContent) return body.innerText || body.textContent;
   return String(fallback || "");
 }
 
@@ -1181,7 +1210,7 @@ function parseDiscussionStreamEvent(eventText) {
 
 function renderDiscussionMarkdown(content) {
   const renderer = getDiscussionMarkdownRenderer();
-  if (!renderer) return renderDiscussionMarkdownFallback(content);
+  if (!renderer) return '<p class="error">Markdown renderer failed to load.</p>';
   return renderer.render(String(content || "")) || "<p>No response</p>";
 }
 
@@ -1221,170 +1250,6 @@ function getDiscussionMarkdownRenderer() {
   };
 
   return discussionMarkdownRenderer;
-}
-
-function renderDiscussionMarkdownFallback(content) {
-  const text = escapeHtml(String(content || ""));
-  const lines = text.split(/\r?\n/);
-  const blocks = [];
-  let paragraph = [];
-  let list = [];
-  let inCodeBlock = false;
-  let codeLines = [];
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push(`<p>${formatDiscussionInline(paragraph.join(" "))}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list.length) return;
-    blocks.push(`<ul>${list.map((item) => `<li>${formatDiscussionInline(item)}</li>`).join("")}</ul>`);
-    list = [];
-  };
-  const flushCode = () => {
-    blocks.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
-    codeLines = [];
-  };
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (/^\s*```/.test(line)) {
-      if (inCodeBlock) {
-        flushCode();
-        inCodeBlock = false;
-      } else {
-        flushParagraph();
-        flushList();
-        inCodeBlock = true;
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeLines.push(line);
-      continue;
-    }
-
-    if (isMarkdownTableHeader(line, lines[index + 1])) {
-      flushParagraph();
-      flushList();
-      const tableLines = [line, lines[index + 1]];
-      index += 2;
-      while (index < lines.length && isMarkdownTableRow(lines[index])) {
-        tableLines.push(lines[index]);
-        index += 1;
-      }
-      index -= 1;
-      blocks.push(renderMarkdownTable(tableLines));
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      const level = heading[1].length + 3;
-      blocks.push(`<h${level}>${formatDiscussionInline(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      list.push(bullet[1]);
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    flushList();
-    paragraph.push(line.trim());
-  }
-
-  if (inCodeBlock) flushCode();
-  flushParagraph();
-  flushList();
-  return blocks.join("") || "<p>No response</p>";
-}
-
-function isMarkdownTableHeader(line, separatorLine) {
-  return isMarkdownTableRow(line) && isMarkdownTableSeparator(separatorLine);
-}
-
-function isMarkdownTableRow(line) {
-  const text = String(line || "").trim();
-  return text.includes("|") && splitMarkdownTableRow(text).length >= 2;
-}
-
-function isMarkdownTableSeparator(line) {
-  const cells = splitMarkdownTableRow(line);
-  if (cells.length < 2) return false;
-  return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
-}
-
-function splitMarkdownTableRow(line) {
-  let text = String(line || "").trim();
-  if (text.startsWith("|")) text = text.slice(1);
-  if (text.endsWith("|")) text = text.slice(0, -1);
-  const cells = [];
-  let current = "";
-  let escaped = false;
-
-  for (const char of text) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      current += char;
-      continue;
-    }
-    if (char === "|") {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function renderMarkdownTable(tableLines) {
-  const headers = splitMarkdownTableRow(tableLines[0]);
-  const alignments = splitMarkdownTableRow(tableLines[1]).map((cell) => {
-    const value = cell.trim();
-    if (value.startsWith(":") && value.endsWith(":")) return "center";
-    if (value.endsWith(":")) return "right";
-    return "left";
-  });
-  const rows = tableLines.slice(2).map(splitMarkdownTableRow);
-  const columnCount = Math.max(headers.length, alignments.length, ...rows.map((row) => row.length));
-  const renderCell = (cell, tag, columnIndex) => {
-    const align = alignments[columnIndex] || "left";
-    const value = formatDiscussionInline(cell || "");
-    return `<${tag} style="text-align:${align}">${value}</${tag}>`;
-  };
-
-  const head = Array.from({ length: columnCount }, (_, index) => renderCell(headers[index], "th", index)).join("");
-  const body = rows
-    .map((row) => `<tr>${Array.from({ length: columnCount }, (_, index) => renderCell(row[index], "td", index)).join("")}</tr>`)
-    .join("");
-  return `<div class="markdown-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
-}
-
-function formatDiscussionInline(text) {
-  return text
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
 
 function escapeHtml(value) {
@@ -1562,18 +1427,62 @@ function getReaderSectionText(section) {
 }
 
 function getThreeLineSummaryText() {
+  const summary = paperToSummary(currentPaper);
+  const lines = summary?.threeLineSummary || {};
   return [
-    ["Challenges", challenges.textContent],
-    ["Core Method And Technical Details", method.textContent],
-    ["Conclusion", conclusion.textContent],
+    ["Challenges", lines.challenges],
+    ["Core Method And Technical Details", lines.method],
+    ["Conclusion", lines.conclusion],
   ]
-    .map(([label, value]) => `${label}: ${cleanCopiedText(value)}`)
+    .map(([label, value]) => ({ label, value: cleanCopiedText(value) }))
+    .filter(({ value }) => value)
+    .map(({ label, value }) => `**${label}:** ${value}`)
     .join("\n\n");
 }
 
 function getMethodBreakdownText() {
-  const text = methodSections.innerText || methodSections.textContent || "";
-  return cleanCopiedText(text) || "No structured method sections returned.";
+  const summary = paperToSummary(currentPaper);
+  if (!summary) return "";
+
+  const sections = Array.isArray(summary.methodSections) ? summary.methodSections : [];
+  const blocks = [];
+
+  if (cleanCopiedText(summary.methodOverview)) {
+    blocks.push(`## 概括\n\n${cleanCopiedText(summary.methodOverview)}`);
+  }
+
+  if (sections.length) {
+    const sectionBlocks = sections.map((section, index) => {
+      const lines = [];
+      lines.push(`### ${index + 1}. ${cleanCopiedText(section.title || `Method point ${index + 1}`)}`);
+      if (cleanCopiedText(section.motivation)) {
+        lines.push(`**动机：** ${cleanCopiedText(section.motivation)}`);
+      }
+      if (cleanCopiedText(section.summary)) {
+        lines.push(cleanCopiedText(section.summary));
+      }
+      const bullets = (Array.isArray(section.bullets) ? section.bullets : [])
+        .map((bullet) => cleanCopiedText(bullet))
+        .filter(Boolean);
+      if (bullets.length) {
+        lines.push(bullets.map((bullet) => `- ${bullet}`).join("\n"));
+      }
+      const formulas = (Array.isArray(section.formulas) ? section.formulas : [])
+        .map((formula) => cleanCopiedText(formula))
+        .filter(Boolean);
+      if (formulas.length) {
+        lines.push(formulas.join("\n\n"));
+      }
+      return lines.join("\n\n");
+    });
+    blocks.push(sectionBlocks.join("\n\n"));
+  }
+
+  if (cleanCopiedText(summary.methodConclusion)) {
+    blocks.push(`## 总结\n\n${cleanCopiedText(summary.methodConclusion)}`);
+  }
+
+  return blocks.join("\n\n") || "No structured method sections returned.";
 }
 
 function cleanCopiedText(value) {
@@ -1585,6 +1494,25 @@ function cleanCopiedText(value) {
     .trim();
 }
 
+function showCopiedFeedback(anchor) {
+  if (!anchor) return;
+  let toast = document.querySelector("#copiedFeedback");
+  if (!toast) {
+    toast = document.createElement("span");
+    toast.id = "copiedFeedback";
+    toast.className = "copied-feedback";
+    toast.textContent = "已复制";
+    document.body.appendChild(toast);
+  }
+  const rect = anchor.getBoundingClientRect();
+  const gap = 8;
+  toast.style.left = `${Math.max(8, rect.left + rect.width / 2 - toast.offsetWidth / 2)}px`;
+  toast.style.top = `${Math.max(8, rect.top - toast.offsetHeight - gap)}px`;
+  toast.classList.add("show");
+  window.clearTimeout(copiedToastTimer);
+  copiedToastTimer = window.setTimeout(() => toast.classList.remove("show"), 1200);
+}
+
 async function copyTextWithFeedback(text, button) {
   const value = cleanCopiedText(text);
   if (!value) return;
@@ -1594,8 +1522,9 @@ async function copyTextWithFeedback(text, button) {
     await copyTextToClipboard(value);
     if (button) {
       button.classList.add("copied");
-      button.title = "Copied";
-      button.setAttribute("aria-label", "Copied");
+      button.title = "已复制";
+      button.setAttribute("aria-label", "已复制");
+      showCopiedFeedback(button);
       window.setTimeout(() => {
         if (!document.body.contains(button)) return;
         button.classList.remove("copied");
@@ -1915,6 +1844,7 @@ async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   renderedPdfZoom = renderZoom;
   setPdfZoomPreviewScale(1);
   restoreHighlights();
+  refreshReferenceCitations();
   updatePageIndicator();
 }
 
@@ -1963,7 +1893,7 @@ async function renderPdfPage(page, pageNumber, renderId, pagesHost = pdfViewer, 
   const existingPage = pagesHost.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
   if (existingPage) existingPage.remove();
   pagesHost.appendChild(pageNode);
-  decorateReferenceCitations(pageNode, textLayer);
+  if (pageNode.isConnected) decorateReferenceCitations(pageNode, textLayer);
 }
 
 function handlePdfWheel(event) {
@@ -2370,7 +2300,6 @@ function highlightSelection() {
 
   hideSelectionMenu();
   hideTranslationBubble();
-  hideCommentBubble();
   window.getSelection()?.removeAllRanges();
   saveCurrentPaper().catch((error) => console.error("Failed to save highlights.", error));
 }
@@ -2436,16 +2365,24 @@ function commentSelection() {
   if (!selectedPdfRange) return;
 
   const groupId = createAnnotationId();
-  commentDraftHighlights = createHighlightsFromRange(selectedPdfRange, {
+  const draftHighlights = createHighlightsFromRange(selectedPdfRange, {
     groupId,
     color: "green",
     type: "comment",
     text: selectedPdfText,
   });
-  if (!commentDraftHighlights.length) return;
+  if (!draftHighlights.length) return;
+
+  draftHighlights.forEach((highlight) => {
+    savedHighlights.push(highlight);
+    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
+    if (pageNode) drawHighlight(pageNode, highlight);
+  });
+
   hideSelectionMenu();
   hideTranslationBubble();
-  showCommentWindow("");
+  window.getSelection()?.removeAllRanges();
+  showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
 }
 
 async function translateSelection() {
@@ -2461,7 +2398,6 @@ async function translateSelection() {
   });
   if (!draftHighlights.length) return;
 
-  hideCommentBubble();
   translateButton.disabled = true;
   translateButton.textContent = "\u7ffb\u8bd1\u4e2d";
   try {
@@ -2509,7 +2445,6 @@ async function explainSelection() {
   if (!draftHighlights.length) return;
 
   hideTranslationBubble();
-  hideCommentBubble();
   explainButton.disabled = true;
   explainButton.textContent = "\u89e3\u91ca\u4e2d";
   try {
@@ -2569,81 +2504,6 @@ function showTranslationWindow(text) {
   const top = Math.max(12, Math.min(rect.bottom - frameRect.top + 10, frameRect.height - bubbleHeight - 12));
   bubble.style.left = `${left}px`;
   bubble.style.top = `${top}px`;
-}
-
-function showCommentWindow(text) {
-  let bubble = document.querySelector("#commentBubble");
-  if (!bubble) {
-    bubble = document.createElement("section");
-    bubble.id = "commentBubble";
-    bubble.className = "translation-window comment-window";
-    bubble.innerHTML = `
-      <header class="translation-window-header">
-        <span>Comment</span>
-        <button class="translation-close" type="button" aria-label="Close comment">×</button>
-      </header>
-      <textarea class="translation-text comment-text" placeholder="Add a comment..." spellcheck="false"></textarea>
-      <footer class="comment-actions">
-        <button class="ghost comment-cancel" type="button">Close</button>
-      </footer>
-    `;
-    pdfViewer.parentElement.appendChild(bubble);
-    initTranslationWindow(bubble, hideCommentBubble);
-    bubble.querySelector(".comment-text").addEventListener("input", scheduleCommentAutoSave);
-    bubble.querySelector(".comment-cancel").addEventListener("click", hideCommentBubble);
-  }
-
-  bubble.querySelector(".comment-text").value = text;
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
-  const rect = lastSelectionRect || frameRect;
-  const bubbleWidth = bubble.offsetWidth || 360;
-  const bubbleHeight = bubble.offsetHeight || 240;
-  const left = Math.max(12, Math.min(rect.left - frameRect.left, frameRect.width - bubbleWidth - 12));
-  const top = Math.max(12, Math.min(rect.bottom - frameRect.top + 10, frameRect.height - bubbleHeight - 12));
-  bubble.style.left = `${left}px`;
-  bubble.style.top = `${top}px`;
-}
-
-function scheduleCommentAutoSave() {
-  window.clearTimeout(commentAutoSaveTimer);
-  commentAutoSaveTimer = window.setTimeout(() => {
-    saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
-  }, 450);
-}
-
-async function saveCommentDraft() {
-  const bubble = document.querySelector("#commentBubble");
-  const comment = bubble?.querySelector(".comment-text")?.value.trim() || "";
-  if (!commentDraftHighlights.length) return;
-
-  const draftGroupId = commentDraftHighlights[0].groupId;
-  const hasSavedDraft = savedHighlights.some((highlight) => isSameHighlightGroup(highlight, draftGroupId));
-  if (!comment) {
-    if (hasSavedDraft) {
-      savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, draftGroupId));
-      redrawHighlights();
-      await saveCurrentPaper();
-    }
-    return;
-  }
-
-  if (hasSavedDraft) {
-    savedHighlights = savedHighlights.map((highlight) => {
-      if (!isSameHighlightGroup(highlight, draftGroupId)) return highlight;
-      return { ...highlight, comment, type: highlight.translation ? "comment-translation" : "comment" };
-    });
-    redrawHighlights();
-  } else {
-    commentDraftHighlights.forEach((highlight) => {
-      const annotation = { ...highlight, comment };
-      savedHighlights.push(annotation);
-      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
-      if (pageNode) drawHighlight(pageNode, annotation);
-    });
-  }
-
-  window.getSelection()?.removeAllRanges();
-  await saveCurrentPaper();
 }
 
 function decorateReferenceCitations(pageNode, textLayer) {
@@ -2726,7 +2586,6 @@ function handlePdfClick(event) {
   event.preventDefault();
   hideSelectionMenu();
   hideTranslationBubble();
-  hideCommentBubble();
   hideReferencePopover();
   showAnnotationEditor(hit.highlight, event.clientX, event.clientY);
 }
@@ -2769,7 +2628,6 @@ function showReferencePopover(numbers, clientX, clientY) {
 
   hideSelectionMenu();
   hideTranslationBubble();
-  hideCommentBubble();
   hideAnnotationEditor();
 
   let popover = document.querySelector("#referencePopover");
@@ -3026,6 +2884,7 @@ async function saveAnnotationEdit() {
   const comment = editor?.querySelector(".annotation-comment")?.value.trim() || "";
   const translation = editor?.querySelector(".annotation-translation")?.value.trim() || "";
   const color = editor?.querySelector(".color-swatch.active")?.dataset.color || "yellow";
+  const wasCommentAnnotation = getHighlightGroup(activeHighlightGroupId).some((item) => item.type === "comment");
   savedHighlights = savedHighlights.map((highlight) => {
     if (!isSameHighlightGroup(highlight, activeHighlightGroupId)) return highlight;
     const next = { ...highlight, color };
@@ -3044,6 +2903,9 @@ async function saveAnnotationEdit() {
     }
     return next;
   });
+  if (wasCommentAnnotation && !comment && !translation) {
+    savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
+  }
   redrawHighlights();
   await saveCurrentPaper();
 }
@@ -3095,13 +2957,6 @@ function finishTranslationDrag(event) {
 
 function hideTranslationBubble() {
   document.querySelector("#translationBubble")?.remove();
-}
-
-function hideCommentBubble() {
-  window.clearTimeout(commentAutoSaveTimer);
-  saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
-  document.querySelector("#commentBubble")?.remove();
-  commentDraftHighlights = [];
 }
 
 function hideAnnotationEditor() {
@@ -3474,6 +3329,491 @@ function setBasicInfoStatus(message, isError = false) {
   if (!basicInfoStatus) return;
   basicInfoStatus.textContent = message;
   basicInfoStatus.classList.toggle("error", isError);
+}
+
+function renderDoi(doi) {
+  if (!basicInfoDoi) return;
+  const value = String(doi || "").trim();
+  if (!value) {
+    basicInfoDoi.textContent = "未识别";
+    return;
+  }
+  basicInfoDoi.textContent = "";
+  const link = document.createElement("a");
+  link.href = `https://doi.org/${encodeURIComponent(value)}`;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = value;
+  basicInfoDoi.appendChild(link);
+}
+
+function setCitationStatus(message, isError = false) {
+  if (!citationStatus) return;
+  citationStatus.textContent = message;
+  citationStatus.classList.toggle("error", isError);
+  citationStatus.hidden = !message;
+}
+
+function resetCitationSection() {
+  citationCandidates = [];
+  selectedCitationIndex = -1;
+  citationSelectedCandidate = null;
+  citationSearchSummaryVisible = false;
+  closeCitationOverlay();
+  if (citationStatus) {
+    setCitationStatus("");
+  }
+  if (citationResults) {
+    citationResults.hidden = true;
+    citationResults.innerHTML = "";
+  }
+  if (generateCitationButton) {
+    generateCitationButton.disabled = false;
+  }
+}
+
+async function loadCurrentCitationInfo() {
+  const title = currentPaper?.title || "";
+  const basicInfo = currentPaper?.basicInfo || {};
+  if (!title) {
+    setCitationStatus("缺少论文标题，无法生成当前引用信息。", true);
+    return;
+  }
+
+  citationCandidates = [createCurrentCitationCandidate(currentPaper)];
+  selectedCitationIndex = -1;
+  citationSearchSummaryVisible = false;
+  setCitationStatus("");
+  renderCitationCandidates(citationCandidates);
+}
+
+function createCurrentCitationCandidate(paper) {
+  const basicInfo = paper?.basicInfo || {};
+  const authors = (Array.isArray(basicInfo.authors) ? basicInfo.authors : [])
+    .map(normalizeCitationAuthor)
+    .filter(Boolean);
+  const year = extractCitationYear(basicInfo.publishedDate);
+  const candidate = {
+    doi: String(paper?.doi || "").trim(),
+    title: String(paper?.title || "").trim(),
+    venue: String(basicInfo.venue || "").trim(),
+    authors,
+    authorNames: authors.map((author) => author.name).filter(Boolean),
+    volume: "",
+    issue: "",
+    page: "",
+    year,
+    publisher: "",
+    type: basicInfo.venue ? "proceedings-article" : "misc",
+    url: paper?.doi ? `https://doi.org/${paper.doi}` : "",
+    score: 10000,
+    titleSimilarity: 1,
+    authorSimilarity: authors.length ? 1 : 0,
+    matchLabel: "当前信息",
+    source: "local",
+  };
+  candidate.citations = formatCurrentCitations(candidate);
+  return candidate;
+}
+
+function normalizeCitationAuthor(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  if (!name) return null;
+  if (name.includes(",")) {
+    const [family, ...givenParts] = name.split(",");
+    return { name, family: family.trim(), given: givenParts.join(",").trim() };
+  }
+  const parts = name.split(" ");
+  if (parts.length >= 2) {
+    return { name, given: parts.slice(0, -1).join(" "), family: parts[parts.length - 1] };
+  }
+  return { name, given: "", family: name };
+}
+
+function extractCitationYear(value) {
+  const match = String(value || "").match(/(?:19|20)\d{2}/);
+  return match ? match[0] : "";
+}
+
+function formatCurrentCitations(candidate) {
+  return {
+    gbt7714: formatCurrentGbtCitation(candidate),
+    bibtex: formatCurrentBibtexCitation(candidate),
+    ris: formatCurrentRisCitation(candidate),
+    apa: formatCurrentApaCitation(candidate),
+    mla: formatCurrentMlaCitation(candidate),
+    ieee: formatCurrentIeeeCitation(candidate),
+  };
+}
+
+function formatCurrentGbtCitation(candidate) {
+  const authors = candidate.authors.map((author) => {
+    const initials = author.given ? author.given.split(/\s+/).map((part) => part[0]?.toUpperCase()).filter(Boolean).join(" ") : "";
+    return [author.family, initials].filter(Boolean).join(" ") || author.name;
+  });
+  const authorPart = authors.length > 3 ? `${authors.slice(0, 3).join(", ")}, 等` : authors.join(", ");
+  const marker = candidate.venue ? "[C]" : "[EB/OL]";
+  const head = `${authorPart ? `${authorPart}. ` : ""}${candidate.title}${marker}.`;
+  const tail = [candidate.venue, candidate.year].filter(Boolean).join(", ");
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return `${head}${tail ? ` ${tail}.` : ""}${doiPart}`.trim();
+}
+
+function formatCurrentBibtexCitation(candidate) {
+  const type = candidate.venue ? "inproceedings" : "misc";
+  const key = makeCurrentBibtexKey(candidate);
+  const lines = [`@${type}{${key},`];
+  const authors = candidate.authors.map(formatCurrentBibtexAuthor).filter(Boolean).join(" and ");
+  if (authors) lines.push(`  author = {${escapeBibtexValue(authors)}},`);
+  if (candidate.title) lines.push(`  title = {${escapeBibtexValue(candidate.title)}},`);
+  if (candidate.venue) lines.push(`  booktitle = {${escapeBibtexValue(candidate.venue)}},`);
+  if (candidate.year) lines.push(`  year = {${candidate.year}},`);
+  if (candidate.doi) lines.push(`  doi = {${candidate.doi}},`);
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function formatCurrentRisCitation(candidate) {
+  const lines = [`TY  - ${candidate.venue ? "CONF" : "GEN"}`];
+  candidate.authors.forEach((author) => {
+    const name = formatCurrentBibtexAuthor(author);
+    if (name) lines.push(`AU  - ${name}`);
+  });
+  if (candidate.title) lines.push(`TI  - ${candidate.title}`);
+  if (candidate.venue) lines.push(`JO  - ${candidate.venue}`);
+  if (candidate.year) lines.push(`PY  - ${candidate.year}`);
+  if (candidate.doi) lines.push(`DO  - ${candidate.doi}`);
+  lines.push("ER  - ");
+  return lines.join("\n");
+}
+
+function formatCurrentApaCitation(candidate) {
+  const authors = candidate.authors.map(formatCurrentApaAuthor).filter(Boolean);
+  const authorPart = joinCitationAuthors(authors, "&");
+  const yearPart = candidate.year ? `(${candidate.year}).` : "";
+  const source = candidate.venue ? ` ${candidate.venue}.` : "";
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return [authorPart, yearPart, `${candidate.title}.${source}${doiPart}`].filter(Boolean).join(" ").trim();
+}
+
+function formatCurrentMlaCitation(candidate) {
+  const authors = candidate.authors;
+  let authorPart = "";
+  if (authors.length === 1) authorPart = formatCurrentBibtexAuthor(authors[0]);
+  if (authors.length === 2) authorPart = `${formatCurrentBibtexAuthor(authors[0])}, and ${authors[1].name}`;
+  if (authors.length > 2) authorPart = `${formatCurrentBibtexAuthor(authors[0])}, et al.`;
+  const parts = [authorPart, candidate.title ? `"${candidate.title}."` : "", candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function formatCurrentIeeeCitation(candidate) {
+  const authors = candidate.authors.map((author) => {
+    const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+    return [initials, author.family].filter(Boolean).join(" ") || author.name;
+  });
+  const authorPart = joinCitationAuthors(authors, "and");
+  const parts = [authorPart, candidate.title ? `"${candidate.title},"` : "", candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function joinCitationAuthors(authors, conjunction) {
+  if (!authors.length) return "";
+  if (authors.length === 1) return authors[0];
+  if (authors.length === 2) return `${authors[0]} ${conjunction} ${authors[1]}`;
+  return `${authors.slice(0, -1).join(", ")}, ${conjunction} ${authors[authors.length - 1]}`;
+}
+
+function formatCurrentBibtexAuthor(author) {
+  return author.family && author.given ? `${author.family}, ${author.given}` : author.name || author.family || author.given;
+}
+
+function formatCurrentApaAuthor(author) {
+  if (!author.family) return author.name || author.given;
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return `${author.family}, ${initials}`.trim();
+}
+
+function makeCurrentBibtexKey(candidate) {
+  const firstAuthor = candidate.authors[0]?.family || candidate.authors[0]?.name || "reference";
+  const firstTitleWord = (candidate.title.match(/[A-Za-z0-9]+/) || [""])[0].toLowerCase();
+  return `${firstAuthor}${candidate.year || ""}${firstTitleWord}`.replace(/[^A-Za-z0-9]/g, "") || "reference";
+}
+
+function escapeBibtexValue(value) {
+  return String(value || "").replace(/[&%$#_{}]/g, (char) => `\\${char}`);
+}
+
+async function generateCitation() {
+  const title = currentPaper?.title || "";
+  const basicInfo = currentPaper?.basicInfo || {};
+  const paperText = lastExtractedText.trim();
+
+  if (!title && !paperText) {
+    setCitationStatus("缺少论文标题或正文，无法查询引用信息。", true);
+    return;
+  }
+
+  setBusy(true);
+  generateCitationButton.disabled = true;
+  setCitationStatus("正在通过 Crossref 检索引用信息...");
+  selectedCitationIndex = -1;
+  citationSearchSummaryVisible = true;
+  if (!citationCandidates.some((candidate) => candidate.source === "local")) {
+    citationCandidates = [createCurrentCitationCandidate(currentPaper), ...citationCandidates];
+    renderCitationCandidates(citationCandidates);
+  }
+
+  try {
+    const response = await apiFetch("/api/citation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperId: currentPaper?.id || "",
+        title,
+        authors: basicInfo.authors || [],
+        institutions: basicInfo.institutions || [],
+        venue: basicInfo.venue || "",
+        publishedDate: basicInfo.publishedDate || "",
+        doi: currentPaper?.doi || "",
+        paperText,
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || data.detail || "引用信息查询失败。");
+
+    if (data.doi) {
+      currentPaper.doi = data.doi;
+      renderDoi(data.doi);
+    }
+    citationCandidates = Array.isArray(data.candidates) ? data.candidates : [];
+    if (!citationCandidates.length) {
+      setCitationStatus("未在 Crossref 中找到匹配的论文信息。", true);
+      return;
+    }
+    setCitationStatus("");
+    renderCitationCandidates(citationCandidates, { showSearchSummary: true });
+  } catch (error) {
+    console.error(error);
+    setCitationStatus(error.message || "引用信息查询失败。", true);
+  } finally {
+    setBusy(false);
+    generateCitationButton.disabled = false;
+  }
+}
+
+function renderCitationCandidates(candidates, options = {}) {
+  const { showSearchSummary = false } = options;
+  citationResults.hidden = false;
+  citationResults.innerHTML = "";
+
+  const localIndex = candidates.findIndex((candidate) => candidate.source === "local");
+  const currentIndex = localIndex >= 0 ? localIndex : 0;
+  const currentCandidate = candidates[currentIndex];
+  const remoteEntries = candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .filter((entry) => entry.index !== currentIndex);
+
+  if (currentCandidate) {
+    citationResults.appendChild(createCitationCandidate(currentCandidate, currentIndex, { isCurrent: true }));
+  }
+
+  if (showSearchSummary) {
+    const label = document.createElement("p");
+    label.className = "citation-results-label";
+    label.textContent = `共找到 ${remoteEntries.length} 条候选，点击选择：`;
+    citationResults.appendChild(label);
+  }
+
+  const list = document.createElement("div");
+  list.className = "citation-candidate-list";
+  citationResults.appendChild(list);
+
+  let isExpanded = false;
+
+  function renderList() {
+    const visible = isExpanded ? remoteEntries : remoteEntries.slice(0, 5);
+    list.innerHTML = "";
+    visible.forEach((entry) => {
+      list.appendChild(createCitationCandidate(entry.candidate, entry.index));
+    });
+    renderExpandToggle();
+  }
+
+  function renderExpandToggle() {
+    citationResults.querySelector(".citation-expand-button")?.remove();
+    if (remoteEntries.length <= 5) return;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "citation-expand-button";
+    toggle.textContent = isExpanded ? "收起" : `展开全部 (${remoteEntries.length - 5})`;
+    toggle.addEventListener("click", () => {
+      isExpanded = !isExpanded;
+      renderList();
+    });
+    citationResults.appendChild(toggle);
+  }
+
+  renderList();
+}
+
+function createCitationCandidate(candidate, index, options = {}) {
+  const { isCurrent = false } = options;
+  const row = document.createElement("div");
+  row.className = "citation-candidate-row";
+  row.classList.toggle("citation-current-row", isCurrent);
+
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "citation-candidate";
+  item.classList.toggle("citation-current-candidate", isCurrent);
+  item.dataset.index = String(index);
+  item.classList.toggle("selected", index === selectedCitationIndex);
+  item.addEventListener("click", () => selectCitationCandidate(index));
+
+  if (isCurrent) {
+    const badge = document.createElement("span");
+    badge.className = "citation-current-badge";
+    badge.textContent = "当前信息";
+    item.appendChild(badge);
+  }
+
+  const titleNode = document.createElement("div");
+  titleNode.className = "citation-candidate-title";
+  titleNode.textContent = candidate.title || "(无题名)";
+
+  const meta = document.createElement("div");
+  meta.className = "citation-candidate-meta";
+  const authors = Array.isArray(candidate.authors) ? candidate.authors : [];
+  const authorText = authors
+    .slice(0, 3)
+    .map((author) => author.name || author.family || author.given)
+    .filter(Boolean)
+    .join("；");
+  const metaParts = [authorText, candidate.venue, candidate.year].filter(Boolean);
+  meta.textContent = metaParts.join(" · ");
+
+  const doiNode = document.createElement("div");
+  doiNode.className = "citation-candidate-doi";
+  doiNode.textContent = candidate.doi ? `DOI: ${candidate.doi}` : (isCurrent ? "" : candidate.matchLabel || "");
+
+  item.append(titleNode, meta, doiNode);
+
+  const applyButton = document.createElement("button");
+  applyButton.type = "button";
+  applyButton.className = "citation-apply-button";
+  applyButton.title = "保存检索信息";
+  applyButton.setAttribute("aria-label", "保存检索信息");
+  applyButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>';
+  applyButton.addEventListener("click", () => applyCandidateBasicInfo(candidate));
+  applyButton.hidden = !candidate.doi || candidate.source === "local";
+
+  row.append(item, applyButton);
+  return row;
+}
+
+function selectCitationCandidate(index) {
+  if (index < 0 || index >= citationCandidates.length) return;
+  selectedCitationIndex = index;
+
+  citationResults.querySelectorAll(".citation-candidate").forEach((item) => {
+    item.classList.toggle("selected", Number(item.dataset.index) === index);
+  });
+
+  openCitationOverlay(citationCandidates[index]);
+}
+
+function openCitationOverlay(candidate) {
+  citationSelectedCandidate = candidate;
+  citationOverlayTitle.textContent = candidate.title || "引用信息";
+  citationOverlayMeta.textContent = buildCitationMetaText(candidate);
+  citationFormatSelect.value = citationFormat;
+  updateCitationOutput(candidate);
+  citationOverlay.hidden = false;
+}
+
+function closeCitationOverlay() {
+  citationOverlay.hidden = true;
+}
+
+function buildCitationMetaText(candidate) {
+  const authors = Array.isArray(candidate.authors) ? candidate.authors : [];
+  const authorText = authors
+    .map((author) => author.name || author.family || author.given)
+    .filter(Boolean)
+    .join("；");
+  const parts = [authorText, candidate.venue, candidate.year].filter(Boolean);
+  return parts.join(" · ") || candidate.doi || "";
+}
+
+function updateCitationOutput(candidate) {
+  const citations = candidate.citations || {};
+  citationOutput.value = citations[citationFormat] || "";
+}
+
+function initCitationOverlay() {
+  citationOverlayCloseButton?.addEventListener("click", closeCitationOverlay);
+  citationOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === citationOverlay) closeCitationOverlay();
+  });
+  citationFormatSelect?.addEventListener("change", () => {
+    citationFormat = citationFormatSelect.value;
+    if (citationSelectedCandidate) updateCitationOutput(citationSelectedCandidate);
+  });
+  citationCopyButton?.addEventListener("click", () => {
+    copyCitationText(citationCopyButton, citationOutput.value);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && citationOverlay && !citationOverlay.hidden) {
+      closeCitationOverlay();
+    }
+  });
+}
+
+async function copyCitationText(button, text) {
+  if (!text) return;
+  try {
+    await copyTextToClipboard(text);
+    button.classList.add("copied");
+    button.title = "已复制";
+    button.setAttribute("aria-label", "已复制");
+    showCopiedFeedback(button);
+    window.setTimeout(() => {
+      if (!document.body.contains(button)) return;
+      button.classList.remove("copied");
+      button.title = "复制引用";
+      button.setAttribute("aria-label", "复制引用");
+    }, 1200);
+  } catch (error) {
+    console.error("Failed to copy citation.", error);
+  }
+}
+
+async function applyCandidateBasicInfo(candidate) {
+  if (!currentPaper?.id || !candidate?.doi) return;
+  setBusy(true);
+  try {
+    const response = await apiFetch("/api/citation/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paperId: currentPaper.id, doi: candidate.doi }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || data.detail || "更新基本信息失败。");
+
+    currentPaper = data.paper || currentPaper;
+    renderBasicInfo(currentPaper.basicInfo);
+    renderDoi(currentPaper.doi);
+    const remoteCandidates = citationCandidates.filter((item) => item.source !== "local");
+    citationCandidates = [createCurrentCitationCandidate(currentPaper), ...remoteCandidates];
+    renderCitationCandidates(citationCandidates, { showSearchSummary: citationSearchSummaryVisible });
+    setCitationStatus("已保存检索信息。");
+  } catch (error) {
+    console.error(error);
+    setCitationStatus(error.message || "更新基本信息失败。", true);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderSummaryLoading(message = "Loading...") {

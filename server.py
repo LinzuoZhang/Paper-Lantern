@@ -1,7 +1,9 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+import base64
 import cgi
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
+import html
 import json
 import mimetypes
 import os
@@ -16,6 +18,7 @@ from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
 from cloud_sync import auto_sync_library, get_sync_config, public_status, save_sync_config, sync_library, update_paper_sync_hash
+from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info, fetch_work_by_doi
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -302,92 +305,139 @@ def clean_export_filename(value):
     return f"{name}.pdf"
 
 
-def export_notes_pdf(title, notes):
+_MATH_PATTERN = re.compile(r"\$\$(.+?)\$\$|(?<!\$)\$([^$\n]+?)\$(?!\$)", re.DOTALL)
+
+
+def _extract_math(text):
+    placeholders = []
+    chunks = []
+    pos = 0
+    for match in _MATH_PATTERN.finditer(text):
+        chunks.append(text[pos:match.start()])
+        display = match.group(1) is not None
+        tex = (match.group(1) if display else match.group(2)).strip()
+        placeholders.append({"tex": tex, "display": display})
+        chunks.append(f"@@MATH{len(placeholders) - 1}@@")
+        pos = match.end()
+    chunks.append(text[pos:])
+    return "".join(chunks), placeholders
+
+
+def _math_to_png(tex, fontsize=11, color="#1f2924", dpi=200):
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+    fig.patch.set_alpha(0)
+    fig.text(0, 0, f"${tex}$", fontsize=fontsize, color=color, ha="left", va="bottom")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True, dpi=dpi, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+    data = buf.getvalue()
+    width_px = int.from_bytes(data[16:20], "big")
+    height_px = int.from_bytes(data[20:24], "big")
+    return data, width_px / dpi * 72.0, height_px / dpi * 72.0
+
+
+def _math_to_html(tex, display):
+    try:
+        data, width_pt, height_pt = _math_to_png(tex, fontsize=12 if display else 11)
+    except Exception:
+        return f"<code>{html.escape(tex)}</code>"
+    src = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+    alt = html.escape(tex, quote=True)
+    style = "vertical-align:middle;" if not display else ""
+    return f'<img src="{src}" width="{width_pt:.2f}pt" height="{height_pt:.2f}pt" alt="{alt}" style="{style}">'
+
+
+def export_notes_pdf(notes):
     try:
         import fitz
+        from markdown_it import MarkdownIt
     except ImportError as exc:
-        raise RuntimeError("PyMuPDF is required to export notes PDFs.") from exc
+        raise RuntimeError("PyMuPDF and markdown-it-py are required to export notes PDFs. Run: pip install pymupdf markdown-it-py") from exc
 
-    doc = fitz.open()
+    source = str(notes or "No notes.")
+    markdown_source, placeholders = _extract_math(source)
+    markdown = MarkdownIt("commonmark", {"html": False, "linkify": True}).enable("table")
+    rendered_html = markdown.render(markdown_source)
+    for index, placeholder in enumerate(placeholders):
+        token = f"@@MATH{index}@@"
+        if placeholder["display"]:
+            block = f'<div style="text-align:center;margin:0.6em 0;">{_math_to_html(placeholder["tex"], True)}</div>'
+            rendered_html = rendered_html.replace(f"<p>{token}</p>", block).replace(token, block)
+        else:
+            rendered_html = rendered_html.replace(token, _math_to_html(placeholder["tex"], False))
+    user_css = """
+      body {
+        font-family: "Helvetica", "Arial", sans-serif;
+        font-size: 11pt;
+        line-height: 1.52;
+        color: #1f2924;
+      }
+      main { width: 100%; }
+      h1, h2, h3, h4, h5, h6 {
+        margin: 0 0 0.55em;
+        line-height: 1.22;
+        color: #121815;
+        font-weight: 700;
+      }
+      h1 { font-size: 22pt; }
+      h2 { font-size: 18pt; }
+      h3 { font-size: 15pt; }
+      h4, h5, h6 { font-size: 12pt; }
+      p, ul, ol, blockquote, pre, table { margin: 0 0 0.85em; }
+      ul, ol { padding-left: 1.35em; }
+      blockquote {
+        padding-left: 0.85em;
+        border-left: 3px solid #c8d2cc;
+        color: #52615a;
+      }
+      code {
+        font-family: "Courier", monospace;
+        font-size: 9.5pt;
+        background: #f4f7f5;
+      }
+      pre {
+        padding: 0.75em;
+        background: #f4f7f5;
+        border: 1px solid #dce5df;
+      }
+      pre code { background: transparent; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 0.38em 0.5em;
+        border: 1px solid #d9e2dc;
+        vertical-align: top;
+      }
+      th {
+        background: #f4f7f5;
+        font-weight: 700;
+      }
+      a { color: #256d85; }
+      hr {
+        border: 0;
+        border-top: 1px solid #d9e2dc;
+        margin: 1.2em 0;
+      }
+    """
     page_rect = fitz.paper_rect("a4")
     margin = 54
-    content_width = page_rect.width - margin * 2
-    page = doc.new_page(width=page_rect.width, height=page_rect.height)
-    y = margin
+    content_rect = fitz.Rect(margin, margin, page_rect.width - margin, page_rect.height - margin)
+    story = fitz.Story(f'<main class="markdown-body">{rendered_html}</main>', user_css=user_css, em=12)
 
-    def add_page():
-        return doc.new_page(width=page_rect.width, height=page_rect.height)
+    def rectfn(rect_num, filled):
+        return page_rect, content_rect, fitz.Identity
 
-    def write_block(text, size=11, leading=15, indent=0):
-        nonlocal page, y
-        text = str(text or "").rstrip()
-        if not text:
-            y += leading * 0.55
-            return
-        chars_per_line = max(18, int((content_width - indent) / max(size * 0.48, 1)))
-        line_count = sum(max(1, (len(part) // chars_per_line) + 1) for part in text.splitlines() or [""])
-        needed = max(leading, line_count * leading)
-        if y + min(needed, 120) > page_rect.height - margin:
-            page = add_page()
-            y = margin
-        rect = fitz.Rect(margin + indent, y, margin + content_width, page_rect.height - margin)
-        page.insert_textbox(rect, text, fontsize=size, fontname="china-s", color=(0.12, 0.16, 0.14), lineheight=1.18)
-        y += needed + 5
-
-    write_block(str(title or "Paper Notes"), size=18, leading=24)
-    write_block(f"Exported {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", size=9, leading=12)
-    y += 8
-
-    in_code = False
-    code_lines = []
-    for raw_line in str(notes or "").splitlines():
-        line = raw_line.rstrip()
-        if line.strip().startswith("```"):
-            if in_code:
-                write_block("\n".join(code_lines) or " ", size=9.5, leading=13, indent=10)
-                code_lines = []
-            in_code = not in_code
-            continue
-        if in_code:
-            code_lines.append(line)
-            continue
-
-        stripped = line.strip()
-        if not stripped:
-            write_block("")
-            continue
-        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
-        if heading:
-            level = len(heading.group(1))
-            write_block(clean_markdown_text(heading.group(2)), size=max(12, 18 - level), leading=max(16, 23 - level))
-            continue
-        quote = re.match(r"^>\s*(.+)$", stripped)
-        if quote:
-            write_block(clean_markdown_text(quote.group(1)), size=10.5, leading=14, indent=12)
-            continue
-        bullet = re.match(r"^([-*+]|\d+[.)])\s+(.+)$", stripped)
-        if bullet:
-            write_block(f"- {clean_markdown_text(bullet.group(2))}", size=11, leading=15, indent=8)
-            continue
-        write_block(clean_markdown_text(stripped), size=11, leading=15)
-
-    if in_code and code_lines:
-        write_block("\n".join(code_lines), size=9.5, leading=13, indent=10)
-
+    doc = story.write_with_links(rectfn)
     data = doc.tobytes(garbage=4, deflate=True)
     doc.close()
     return data
-
-
-def clean_markdown_text(value):
-    text = str(value or "")
-    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"(`+)(.*?)\1", r"\2", text)
-    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
-    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
-    text = re.sub(r"~~(.*?)~~", r"\1", text)
-    return text.replace("\\", "")
 
 
 def clean_category_path(value):
@@ -831,6 +881,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
+        "doi": str(metadata.get("doi", "")).strip(),
         "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
         "discussion": discussion,
         "extractedText": extracted_text,
@@ -1000,6 +1051,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -1017,6 +1070,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/paper":
             self._handle_library_save()
             return
+        if request_path == "/api/library/notes/pdf":
+            self._handle_notes_pdf_export()
+            return
         if request_path == "/api/library/category":
             self._handle_library_category()
             return
@@ -1031,6 +1087,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
         if request_path == "/api/settings/test-ai":
             self._handle_ai_api_test()
+            return
+        if request_path == "/api/citation":
+            self._handle_citation()
+            return
+        if request_path == "/api/citation/apply":
+            self._handle_citation_apply()
             return
 
         if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss"}:
@@ -1190,12 +1252,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     return
                 try:
                     metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
-                    title = metadata.get("title") or record.get("title") or paper_id or "paper"
                     notes = str(metadata.get("notes", "")).strip()
-                    data = export_notes_pdf(f"{title} - Notes", notes or "No notes.")
+                    data = export_notes_pdf(notes or "No notes.")
                 except Exception as exc:
                     self._send_json(500, {"error": "Failed to export notes PDF.", "detail": str(exc)})
                     return
+                title = metadata.get("title") or record.get("title") or paper_id or "paper"
                 filename = clean_export_filename(f"{title}-notes.pdf")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/pdf")
@@ -1230,7 +1292,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 title = metadata.get("title") or record.get("title") or paper_id or "paper"
                 if parse_query_value(self.path, "type") == "notes":
                     notes = str(metadata.get("notes", "")).strip()
-                    data = export_notes_pdf(f"{title} - Notes", notes or "No notes.")
+                    data = export_notes_pdf(notes or "No notes.")
                     filename = clean_export_filename(f"{title}-notes.pdf")
                 else:
                     pdf_path = paper_dir / "paper.pdf"
@@ -1385,6 +1447,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", record["id"]), record.get("categoryId", UNCATEGORIZED_ID)))
         sync_relevant_changed = False
+        if isinstance(payload.get("title"), str):
+            title = payload["title"].strip()
+            if title:
+                metadata["title"] = title
+                record["title"] = title
+                sync_relevant_changed = True
         if isinstance(payload.get("summary"), dict):
             summary = payload["summary"]
             metadata["title"] = summary.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
@@ -1461,6 +1529,39 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError) as exc:
             self._send_json(400, {"error": str(exc)})
 
+    def _handle_notes_pdf_export(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+            return
+
+        paper_id = str(payload.get("id", "")).strip()
+        notes = str(payload.get("notes", ""))[:MAX_NOTES_CHARS].strip()
+        db = load_library_db()
+        record = db["papers"].get(paper_id)
+        paper_dir = paper_dir_from_record(record) if record else None
+        if not record or not paper_dir or not paper_dir.exists():
+            self._send_json(404, {"error": "Paper not found."})
+            return
+
+        try:
+            metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
+            title = metadata.get("title") or record.get("title") or paper_id or "paper"
+            data = export_notes_pdf(notes or "No notes.")
+        except Exception as exc:
+            self._send_json(500, {"error": "Failed to export notes PDF.", "detail": str(exc)})
+            return
+
+        filename = clean_export_filename(f"{title}-notes.pdf")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _handle_cloud_sync(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1515,6 +1616,122 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(exc.code, {"error": "AI API test failed.", "detail": detail})
         except Exception as exc:
             self._send_json(500, {"error": "AI API test failed.", "detail": str(exc)})
+
+    def _handle_citation(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+            return
+
+        paper_id = str(payload.get("paperId", "")).strip()
+        title = str(payload.get("title", "")).strip()
+        authors = normalize_list(payload.get("authors", []))
+        institutions = normalize_list(payload.get("institutions", []))
+        venue = str(payload.get("venue", "")).strip()
+        year = str(payload.get("publishedDate", "") or payload.get("year", "")).strip()
+        doi = str(payload.get("doi", "")).strip()
+        paper_text = str(payload.get("paperText", "")).strip()
+        local_only = bool(payload.get("localOnly"))
+
+        metadata = None
+        paper_dir = None
+        db = load_library_db()
+        record = db["papers"].get(paper_id)
+        if record:
+            paper_dir = paper_dir_from_record(record)
+            if paper_dir and paper_dir.exists():
+                metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
+                if not title:
+                    title = str(metadata.get("title", "")).strip()
+                if not authors:
+                    authors = normalize_list(metadata.get("basicInfo", {}).get("authors", []))
+                if not institutions:
+                    institutions = normalize_list(metadata.get("basicInfo", {}).get("institutions", []))
+                if not venue:
+                    venue = str(metadata.get("basicInfo", {}).get("venue", "")).strip()
+                if not year:
+                    year = str(metadata.get("basicInfo", {}).get("publishedDate", "")).strip()
+                if not doi:
+                    doi = str(metadata.get("doi", "")).strip()
+                if not paper_text and not local_only:
+                    paper_text = read_text_file(paper_dir / EXTRACTED_TEXT_FILE).strip()
+
+        if local_only:
+            if not title:
+                self._send_json(400, {"error": "Missing paper title."})
+                return
+            doi, candidates = build_current_citation_results(title, authors, venue, year, doi)
+            self._send_json(200, {"doi": doi, "candidates": candidates})
+            return
+
+        if not title and not paper_text:
+            self._send_json(400, {"error": "缺少论文标题或正文，无法查询引用信息。"})
+            return
+
+        try:
+            doi, candidates = build_citation_results(title, authors, institutions, paper_text, venue, year, doi)
+        except urllib.error.HTTPError as exc:
+            self._send_json(exc.code, {"error": "Crossref 查询失败。", "detail": str(exc)})
+            return
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            self._send_json(502, {"error": "Crossref 查询失败。", "detail": str(exc)})
+            return
+
+        if doi and metadata is not None and paper_dir is not None:
+            existing = str(metadata.get("doi", "")).strip()
+            if existing.lower() != doi.lower():
+                metadata["doi"] = doi
+                write_json(paper_dir / "metadata.json", metadata)
+
+        self._send_json(200, {"doi": doi, "candidates": candidates})
+
+    def _handle_citation_apply(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+            return
+
+        paper_id = str(payload.get("paperId", "")).strip()
+        doi = str(payload.get("doi", "")).strip()
+        if not paper_id:
+            self._send_json(400, {"error": "缺少论文 ID。"})
+            return
+        if not doi:
+            self._send_json(400, {"error": "缺少 DOI。"})
+            return
+
+        db = load_library_db()
+        record = db["papers"].get(paper_id)
+        if not record:
+            self._send_json(404, {"error": "Paper not found."})
+            return
+        paper_dir = paper_dir_from_record(record)
+        if not paper_dir or not paper_dir.exists():
+            self._send_json(404, {"error": "Paper not found."})
+            return
+
+        try:
+            work = fetch_work_by_doi(doi)
+        except urllib.error.HTTPError as exc:
+            self._send_json(exc.code, {"error": "Crossref 查询失败。", "detail": str(exc)})
+            return
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            self._send_json(502, {"error": "Crossref 查询失败。", "detail": str(exc)})
+            return
+        if not work:
+            self._send_json(404, {"error": "Crossref 中未找到该 DOI 的论文信息。"})
+            return
+
+        metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
+        metadata["basicInfo"] = normalize_basic_info(candidate_to_basic_info(work))
+        metadata["doi"] = doi
+        write_json(paper_dir / "metadata.json", metadata)
+        sync = maybe_auto_sync_library()
+        self._send_json(200, {"paper": read_paper(paper_id, db), "sync": sync})
 
 
 def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None):
