@@ -181,10 +181,8 @@ function closeReaderLibraryDrawer() {
   openLibraryDrawerButton.setAttribute("aria-label", "Open library");
 }
 
-async function createTopLevelReaderCategory() {
-  const name = window.prompt("Category name");
-  if (!name?.trim()) return;
-  await updateReaderCategory({ action: "create", parentId: "", name: name.trim() });
+function createTopLevelReaderCategory() {
+  startReaderCategoryCreate(null, createReaderCategoryButton);
 }
 
 async function loadReaderLibrary() {
@@ -332,21 +330,17 @@ function showReaderCategoryMenu(category, anchor) {
   renameButton.type = "button";
   renameButton.textContent = "Rename";
   renameButton.disabled = category.locked || !category.id;
-  renameButton.addEventListener("click", async () => {
+  renameButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("New category name", category.name);
-    if (!name?.trim() || name.trim() === category.name) return;
-    await updateReaderCategory({ action: "rename", id: category.id, name: name.trim() });
+    startReaderCategoryRename(category, anchor);
   });
 
   const createButton = document.createElement("button");
   createButton.type = "button";
   createButton.textContent = "Create Subcategory";
-  createButton.addEventListener("click", async () => {
+  createButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("Subcategory name");
-    if (!name?.trim()) return;
-    await updateReaderCategory({ action: "create", parentId: category.id, name: name.trim() });
+    startReaderCategoryCreate(category, anchor);
   });
 
   menu.append(moveButton, renameButton, createButton);
@@ -358,6 +352,97 @@ function positionReaderMenu(menu, anchor, width) {
   const rect = anchor.getBoundingClientRect();
   menu.style.left = `${Math.min(rect.left, window.innerWidth - width - 8)}px`;
   menu.style.top = `${rect.bottom + 4}px`;
+}
+
+function startReaderCategoryRename(category, anchor) {
+  const row = anchor.closest(".reader-category-row");
+  const button = row ? row.querySelector(".reader-category-item") : null;
+  if (!row || !button) return;
+  const menuButton = row.querySelector(".reader-category-menu-button");
+  if (menuButton) menuButton.hidden = true;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "reader-category-inline-input";
+  input.value = category.name;
+  input.setAttribute("aria-label", "Category name");
+  input.setAttribute("maxlength", "120");
+  button.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name && name !== category.name) {
+      updateReaderCategory({ action: "rename", id: category.id, name }).catch((error) => {
+        console.error(error);
+        renderReaderLibrary();
+      });
+    } else {
+      renderReaderLibrary();
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function startReaderCategoryCreate(parentCategory, anchor) {
+  const newRow = document.createElement("div");
+  newRow.className = "reader-category-row reader-category-create-row";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "reader-category-inline-input";
+  input.placeholder = "New category name";
+  input.setAttribute("aria-label", "New category name");
+  input.setAttribute("maxlength", "120");
+  newRow.appendChild(input);
+
+  if (parentCategory && anchor) {
+    const parentRow = anchor.closest(".reader-category-row");
+    input.style.paddingLeft = `${8 + (Number(parentCategory.depth || 0) + 1) * 12}px`;
+    if (parentRow) parentRow.after(newRow);
+    else readerCategoryList.prepend(newRow);
+  } else {
+    readerCategoryList.prepend(newRow);
+  }
+  input.focus();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name) {
+      updateReaderCategory({ action: "create", parentId: parentCategory ? parentCategory.id : "", name }).catch((error) => {
+        console.error(error);
+        renderReaderLibrary();
+      });
+    } else {
+      newRow.remove();
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 async function updateReaderCategory(payload) {
@@ -3555,13 +3640,10 @@ async function generateCitation() {
 
   setBusy(true);
   generateCitationButton.disabled = true;
-  setCitationStatus("正在通过 Crossref 检索引用信息...");
   selectedCitationIndex = -1;
   citationSearchSummaryVisible = true;
-  if (!citationCandidates.some((candidate) => candidate.source === "local")) {
-    citationCandidates = [createCurrentCitationCandidate(currentPaper), ...citationCandidates];
-    renderCitationCandidates(citationCandidates);
-  }
+  citationCandidates = [createCurrentCitationCandidate(currentPaper)];
+  renderCitationSearching();
 
   try {
     const response = await apiFetch("/api/citation", {
@@ -3599,6 +3681,20 @@ async function generateCitation() {
     setBusy(false);
     generateCitationButton.disabled = false;
   }
+}
+
+function renderCitationSearching() {
+  citationResults.hidden = false;
+  citationResults.innerHTML = "";
+  setCitationStatus("");
+  const localCandidate = citationCandidates.find((candidate) => candidate.source === "local");
+  if (localCandidate) {
+    citationResults.appendChild(createCitationCandidate(localCandidate, citationCandidates.indexOf(localCandidate), { isCurrent: true }));
+  }
+  const searching = document.createElement("p");
+  searching.className = "citation-searching";
+  searching.textContent = "正在通过 Crossref 检索引用信息...";
+  citationResults.appendChild(searching);
 }
 
 function renderCitationCandidates(candidates, options = {}) {
@@ -3701,12 +3797,12 @@ function createCitationCandidate(candidate, index, options = {}) {
   const applyButton = document.createElement("button");
   applyButton.type = "button";
   applyButton.className = "citation-apply-button";
-  applyButton.title = "保存检索信息";
-  applyButton.setAttribute("aria-label", "保存检索信息");
+  applyButton.title = "更新引用信息";
+  applyButton.setAttribute("aria-label", "更新引用信息");
   applyButton.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>';
   applyButton.addEventListener("click", () => applyCandidateBasicInfo(candidate));
-  applyButton.hidden = !candidate.doi || candidate.source === "local";
+  applyButton.hidden = candidate.source === "local";
 
   row.append(item, applyButton);
   return row;
@@ -3790,16 +3886,16 @@ async function copyCitationText(button, text) {
 }
 
 async function applyCandidateBasicInfo(candidate) {
-  if (!currentPaper?.id || !candidate?.doi) return;
+  if (!currentPaper?.id || !candidate || candidate.source === "local") return;
   setBusy(true);
   try {
     const response = await apiFetch("/api/citation/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paperId: currentPaper.id, doi: candidate.doi }),
+      body: JSON.stringify({ paperId: currentPaper.id, candidate }),
     });
     const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || data.detail || "更新基本信息失败。");
+    if (!response.ok) throw new Error(data.error || data.detail || "更新引用信息失败。");
 
     currentPaper = data.paper || currentPaper;
     renderBasicInfo(currentPaper.basicInfo);
@@ -3807,10 +3903,10 @@ async function applyCandidateBasicInfo(candidate) {
     const remoteCandidates = citationCandidates.filter((item) => item.source !== "local");
     citationCandidates = [createCurrentCitationCandidate(currentPaper), ...remoteCandidates];
     renderCitationCandidates(citationCandidates, { showSearchSummary: citationSearchSummaryVisible });
-    setCitationStatus("已保存检索信息。");
+    setCitationStatus("已更新引用信息。");
   } catch (error) {
     console.error(error);
-    setCitationStatus(error.message || "更新基本信息失败。", true);
+    setCitationStatus(error.message || "更新引用信息失败。", true);
   } finally {
     setBusy(false);
   }

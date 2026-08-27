@@ -147,6 +147,32 @@
         <button type="submit">Save Settings</button>
       </form>
     </div>
+    <div id="libCitationOverlay" class="citation-overlay" hidden>
+      <div class="citation-overlay-card">
+        <div class="citation-overlay-header">
+          <h2 id="libCitationOverlayTitle">引用信息</h2>
+          <button id="libCitationOverlayCloseButton" class="drawer-close-button" type="button" aria-label="关闭"></button>
+        </div>
+        <p id="libCitationOverlayMeta" class="citation-overlay-meta"></p>
+        <div class="citation-overlay-toolbar">
+          <select id="libCitationFormatSelect" class="citation-format-select" aria-label="引用格式">
+            <option value="gbt7714">GB/T 7714</option>
+            <option value="bibtex">BibTeX</option>
+            <option value="ris">RIS</option>
+            <option value="apa">APA</option>
+            <option value="mla">MLA</option>
+            <option value="ieee">IEEE</option>
+          </select>
+          <button id="libCitationCopyButton" class="icon-button copy-section-button" type="button" aria-label="复制引用" title="复制引用">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <textarea id="libCitationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
+      </div>
+    </div>
     <script src="./app.js" type="module"></script>
   </body>
 </html>

@@ -17,6 +17,13 @@ const cloudSyncButton = document.querySelector("#cloudSyncButton");
 const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
 const cloudConfigForm = document.querySelector("#cloudConfigForm");
 const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
+const libCitationOverlay = document.querySelector("#libCitationOverlay");
+const libCitationOverlayTitle = document.querySelector("#libCitationOverlayTitle");
+const libCitationOverlayMeta = document.querySelector("#libCitationOverlayMeta");
+const libCitationOverlayCloseButton = document.querySelector("#libCitationOverlayCloseButton");
+const libCitationFormatSelect = document.querySelector("#libCitationFormatSelect");
+const libCitationCopyButton = document.querySelector("#libCitationCopyButton");
+const libCitationOutput = document.querySelector("#libCitationOutput");
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
@@ -39,8 +46,11 @@ let selectedCategoryId = "";
 let apiBaseUrl = "";
 let searchQuery = "";
 let arxivDownloadOverlayTimer = null;
+let libCitationFormats = null;
+let libCitationFormat = "gbt7714";
 
 loadLibrary();
+initLibraryCitationOverlay();
 loadCloudSyncStatus();
 loadSettings();
 migrateLegacyRecentPapers();
@@ -398,7 +408,242 @@ function renderPaperInfoPanel(paper) {
     ["Conclusion", formatPaperInfoValue(lines.conclusion)],
   ]);
 
-  paperInfoPanel.append(header, basicSection, summarySection);
+  const citationFormats = buildPaperCitationFormats(paper);
+  const citationCard = document.createElement("button");
+  citationCard.type = "button";
+  citationCard.className = "paper-info-citation-card";
+  const citationHeading = document.createElement("h3");
+  citationHeading.textContent = "Citation";
+  const citationPreview = document.createElement("p");
+  citationPreview.className = "paper-info-citation-preview";
+  citationPreview.textContent = citationFormats.gbt7714 || "暂无引用信息";
+  const citationHint = document.createElement("span");
+  citationHint.className = "paper-info-citation-hint";
+  citationHint.textContent = "点击选择引用格式并复制";
+  citationCard.append(citationHeading, citationPreview, citationHint);
+  citationCard.addEventListener("click", () => openLibraryCitationOverlay(paper, citationFormats));
+
+  paperInfoPanel.append(header, basicSection, summarySection, citationCard);
+}
+
+function buildPaperCitationFormats(paper) {
+  const candidate = buildPaperCitationCandidate(paper);
+  return {
+    gbt7714: formatLibraryGbt(candidate),
+    bibtex: formatLibraryBibtex(candidate),
+    ris: formatLibraryRis(candidate),
+    apa: formatLibraryApa(candidate),
+    mla: formatLibraryMla(candidate),
+    ieee: formatLibraryIeee(candidate),
+  };
+}
+
+function buildPaperCitationCandidate(paper) {
+  const basicInfo = paper.basicInfo || {};
+  const authors = (Array.isArray(basicInfo.authors) ? basicInfo.authors : [])
+    .map(normalizeLibraryAuthor)
+    .filter(Boolean);
+  const year = String(basicInfo.publishedDate || "").match(/(?:19|20)\d{2}/)?.[0] || "";
+  return {
+    doi: String(paper.doi || "").trim(),
+    title: String(paper.title || "").trim(),
+    venue: String(basicInfo.venue || "").trim(),
+    authors,
+    authorNames: authors.map((author) => author.name),
+    volume: "",
+    issue: "",
+    page: "",
+    year,
+    publisher: "",
+    type: basicInfo.venue ? "proceedings-article" : "misc",
+  };
+}
+
+function normalizeLibraryAuthor(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  if (!name) return null;
+  if (name.includes(",")) {
+    const [family, ...givenParts] = name.split(",");
+    return { name, family: family.trim(), given: givenParts.join(",").trim() };
+  }
+  const parts = name.split(" ");
+  if (parts.length >= 2) {
+    return { name, given: parts.slice(0, -1).join(" "), family: parts[parts.length - 1] };
+  }
+  return { name, given: "", family: name };
+}
+
+function libraryGbtAuthor(author) {
+  const initials = author.given ? author.given.split(/\s+/).map((part) => part[0]?.toUpperCase()).filter(Boolean).join(" ") : "";
+  return [author.family, initials].filter(Boolean).join(" ") || author.name;
+}
+
+function libraryBibAuthor(author) {
+  return author.family && author.given ? `${author.family}, ${author.given}` : author.name || author.family || author.given;
+}
+
+function libraryApaAuthor(author) {
+  if (!author.family) return author.name || author.given;
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return [author.family, initials].filter(Boolean).join(", ");
+}
+
+function libraryMlaAuthor(author) {
+  return author.family && author.given ? `${author.given} ${author.family}` : author.name || author.family || author.given;
+}
+
+function libraryIeeeAuthor(author) {
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return author.family ? [initials, author.family].filter(Boolean).join(" ") : author.name || author.given;
+}
+
+function formatLibraryGbt(candidate) {
+  const authorNames = candidate.authors.map(libraryGbtAuthor).filter(Boolean);
+  const authorPart = authorNames.length
+    ? authorNames.slice(0, 3).join(", ") + (authorNames.length > 3 ? ", 等" : "")
+    : "";
+  const marker = candidate.type === "proceedings-article" || candidate.venue ? "[J]" : "[EB/OL]";
+  const head = authorPart ? `${authorPart}. ${candidate.title}${marker}` : `${candidate.title}${marker}`;
+  const tail = [candidate.venue, candidate.year, candidate.doi ? `https://doi.org/${candidate.doi}` : ""].filter(Boolean).join(", ");
+  return tail ? `${head}. ${tail}.` : `${head}.`;
+}
+
+function formatLibraryBibtex(candidate) {
+  const entryType = candidate.type === "proceedings-article" || candidate.venue ? "article" : "misc";
+  const authorJoined = candidate.authors.map(libraryBibAuthor).filter(Boolean).join(" and ");
+  const firstWord = candidate.title.match(/[A-Za-z0-9]+/)?.[0]?.toLowerCase() || "";
+  const key = `${candidate.authors[0]?.family || ""}${candidate.year}${firstWord}`.replace(/[^A-Za-z0-9]/g, "") || "reference";
+  const lines = [`@${entryType}{${key},`];
+  if (authorJoined) lines.push(`  author = {${authorJoined}},`);
+  if (candidate.title) lines.push(`  title = {${candidate.title}},`);
+  if (candidate.venue) lines.push(`  journal = {${candidate.venue}},`);
+  if (candidate.year) lines.push(`  year = {${candidate.year}},`);
+  if (candidate.doi) lines.push(`  doi = {${candidate.doi}},`);
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function formatLibraryRis(candidate) {
+  const lines = ["TY  - JOUR"];
+  candidate.authors.forEach((author) => {
+    const name = libraryBibAuthor(author);
+    if (name) lines.push(`AU  - ${name}`);
+  });
+  if (candidate.title) lines.push(`TI  - ${candidate.title}`);
+  if (candidate.venue) lines.push(`JO  - ${candidate.venue}`);
+  if (candidate.year) lines.push(`PY  - ${candidate.year}`);
+  if (candidate.doi) lines.push(`DO  - ${candidate.doi}`);
+  lines.push("ER  - ");
+  return lines.join("\n");
+}
+
+function formatLibraryApa(candidate) {
+  const apa = candidate.authors.map(libraryApaAuthor).filter(Boolean);
+  let authorStr = "";
+  if (apa.length === 1) authorStr = apa[0];
+  else if (apa.length === 2) authorStr = `${apa[0]}, & ${apa[1]}`;
+  else if (apa.length > 2) authorStr = `${apa.slice(0, -1).join(", ")}, & ${apa[apa.length - 1]}`;
+  const yearPart = candidate.year ? `(${candidate.year}).` : "";
+  const source = candidate.venue ? `. ${candidate.venue}` : "";
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return [authorStr, yearPart, `${candidate.title}.${source}.${doiPart}`].filter(Boolean).join(" ").trim();
+}
+
+function formatLibraryMla(candidate) {
+  const authors = candidate.authors;
+  const first = authors.length ? libraryBibAuthor(authors[0]) : "";
+  const rest = authors.slice(1).map(libraryMlaAuthor).filter(Boolean);
+  let authorStr = first;
+  if (rest.length === 1) authorStr = `${first}, and ${rest[0]}`;
+  else if (rest.length > 1) authorStr = `${first}, et al.`;
+  const parts = [authorStr, `"${candidate.title}."`].filter(Boolean);
+  if (candidate.venue) parts.push(candidate.venue);
+  if (candidate.year) parts.push(candidate.year);
+  return `${parts.join(", ")}.`;
+}
+
+function formatLibraryIeee(candidate) {
+  const authors = candidate.authors.map(libraryIeeeAuthor).filter(Boolean);
+  let authorStr = "";
+  if (authors.length === 1) authorStr = authors[0];
+  else if (authors.length === 2) authorStr = `${authors[0]} and ${authors[1]}`;
+  else if (authors.length > 2) authorStr = `${authors.slice(0, -1).join(", ")}, and ${authors[authors.length - 1]}`;
+  const parts = [authorStr, `"${candidate.title},"`, candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function openLibraryCitationOverlay(paper, formats) {
+  libCitationFormats = formats;
+  const basicInfo = paper.basicInfo || {};
+  const metaParts = [
+    Array.isArray(basicInfo.authors) ? basicInfo.authors.slice(0, 3).join("；") : "",
+    basicInfo.venue,
+    String(basicInfo.publishedDate || "").match(/(?:19|20)\d{2}/)?.[0] || "",
+  ].filter(Boolean);
+  libCitationOverlayTitle.textContent = paper.title || "引用信息";
+  libCitationOverlayMeta.textContent = metaParts.join(" · ") || paper.doi || "";
+  libCitationFormatSelect.value = libCitationFormat;
+  updateLibraryCitationOutput();
+  libCitationOverlay.hidden = false;
+}
+
+function closeLibraryCitationOverlay() {
+  if (libCitationOverlay) libCitationOverlay.hidden = true;
+}
+
+function updateLibraryCitationOutput() {
+  if (libCitationOutput) {
+    libCitationOutput.value = (libCitationFormats && libCitationFormats[libCitationFormat]) || "";
+  }
+}
+
+function initLibraryCitationOverlay() {
+  libCitationOverlayCloseButton?.addEventListener("click", closeLibraryCitationOverlay);
+  libCitationOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === libCitationOverlay) closeLibraryCitationOverlay();
+  });
+  libCitationFormatSelect?.addEventListener("change", () => {
+    libCitationFormat = libCitationFormatSelect.value;
+    updateLibraryCitationOutput();
+  });
+  libCitationCopyButton?.addEventListener("click", async () => {
+    const text = libCitationOutput?.value || "";
+    if (!text) return;
+    try {
+      await copyTextToClipboardLibrary(text);
+      libCitationCopyButton.classList.add("copied");
+      libCitationCopyButton.title = "已复制";
+      libCitationCopyButton.setAttribute("aria-label", "已复制");
+      window.setTimeout(() => {
+        libCitationCopyButton.classList.remove("copied");
+        libCitationCopyButton.title = "复制引用";
+        libCitationCopyButton.setAttribute("aria-label", "复制引用");
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy citation.", error);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && libCitationOverlay && !libCitationOverlay.hidden) {
+      closeLibraryCitationOverlay();
+    }
+  });
+}
+
+async function copyTextToClipboardLibrary(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function hidePaperInfoPanel() {
@@ -439,22 +684,18 @@ function showCategoryMenu(category, anchor) {
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.textContent = "Add subcategory";
-  addButton.addEventListener("click", async () => {
+  addButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("Subcategory name");
-    if (!name?.trim()) return;
-    await updateCategory({ action: "create", parentId: category.id, name: name.trim() });
+    startInlineCategoryCreate(category, anchor);
   });
 
   const renameButton = document.createElement("button");
   renameButton.type = "button";
   renameButton.textContent = "Rename";
   renameButton.disabled = category.locked || !category.id;
-  renameButton.addEventListener("click", async () => {
+  renameButton.addEventListener("click", () => {
     menu.remove();
-    const name = window.prompt("New category name", category.name);
-    if (!name?.trim() || name.trim() === category.name) return;
-    await updateCategory({ action: "rename", id: category.id, name: name.trim() });
+    startInlineCategoryRename(category, anchor);
   });
 
   const deleteButton = document.createElement("button");
@@ -470,6 +711,95 @@ function showCategoryMenu(category, anchor) {
   menu.append(addButton, renameButton, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+function startInlineCategoryRename(category, anchor) {
+  const row = anchor.closest(".category-row");
+  const button = row ? row.querySelector(".category-item") : null;
+  if (!row || !button) return;
+  const menuButton = row.querySelector(".category-menu-button");
+  if (menuButton) menuButton.hidden = true;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "category-inline-input";
+  input.value = category.name;
+  input.setAttribute("aria-label", "Category name");
+  input.setAttribute("maxlength", "120");
+  button.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name && name !== category.name) {
+      updateCategory({ action: "rename", id: category.id, name }).catch((error) => {
+        console.error(error);
+        setLibraryStatus("Rename failed.", true);
+        renderLibrary();
+      });
+    } else {
+      renderLibrary();
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function startInlineCategoryCreate(parentCategory, anchor) {
+  const row = anchor.closest(".category-row");
+  const newRow = document.createElement("div");
+  newRow.className = "category-row category-create-row";
+  newRow.style.paddingLeft = `${(Number(parentCategory.depth || 0) + 1) * 18}px`;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "category-inline-input";
+  input.placeholder = "New category name";
+  input.setAttribute("aria-label", "New category name");
+  input.setAttribute("maxlength", "120");
+  newRow.appendChild(input);
+
+  if (row) row.after(newRow);
+  else categoryTree.appendChild(newRow);
+  input.focus();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name) {
+      updateCategory({ action: "create", parentId: parentCategory.id || "", name }).catch((error) => {
+        console.error(error);
+        setLibraryStatus("Create category failed.", true);
+        newRow.remove();
+      });
+    } else {
+      newRow.remove();
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 function showPaperMenu(paper, anchor) {

@@ -22,8 +22,8 @@
         </button>
         <button id="collapseLibraryButton" class="reader-library-collapse-button" type="button" aria-label="Collapse library" title="Collapse library">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="m15 6-6 6 6 6"></path>
-            <path d="M20 12H9"></path>
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
           </svg>
         </button>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
@@ -184,6 +184,22 @@
                   </div>
                 </div>
               </div>
+            </section>
+
+            <section class="summary-card comments-nav-card" data-comments-nav>
+              <div class="summary-group-header">
+                <h2>评论</h2>
+                <div class="comments-nav-tools">
+                  <button class="icon-button comments-nav-prev" type="button" aria-label="上一条评论" title="上一条评论">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>
+                  </button>
+                  <span class="comments-nav-count">0/0</span>
+                  <button class="icon-button comments-nav-next" type="button" aria-label="下一条评论" title="下一条评论">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="comments-nav-list"></div>
             </section>
           </div>
 

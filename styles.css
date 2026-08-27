@@ -422,6 +422,22 @@ body {
   color: var(--ink);
 }
 
+.category-create-row {
+  grid-template-columns: 1fr;
+  padding-right: 4px;
+}
+
+.category-inline-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 14px;
+}
+
 .category-menu,
 .paper-menu {
   position: fixed;
@@ -539,6 +555,46 @@ body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.paper-info-citation-card {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-height: auto;
+  padding: 12px;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+  font-weight: 400;
+}
+
+.paper-info-citation-card:hover {
+  background: var(--soft);
+  border-color: var(--accent);
+}
+
+.paper-info-citation-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.paper-info-citation-preview {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.paper-info-citation-hint {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .paper-info-section {
@@ -769,19 +825,19 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-library-collapse-button {
   position: absolute;
-  top: 20px;
-  right: 10px;
+  top: 22px;
+  right: 8px;
   z-index: 2;
   display: none;
   place-items: center;
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  min-height: 34px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
   padding: 0;
-  border: 1px solid #111;
+  border: 0;
   border-radius: 4px;
-  background: #fff;
+  background: transparent;
   color: #111;
   box-shadow: none;
 }
@@ -791,12 +847,13 @@ body.upload-menu-open .paper-card:hover {
 }
 
 .reader-library-collapse-button:hover {
-  background: #f7f9f8;
+  background: transparent;
+  color: var(--accent);
 }
 
 .reader-library-collapse-button svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -3037,6 +3094,13 @@ body.selecting-pdf-text .selection-menu {
   stroke-width: 2;
 }
 
+.citation-searching {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .citation-candidate-title {
   font-weight: 650;
   line-height: 1.4;
@@ -3789,6 +3853,31 @@ body.selecting-pdf-text .selection-menu {
   background: var(--soft-strong);
   color: var(--ink);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.reader-paper-item {
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.reader-paper-item:last-child {
+  border-bottom: 0;
+}
+
+.reader-category-create-row {
+  grid-template-columns: 1fr;
+  padding-right: 6px;
+}
+
+.reader-category-inline-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
 }
 
 .paper-card {

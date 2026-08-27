@@ -12,12 +12,17 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 
 
 CROSSREF_API_URL = "https://api.crossref.org"
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 MAILTO = "paperlantern@example.com"
 USER_AGENT = f"PaperLantern/1.0 (mailto:{MAILTO})"
+_ATOM_NS = "http://www.w3.org/2005/Atom"
+_ARXIV_NS = "http://arxiv.org/schemas/atom"
 
 # A DOI is "10." + 4-9 digit registrant + "/" + a suffix of allowed characters.
 _DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+", re.IGNORECASE)
@@ -146,6 +151,12 @@ def http_get_json(url, timeout=30):
         return json.loads(response.read().decode("utf-8"))
 
 
+def http_get_text(url, timeout=30):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
 def fetch_work_by_doi(doi):
     url = f"{CROSSREF_API_URL}/works/{urllib.parse.quote(doi, safe='/')}"
     try:
@@ -190,6 +201,90 @@ def search_works(title, authors, institutions):
             seen.add(key)
             found.append(normalized)
     return found
+
+
+def _arxiv_query_term(value):
+    return str(value or "").replace('"', "").strip()
+
+
+def search_arxiv(title, authors, max_results=10):
+    if not title and not authors:
+        return []
+
+    terms = []
+    if title:
+        terms.append(f'ti:"{_arxiv_query_term(title)}"')
+    if authors:
+        terms.append(f'au:"{_arxiv_query_term(authors[0])}"')
+    if not terms:
+        return []
+
+    search_query = " AND ".join(terms)
+    params = {"search_query": search_query, "start": 0, "max_results": max_results}
+    url = f"{ARXIV_API_URL}?{urllib.parse.urlencode(params)}"
+    try:
+        text = http_get_text(url)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+        return []
+    return parse_arxiv_feed(text)
+
+
+def parse_arxiv_feed(text):
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+
+    namespace = {"atom": _ATOM_NS, "arxiv": _ARXIV_NS}
+    results = []
+    for entry in root.findall("atom:entry", namespace):
+        normalized = normalize_arxiv_entry(entry, namespace)
+        if normalized:
+            results.append(normalized)
+    return results
+
+
+def normalize_arxiv_entry(entry, namespace):
+    title = " ".join((entry.findtext("atom:title", default="", namespaces=namespace) or "").split())
+    if not title:
+        return None
+
+    authors = []
+    for author_el in entry.findall("atom:author", namespaces=namespace):
+        raw_name = " ".join((author_el.findtext("atom:name", default="", namespaces=namespace) or "").split())
+        normalized = normalize_local_author(raw_name)
+        if normalized:
+            authors.append(normalized)
+
+    published = entry.findtext("atom:published", default="", namespaces=namespace) or ""
+    year = published[:4] if published else ""
+
+    entry_id = entry.findtext("atom:id", default="", namespaces=namespace) or ""
+    arxiv_id = ""
+    match = re.search(r"abs/([^/]+)$", entry_id)
+    if match:
+        arxiv_id = match.group(1).split("v")[0] if "v" in match.group(1) else match.group(1)
+
+    doi = (entry.findtext("arxiv:doi", default="", namespaces=namespace) or "").strip()
+    if not doi and arxiv_id:
+        doi = f"10.48550/arXiv.{arxiv_id}"
+
+    return {
+        "doi": doi,
+        "title": title,
+        "venue": "arXiv",
+        "authors": authors,
+        "authorNames": [author["name"] for author in authors],
+        "institutions": [],
+        "volume": "",
+        "issue": "",
+        "page": "",
+        "year": year,
+        "publishedDate": year,
+        "publisher": "",
+        "type": "preprint",
+        "url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
+    }
 
 
 def _first_string(value):
@@ -338,13 +433,14 @@ def title_similarity(a, b):
     intersection = tokens_a & tokens_b
     union = tokens_a | tokens_b
     jaccard = len(intersection) / len(union) if union else 0.0
-    # Fraction of the shorter title's tokens present in the longer one. This
-    # catches the common case where one source omits a subtitle (e.g. the AI
-    # extracted "…Framework from Perception to Action" but Crossref stores only
-    # "…Framework"), which SequenceMatcher/Jaccard would otherwise under-score.
-    shorter = min(len(tokens_a), len(tokens_b))
-    containment = len(intersection) / shorter if shorter else 0.0
-    return max(ratio, jaccard, containment)
+    # Fraction of the longer title's tokens covered by the shorter one. This
+    # still catches the common "one source omits a subtitle" case (YOPOv2 vs
+    # YOPOv2: ... Framework), but unlike containment-by-the-shorter-length it
+    # does NOT inflate short generic phrases ("Whole body manipulation") to a
+    # near-perfect match against a long specific title.
+    longer = max(len(tokens_a), len(tokens_b))
+    coverage = len(intersection) / longer if longer else 0.0
+    return max(ratio, jaccard, coverage)
 
 
 def author_similarity(query_authors, candidate_names):
@@ -420,22 +516,46 @@ def build_citation_results(title, authors, institutions, paper_text="", venue=""
     if doi:
         add_work(fetch_work_by_doi(doi))
 
-    for normalized in search_works(title, authors, institutions):
-        add_work(normalized)
+    # Run Crossref and arXiv searches in parallel and merge the results.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(search_works, title, authors, institutions),
+            executor.submit(search_arxiv, title, authors),
+        ]
+        for future in futures:
+            try:
+                results = future.result()
+            except Exception:
+                continue
+            for normalized in results:
+                add_work(normalized)
 
     for candidate in candidates:
         if candidate.get("source") == "local":
             continue
         score_candidate(candidate, query)
 
-    # Only keep DOI-exact matches and candidates whose title is a close match.
-    crossref_candidates = [
-        candidate
-        for candidate in candidates
-        if candidate.get("source") == "local" or candidate["score"] >= 1000 or candidate.get("titleSimilarity", 0) >= 0.9
-    ]
-    local_candidates = [candidate for candidate in crossref_candidates if candidate.get("source") == "local"]
-    remote_candidates = [candidate for candidate in crossref_candidates if candidate.get("source") != "local"]
+    # Post-processing: drop candidates that are not the queried paper. The
+    # bibliographic searches return a mix of the target and related/similar works
+    # (e.g. "Whole-Body Manipulation" when searching "Whole-Body World-Action
+    # Model"). A DOI-exact match is always kept; otherwise the candidate must
+    # clearly be the same paper — a near-perfect title match, or a strong title
+    # match with an author overlap.
+    surviving = []
+    for candidate in candidates:
+        if candidate.get("source") == "local":
+            surviving.append(candidate)
+            continue
+        if candidate["score"] >= 1000:
+            surviving.append(candidate)
+            continue
+        title_sim = candidate.get("titleSimilarity", 0)
+        author_sim = candidate.get("authorSimilarity", 0)
+        if title_sim >= 0.9 or (title_sim >= 0.65 and author_sim >= 0.3):
+            surviving.append(candidate)
+
+    local_candidates = [candidate for candidate in surviving if candidate.get("source") == "local"]
+    remote_candidates = [candidate for candidate in surviving if candidate.get("source") != "local"]
     remote_candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
     for candidate in remote_candidates:
         candidate["citations"] = format_citations(candidate)

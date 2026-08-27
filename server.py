@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
 from cloud_sync import auto_sync_library, get_sync_config, public_status, save_sync_config, sync_library, update_paper_sync_hash
-from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info, fetch_work_by_doi
+from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1696,12 +1696,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         paper_id = str(payload.get("paperId", "")).strip()
-        doi = str(payload.get("doi", "")).strip()
+        candidate = payload.get("candidate")
         if not paper_id:
             self._send_json(400, {"error": "缺少论文 ID。"})
             return
-        if not doi:
-            self._send_json(400, {"error": "缺少 DOI。"})
+        if not isinstance(candidate, dict) or not str(candidate.get("title", "")).strip():
+            self._send_json(400, {"error": "缺少候选论文信息。"})
             return
 
         db = load_library_db()
@@ -1714,24 +1714,22 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(404, {"error": "Paper not found."})
             return
 
-        try:
-            work = fetch_work_by_doi(doi)
-        except urllib.error.HTTPError as exc:
-            self._send_json(exc.code, {"error": "Crossref 查询失败。", "detail": str(exc)})
-            return
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-            self._send_json(502, {"error": "Crossref 查询失败。", "detail": str(exc)})
-            return
-        if not work:
-            self._send_json(404, {"error": "Crossref 中未找到该 DOI 的论文信息。"})
-            return
-
+        doi = str(candidate.get("doi", "")).strip()
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
-        metadata["basicInfo"] = normalize_basic_info(candidate_to_basic_info(work))
-        metadata["doi"] = doi
+        metadata["title"] = str(candidate.get("title", "")).strip() or metadata.get("title") or record.get("title") or record["id"]
+        record["title"] = metadata["title"]
+        new_basic_info = normalize_basic_info(candidate_to_basic_info(candidate))
+        # If the retrieved candidate carries no institution info, keep the ones
+        # already on the paper rather than wiping them out.
+        if not new_basic_info.get("institutions"):
+            new_basic_info["institutions"] = normalize_basic_info(metadata.get("basicInfo", {})).get("institutions", [])
+        metadata["basicInfo"] = new_basic_info
+        if doi:
+            metadata["doi"] = doi
         write_json(paper_dir / "metadata.json", metadata)
+        save_library_db(db)
         sync = maybe_auto_sync_library()
-        self._send_json(200, {"paper": read_paper(paper_id, db), "sync": sync})
+        self._send_json(200, {"paper": read_paper(paper_id, db), "tree": read_library_tree(), "sync": sync})
 
 
 def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None):
