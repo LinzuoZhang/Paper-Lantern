@@ -121,6 +121,8 @@ let citationCandidates = [];
 let selectedCitationIndex = -1;
 let citationFormat = "gbt7714";
 let citationSelectedCandidate = null;
+let appliedCitationDoi = "";
+let commentsNavIndex = 0;
 let citationSearchSummaryVisible = false;
 
 const highlightColors = {
@@ -130,12 +132,20 @@ const highlightColors = {
   pink: "rgba(239, 147, 171, 0.32)",
 };
 
+const commentSwatchColors = {
+  yellow: "#ffdd40",
+  green: "#78c4a2",
+  blue: "#6fb2d6",
+  pink: "#ef93ab",
+};
+
 initPaneResizer();
 initReaderSideRail();
 initSummaryPaneToggle();
 initReaderTabs();
 initReaderSettings();
 initCitationOverlay();
+initBasicInfoEditing();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
@@ -646,6 +656,7 @@ basicInfoButton?.addEventListener("click", async () => {
   }
 
   setBusy(true);
+  basicInfoButton.classList.add("spinning");
   setBasicInfoStatus("正在整理基本信息...");
   renderBasicInfoLoading();
   try {
@@ -656,6 +667,7 @@ basicInfoButton?.addEventListener("click", async () => {
     renderBasicInfo(currentPaper?.basicInfo);
     setBasicInfoStatus(error.message || "基本信息整理失败。", true);
   } finally {
+    basicInfoButton.classList.remove("spinning");
     setBusy(false);
   }
 });
@@ -2468,6 +2480,7 @@ function commentSelection() {
   hideTranslationBubble();
   window.getSelection()?.removeAllRanges();
   showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+  refreshCommentsNavigation();
 }
 
 async function translateSelection() {
@@ -2503,6 +2516,7 @@ async function translateSelection() {
     window.getSelection()?.removeAllRanges();
     await saveCurrentPaper();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    refreshCommentsNavigation();
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
   } finally {
@@ -2554,6 +2568,7 @@ async function explainSelection() {
     window.getSelection()?.removeAllRanges();
     hideSelectionMenu();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    refreshCommentsNavigation();
     saveCurrentPaper().catch((error) => console.error("Failed to save explanation annotation.", error));
   } catch (error) {
     setStatus(error.message || "\u89e3\u91ca\u5931\u8d25", true);
@@ -3064,6 +3079,124 @@ function restoreHighlights() {
     const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
     if (pageNode) drawHighlight(pageNode, highlight);
   });
+  refreshCommentsNavigation();
+}
+
+function buildCommentGroups() {
+  const groups = [];
+  const seen = new Set();
+  for (const highlight of savedHighlights) {
+    if (!highlight.comment && !highlight.translation) continue;
+    const groupId = highlight.groupId || getHighlightKey(highlight);
+    if (seen.has(groupId)) continue;
+    seen.add(groupId);
+    const group = getHighlightGroup(groupId);
+    groups.push({
+      groupId,
+      pageNumber: Number(highlight.pageNumber),
+      comment: group.find((item) => item.comment)?.comment || "",
+      translation: group.find((item) => item.translation)?.translation || "",
+      text: group.find((item) => item.text)?.text || "",
+      color: group[0]?.color || "yellow",
+    });
+  }
+  groups.sort((a, b) => a.pageNumber - b.pageNumber || a.comment.localeCompare(b.comment));
+  return groups;
+}
+
+function refreshCommentsNavigation() {
+  const groups = buildCommentGroups();
+  if (commentsNavIndex >= groups.length) commentsNavIndex = 0;
+  document.querySelectorAll(".comments-nav-card").forEach((card) => {
+    renderCommentsNavCard(card, groups);
+  });
+}
+
+function renderCommentsNavCard(card, groups) {
+  const list = card.querySelector(".comments-nav-list");
+  list.innerHTML = "";
+  if (!groups.length) {
+    const empty = document.createElement("div");
+    empty.className = "comments-nav-empty";
+    empty.textContent = "暂无评论";
+    list.appendChild(empty);
+    return;
+  }
+
+  groups.forEach((entry, index) => {
+    const item = document.createElement("div");
+    item.className = "comments-nav-item";
+    item.classList.toggle("current", index === commentsNavIndex);
+    item.addEventListener("click", () => setCommentsNavIndex(index));
+
+    const head = document.createElement("div");
+    head.className = "comments-nav-head";
+
+    const swatch = document.createElement("span");
+    swatch.className = "comments-nav-swatch";
+    swatch.style.background = commentSwatchColors[entry.color] || entry.color || commentSwatchColors.yellow;
+
+    const page = document.createElement("span");
+    page.className = "comments-nav-page";
+    page.textContent = `第${entry.pageNumber}页`;
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "comments-nav-delete icon-button";
+    deleteButton.title = "删除评论";
+    deleteButton.setAttribute("aria-label", "删除评论");
+    deleteButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>';
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteCommentGroup(entry.groupId);
+    });
+
+    head.append(swatch, page, deleteButton);
+
+    const body = document.createElement("span");
+    body.className = "comments-nav-body";
+    const rawText = entry.comment || entry.translation || entry.text || "（无内容）";
+    const text = rawText.trim();
+    body.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
+
+    item.append(head, body);
+    list.appendChild(item);
+  });
+}
+
+async function deleteCommentGroup(groupId) {
+  savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, groupId));
+  redrawHighlights();
+  try {
+    await saveCurrentPaper();
+  } catch (error) {
+    console.error("Failed to save after deleting comment.", error);
+  }
+}
+
+function setCommentsNavIndex(index) {
+  const groups = buildCommentGroups();
+  if (index < 0 || index >= groups.length) return;
+  commentsNavIndex = index;
+  refreshCommentsNavigation();
+  jumpToComment(groups[index].groupId);
+}
+
+function jumpToComment(groupId) {
+  const group = getHighlightGroup(groupId);
+  if (!group.length) return;
+  const first = group[0];
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${first.pageNumber}"]`);
+  if (!pageNode) return;
+  pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
+  const selector = `[data-group-id="${CSS.escape(groupId)}"]`;
+  const target = pageNode.querySelector(selector);
+  if (target) {
+    target.classList.remove("pdf-highlight-flash");
+    void target.offsetWidth;
+    target.classList.add("pdf-highlight-flash");
+  }
 }
 
 function normalizeHighlights(highlights) {
@@ -3416,20 +3549,52 @@ function setBasicInfoStatus(message, isError = false) {
   basicInfoStatus.classList.toggle("error", isError);
 }
 
+function initBasicInfoEditing() {
+  const fields = [
+    { dd: basicInfoAuthors, key: "authors", isArray: true },
+    { dd: basicInfoVenue, key: "venue", isArray: false },
+    { dd: basicInfoDate, key: "publishedDate", isArray: false },
+    { dd: basicInfoInstitutions, key: "institutions", isArray: true },
+    { dd: basicInfoDoi, key: "doi", isArray: false, isDoi: true },
+  ];
+
+  fields.forEach((field) => {
+    if (!field.dd) return;
+    field.dd.contentEditable = "true";
+    field.dd.spellcheck = false;
+    field.dd.setAttribute("aria-label", "可编辑");
+    field.dd.addEventListener("blur", async () => {
+      const raw = String(field.dd.textContent || "").trim();
+      const value = raw === "未识别" ? "" : raw;
+      if (!currentPaper?.id) return;
+      if (field.isArray) {
+        currentPaper.basicInfo = currentPaper.basicInfo || {};
+        currentPaper.basicInfo[field.key] = value
+          .split(/[；;\n]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      } else if (field.isDoi) {
+        currentPaper.doi = value;
+      } else {
+        currentPaper.basicInfo = currentPaper.basicInfo || {};
+        currentPaper.basicInfo[field.key] = value;
+      }
+      try {
+        await saveCurrentPaper(field.isDoi ? { doi: currentPaper.doi } : { basicInfo: currentPaper.basicInfo });
+        setBasicInfoStatus("");
+      } catch (error) {
+        console.error("Failed to save basic info edit.", error);
+        renderBasicInfo(currentPaper.basicInfo);
+        renderDoi(currentPaper.doi);
+        setBasicInfoStatus(error.message || "基本信息保存失败。", true);
+      }
+    });
+  });
+}
+
 function renderDoi(doi) {
   if (!basicInfoDoi) return;
-  const value = String(doi || "").trim();
-  if (!value) {
-    basicInfoDoi.textContent = "未识别";
-    return;
-  }
-  basicInfoDoi.textContent = "";
-  const link = document.createElement("a");
-  link.href = `https://doi.org/${encodeURIComponent(value)}`;
-  link.target = "_blank";
-  link.rel = "noopener";
-  link.textContent = value;
-  basicInfoDoi.appendChild(link);
+  basicInfoDoi.textContent = String(doi || "").trim() || "未识别";
 }
 
 function setCitationStatus(message, isError = false) {
@@ -3640,6 +3805,8 @@ async function generateCitation() {
 
   setBusy(true);
   generateCitationButton.disabled = true;
+  generateCitationButton.classList.add("spinning");
+  appliedCitationDoi = "";
   selectedCitationIndex = -1;
   citationSearchSummaryVisible = true;
   citationCandidates = [createCurrentCitationCandidate(currentPaper)];
@@ -3678,6 +3845,7 @@ async function generateCitation() {
     console.error(error);
     setCitationStatus(error.message || "引用信息查询失败。", true);
   } finally {
+    generateCitationButton.classList.remove("spinning");
     setBusy(false);
     generateCitationButton.disabled = false;
   }
@@ -3800,9 +3968,10 @@ function createCitationCandidate(candidate, index, options = {}) {
   applyButton.title = "更新引用信息";
   applyButton.setAttribute("aria-label", "更新引用信息");
   applyButton.innerHTML =
-    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>';
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg>';
   applyButton.addEventListener("click", () => applyCandidateBasicInfo(candidate));
   applyButton.hidden = candidate.source === "local";
+  applyButton.classList.toggle("citation-apply-applied", Boolean(candidate.doi) && candidate.doi === appliedCitationDoi);
 
   row.append(item, applyButton);
   return row;
@@ -3900,6 +4069,7 @@ async function applyCandidateBasicInfo(candidate) {
     currentPaper = data.paper || currentPaper;
     renderBasicInfo(currentPaper.basicInfo);
     renderDoi(currentPaper.doi);
+    appliedCitationDoi = String(candidate.doi || "");
     const remoteCandidates = citationCandidates.filter((item) => item.source !== "local");
     citationCandidates = [createCurrentCitationCandidate(currentPaper), ...remoteCandidates];
     renderCitationCandidates(citationCandidates, { showSearchSummary: citationSearchSummaryVisible });

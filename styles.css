@@ -1264,6 +1264,16 @@ h3 {
   stroke-width: 2;
 }
 
+.spinning svg {
+  animation: reader-button-spin 0.9s linear infinite;
+}
+
+@keyframes reader-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .file-button,
 button,
 select {
@@ -2203,9 +2213,9 @@ body.selecting-pdf-text .selection-menu {
   height: 34px;
   min-height: 34px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--muted);
 }
 
@@ -2876,6 +2886,11 @@ body.selecting-pdf-text .selection-menu {
   padding: 0 16px 16px;
 }
 
+.comments-panel {
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+
 .basic-info-card {
   display: grid;
   gap: 12px;
@@ -2929,13 +2944,19 @@ body.selecting-pdf-text .selection-menu {
   border-bottom: 0;
 }
 
-.basic-info-list dd a {
-  color: var(--accent);
-  text-decoration: none;
+.basic-info-list dd[contenteditable="true"] {
+  cursor: text;
+  border-radius: 4px;
 }
 
-.basic-info-list dd a:hover {
-  text-decoration: underline;
+.basic-info-list dd[contenteditable="true"]:hover,
+.basic-info-list dd[contenteditable="true"]:focus {
+  background: var(--soft);
+}
+
+.basic-info-list dd[contenteditable="true"]:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .citation-card {
@@ -4092,9 +4113,24 @@ button.ghost:hover,
   backdrop-filter: none;
 }
 
+.reader-tab {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.reader-tab:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
 .reader-tab.active {
-  background: var(--soft-strong);
-  border-color: rgba(44, 117, 140, 0.42);
+  background: var(--soft);
+  border-color: transparent;
+  color: var(--ink);
+  box-shadow: none;
 }
 
 .summary-card {
@@ -4142,6 +4178,138 @@ button.ghost:hover,
 .citation-card .summary-group-header,
 .citation-card .summary-group-header:hover {
   background: transparent;
+}
+
+.comments-nav-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.comments-nav-card .summary-group-header,
+.comments-nav-card .summary-group-header:hover {
+  background: transparent;
+}
+
+.comments-nav-card .summary-group-header h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.comments-nav-list {
+  display: grid;
+  gap: 0;
+}
+
+.comments-nav-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-height: auto;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  font-weight: 400;
+}
+
+.comments-nav-item:hover {
+  background: var(--soft);
+}
+
+.comments-nav-item.current {
+  background: var(--soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.comments-nav-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comments-nav-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.comments-nav-page {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.comments-nav-delete {
+  flex: none;
+  margin-left: auto;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a93d3d;
+  box-shadow: none;
+}
+
+.comments-nav-delete:hover {
+  background: #ffe7e4;
+  color: #842929;
+}
+
+.citation-apply-applied,
+.citation-apply-applied:hover {
+  background: transparent;
+  color: #2f9d6a;
+}
+
+.comments-nav-delete svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.comments-nav-body {
+  display: block;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.comments-nav-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pdf-highlight-flash {
+  animation: pdf-highlight-flash 0.9s ease-in-out 2;
+}
+
+@keyframes pdf-highlight-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(44, 117, 140, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(44, 117, 140, 0.2);
+  }
 }
 
 .method-section {

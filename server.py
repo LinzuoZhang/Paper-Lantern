@@ -1474,6 +1474,13 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if isinstance(payload.get("basicInfo"), dict):
             metadata["basicInfo"] = normalize_basic_info(payload["basicInfo"])
             sync_relevant_changed = True
+        if isinstance(payload.get("doi"), str):
+            doi_value = payload["doi"].strip()
+            if doi_value:
+                metadata["doi"] = doi_value
+            else:
+                metadata.pop("doi", None)
+            sync_relevant_changed = True
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])
             update_paper_sync_hash(paper_dir)
