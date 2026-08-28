@@ -103,6 +103,8 @@ const readerTodoIconSvg =
   '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
 const readerPlusCircleSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const readerBookmarkPlusSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 8v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 11h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 
 let readerLibraryHoverTimer = null;
 let pdfSearchMatches = [];
@@ -273,7 +275,7 @@ function renderReaderLibrary() {
     createReaderSpecialRow(READER_RECENT_ID, "最近", readerRecentIconSvg, String(getReaderRecentPapers().length)),
   );
   readerCategoryList.appendChild(
-    createReaderSpecialRow(READER_TODO_ID, "待办", readerTodoIconSvg, String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length)),
+    createReaderSpecialRow(READER_TODO_ID, "待办", readerTodoIconSvg, String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length), (button) => addCurrentPaperToTodo(), false, readerBookmarkPlusSvg, "加入待办"),
   );
 
   // 文献库: all papers, with the existing categories as its sub-list.
@@ -330,7 +332,7 @@ function renderReaderLibrary() {
   });
 }
 
-function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false) {
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类") {
   const row = document.createElement("div");
   row.className = "reader-category-row reader-special-row";
   const collapsed = isReaderCategoryCollapsed(id);
@@ -339,11 +341,12 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
   button.className = "reader-category-item reader-special-item";
   button.classList.toggle("active", readerSelectedCategoryId === id);
   button.classList.toggle("reader-category-has-children", collapsible);
-  button.style.paddingLeft = `${collapsible ? 8 : 20}px`;
+  button.style.paddingLeft = "8px";
   const icon = document.createElement("span");
   icon.className = "reader-category-folder-icon";
   icon.innerHTML = iconSvg;
   button.appendChild(icon);
+  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
   if (collapsible) {
     const toggle = document.createElement("span");
     toggle.className = "reader-category-collapse-toggle";
@@ -356,7 +359,6 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
     });
     button.appendChild(toggle);
   }
-  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
   button.addEventListener("click", () => {
     readerSelectedCategoryId = id;
     renderReaderLibrary();
@@ -366,9 +368,9 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
     const addButton = document.createElement("button");
     addButton.type = "button";
     addButton.className = "reader-category-menu-button menu-button reader-add-category-button";
-    addButton.setAttribute("aria-label", "新建分类");
-    addButton.title = "新建分类";
-    addButton.innerHTML = readerPlusCircleSvg;
+    addButton.setAttribute("aria-label", addTitle);
+    addButton.title = addTitle;
+    addButton.innerHTML = addIconSvg;
     addButton.addEventListener("click", (event) => {
       event.stopPropagation();
       addHandler(addButton);
@@ -453,6 +455,28 @@ function getReaderRecentPapers() {
   }
   const ids = new Set((Array.isArray(records) ? records : []).map((record) => record && record.id));
   return all.filter((paper) => ids.has(paper.id));
+}
+
+async function addCurrentPaperToTodo() {
+  if (!currentPaper?.id) {
+    setStatus("未打开论文。", true);
+    return;
+  }
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: currentPaper.id, todo: true }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "加入待办失败。");
+    currentPaper.todo = true;
+    setStatus("已加入待办。");
+    renderReaderLibrary();
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "加入待办失败。", true);
+  }
 }
 
 function isReaderUncategorizedCategory(category) {

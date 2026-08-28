@@ -831,6 +831,28 @@ body {
   border-right: 1px solid var(--line);
 }
 
+.paper-sortable {
+  cursor: pointer;
+}
+
+.paper-sort-button {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.paper-sort-button:hover {
+  color: var(--accent);
+}
+
 .paper-table tbody tr:hover td {
   background: var(--soft);
 }
@@ -1300,8 +1322,16 @@ body.resizing-categories * {
   cursor: pointer;
 }
 
+.reader-special-item.reader-category-has-children .reader-category-collapse-toggle {
+  display: inline-grid;
+}
+
 .reader-category-item.reader-category-has-children:hover .reader-category-folder-icon {
   display: none;
+}
+
+.reader-special-item.reader-category-has-children:hover .reader-category-folder-icon {
+  display: inline-grid;
 }
 
 .reader-category-item.reader-category-has-children:hover .reader-category-collapse-toggle {
@@ -1310,7 +1340,7 @@ body.resizing-categories * {
 
 .reader-category-collapse-toggle:hover {
   color: var(--ink);
-  background: var(--soft);
+  background: transparent;
 }
 
 .reader-add-category-button {
@@ -1417,7 +1447,7 @@ body.resizing-categories * {
 }
 
 .reader-category-menu-button:hover {
-  background: var(--soft);
+  background: transparent;
   color: var(--ink);
 }
 
@@ -1429,7 +1459,7 @@ body.resizing-categories * {
 .reader-category-item.active,
 .reader-paper-item:hover,
 .reader-paper-item.active {
-  background: var(--soft);
+  background: transparent;
   color: var(--ink);
 }
 

@@ -64,6 +64,30 @@ const plusCircleSvg =
 let libraryTree = null;
 let selectedCategoryId = RECENT_CATEGORY_ID;
 let apiBaseUrl = "";
+let categorySearchBar = null;
+let paperSort = { key: "uploadedAt", dir: "desc" };
+
+function sortPapers(papers) {
+  const { key, dir } = paperSort;
+  const sign = dir === "asc" ? 1 : -1;
+  const list = [...papers];
+  list.sort((a, b) => {
+    if (key === "title") {
+      const va = String(a.title || "").toLowerCase();
+      const vb = String(b.title || "").toLowerCase();
+      return sign * va.localeCompare(vb);
+    }
+    const rawA = key === "lastRead" ? getPaperViewedAt(a.id) : a.uploadedAt;
+    const rawB = key === "lastRead" ? getPaperViewedAt(b.id) : b.uploadedAt;
+    const ta = rawA ? new Date(rawA).getTime() : NaN;
+    const tb = rawB ? new Date(rawB).getTime() : NaN;
+    if (Number.isNaN(ta) && Number.isNaN(tb)) return 0;
+    if (Number.isNaN(ta)) return 1;
+    if (Number.isNaN(tb)) return -1;
+    return sign * (ta - tb);
+  });
+  return list;
+}
 let searchQuery = "";
 let arxivDownloadOverlayTimer = null;
 let libCitationFormats = null;
@@ -289,9 +313,11 @@ function renderLibrary() {
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
   renderTodoCategory();
-  // Search bar sits right below 待办 and above the category list.
-  const searchBar = document.querySelector(".category-search");
-  if (searchBar) categoryTree.appendChild(searchBar);
+  // Search bar sits right below 待办 and above the category list. Cache the
+  // reference so it survives re-renders (innerHTML="" would otherwise remove it
+  // from the DOM and querySelector would stop finding it).
+  if (!categorySearchBar) categorySearchBar = document.querySelector(".category-search");
+  if (categorySearchBar) categoryTree.appendChild(categorySearchBar);
   renderCategoryNode(libraryTree, 0);
 
   const allPapers = collectPapers(libraryTree);
@@ -458,16 +484,36 @@ function renderPaperList(papers) {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
+  const sortableHeaders = { "论文标题": "title", "上传时间": "uploadedAt", "上次阅读": "lastRead" };
   ["论文标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
     const th = document.createElement("th");
-    th.textContent = label;
+    const sortKey = sortableHeaders[label];
+    if (sortKey) {
+      th.classList.add("paper-sortable");
+      const button = document.createElement("span");
+      button.className = "paper-sort-button";
+      button.textContent = paperSort.key === sortKey ? `${label} ${paperSort.dir === "asc" ? "↑" : "↓"}` : label;
+      th.appendChild(button);
+      // The whole header cell is clickable.
+      th.addEventListener("click", () => {
+        if (paperSort.key === sortKey) {
+          paperSort.dir = paperSort.dir === "asc" ? "desc" : "asc";
+        } else {
+          paperSort.key = sortKey;
+          paperSort.dir = sortKey === "title" ? "asc" : "desc";
+        }
+        renderLibrary();
+      });
+    } else {
+      th.textContent = label;
+    }
     headRow.appendChild(th);
   });
   thead.appendChild(headRow);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  papers.forEach((paper) => {
+  sortPapers(papers).forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
