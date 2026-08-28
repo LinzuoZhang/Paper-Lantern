@@ -37,12 +37,28 @@ const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
 const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 
 const RECENT_CATEGORY_ID = "__recent";
+const TODO_CATEGORY_ID = "__todo";
 const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
 const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
 
+const recentCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
+const libraryCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
+const paperReadUncheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperReadCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperTodoUncheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 7v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 10h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperTodoCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 12 2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const todoCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
+
 let libraryTree = null;
-let selectedCategoryId = "";
+let selectedCategoryId = RECENT_CATEGORY_ID;
 let apiBaseUrl = "";
 let searchQuery = "";
 let arxivDownloadOverlayTimer = null;
@@ -95,10 +111,11 @@ cloudConfigCloseButton.addEventListener("click", closeCloudConfig);
 cloudConfigOverlay.addEventListener("pointerdown", (event) => {
   if (event.target === cloudConfigOverlay) closeCloudConfig();
 });
-cloudConfigForm.addEventListener("submit", async (event) => {
+cloudConfigForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  await saveCloudSyncConfig();
+  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
 });
+wireCloudSettingsAutoSave();
 aiApiTestButton.addEventListener("click", async () => {
   await testAiApi();
 });
@@ -267,16 +284,27 @@ function renderLibrary() {
   hidePaperInfoPanel();
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
+  renderTodoCategory();
+  // Search bar sits right below 待办 and above the category list.
+  const searchBar = document.querySelector(".category-search");
+  if (searchBar) categoryTree.appendChild(searchBar);
   categories.forEach((category) => renderCategoryRow(category));
 
   const allPapers = collectPapers(libraryTree);
   let papers = [];
   if (selectedCategoryId === RECENT_CATEGORY_ID) {
-    currentCategoryName.textContent = "Recent Papers";
+    currentCategoryName.textContent = "最近";
     papers = getRecentPapers(allPapers);
+  } else if (selectedCategoryId === TODO_CATEGORY_ID) {
+    currentCategoryName.textContent = "待办";
+    papers = allPapers.filter((paper) => paper.todo);
   } else {
     const selected = categories.find((category) => category.id === selectedCategoryId) || categories[0];
-    currentCategoryName.textContent = selected?.id ? selected.name : "All Papers";
+    if (selected?.id) {
+      currentCategoryName.textContent = selected.name;
+    } else {
+      currentCategoryName.innerHTML = `${libraryCategoryIconSvg}<span>文献库</span>`;
+    }
     papers = selectedCategoryId ? selected?.papers || [] : allPapers;
   }
   renderPaperList(filterPapers(papers, searchQuery));
@@ -291,7 +319,12 @@ function renderCategoryRow(category) {
   button.type = "button";
   button.className = "category-item";
   button.classList.toggle("active", category.id === selectedCategoryId);
-  button.textContent = `${category.name} (${category.paperCount})`;
+  const label = `${category.name} (${category.paperCount})`;
+  if (!category.id) {
+    button.innerHTML = `${libraryCategoryIconSvg}<span>${label}</span>`;
+  } else {
+    button.textContent = label;
+  }
   button.addEventListener("click", () => {
     selectedCategoryId = category.id;
     renderLibrary();
@@ -313,15 +346,35 @@ function renderCategoryRow(category) {
 
 function renderRecentCategory() {
   const row = document.createElement("div");
-  row.className = "category-row category-row-special";
+  // No bottom border here so "最近" and "待办" sit together without a divider.
+  row.className = "category-row category-row-special category-row-special-flat";
 
   const button = document.createElement("button");
   button.type = "button";
   button.className = "category-item recent-category-item";
   button.classList.toggle("active", selectedCategoryId === RECENT_CATEGORY_ID);
-  button.textContent = `Recent Papers (${getRecentPaperRecords().length})`;
+  button.innerHTML = `${recentCategoryIconSvg}<span>最近 (${getRecentPaperRecords().length})</span>`;
   button.addEventListener("click", () => {
     selectedCategoryId = RECENT_CATEGORY_ID;
+    renderLibrary();
+  });
+
+  row.appendChild(button);
+  categoryTree.appendChild(row);
+}
+
+function renderTodoCategory() {
+  const row = document.createElement("div");
+  row.className = "category-row category-row-special";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "category-item recent-category-item";
+  button.classList.toggle("active", selectedCategoryId === TODO_CATEGORY_ID);
+  const count = (collectPapers(libraryTree) || []).filter((paper) => paper.todo).length;
+  button.innerHTML = `${todoCategoryIconSvg}<span>待办 (${count})</span>`;
+  button.addEventListener("click", () => {
+    selectedCategoryId = TODO_CATEGORY_ID;
     renderLibrary();
   });
 
@@ -336,34 +389,87 @@ function renderPaperList(papers) {
     empty.textContent = searchQuery
       ? "No matching papers."
       : selectedCategoryId === RECENT_CATEGORY_ID
-        ? "No recent reading history yet."
-        : "No papers in this category yet.";
+        ? "暂无最近阅读记录。"
+        : selectedCategoryId === TODO_CATEGORY_ID
+          ? "暂无待办论文。"
+          : "No papers in this category yet.";
     paperList.appendChild(empty);
     return;
   }
 
+  const wrap = document.createElement("div");
+  wrap.className = "paper-table-wrap";
+  const table = document.createElement("table");
+  table.className = "paper-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["论文标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
   papers.forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
-    const card = document.createElement("article");
-    card.className = "paper-card";
-    card.tabIndex = 0;
-    card.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
-    card.addEventListener("focus", () => renderPaperInfoPanel(paper));
-    card.addEventListener("click", () => openPaperReader(paper.id));
-    card.addEventListener("keydown", (event) => {
+    const tr = document.createElement("tr");
+    tr.className = "paper-table-row";
+    tr.tabIndex = 0;
+    tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
+    tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
+    tr.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openPaperReader(paper.id);
     });
 
-    const title = document.createElement("h3");
-    title.textContent = paper.title;
+    const titleTd = document.createElement("td");
+    const titleButton = document.createElement("button");
+    titleButton.type = "button";
+    titleButton.className = "paper-title-button";
+    titleButton.textContent = paper.title;
+    titleButton.title = paper.title;
+    titleButton.addEventListener("click", () => openPaperReader(paper.id));
+    titleTd.appendChild(titleButton);
 
-    const meta = document.createElement("p");
-    meta.textContent = `Uploaded: ${formatUploadDate(paper.uploadedAt)} · Last read: ${formatViewedDate(viewedAt)}`;
+    const uploadTd = document.createElement("td");
+    uploadTd.className = "paper-date-cell";
+    uploadTd.textContent = formatUploadDate(paper.uploadedAt);
 
-    const text = document.createElement("div");
-    text.className = "paper-card-text";
-    text.append(title, meta);
+    const viewedTd = document.createElement("td");
+    viewedTd.className = "paper-date-cell";
+    viewedTd.textContent = formatViewedDate(viewedAt);
 
+    const readTd = document.createElement("td");
+    readTd.className = "paper-read-cell";
+    const readToggle = document.createElement("button");
+    readToggle.type = "button";
+    readToggle.className = "paper-read-toggle";
+    readToggle.classList.toggle("checked", Boolean(paper.read));
+    readToggle.setAttribute("aria-label", "已读");
+    readToggle.title = "已读";
+    readToggle.innerHTML = paper.read ? paperReadCheckedSvg : paperReadUncheckedSvg;
+    readToggle.addEventListener("click", () => updatePaperRead(paper, readToggle, !paper.read));
+    readTd.appendChild(readToggle);
+
+    const cells = [titleTd, uploadTd, viewedTd, readTd];
+
+    const todoTd = document.createElement("td");
+    todoTd.className = "paper-todo-cell";
+    const todoToggle = document.createElement("button");
+    todoToggle.type = "button";
+    todoToggle.className = "paper-todo-toggle";
+    todoToggle.classList.toggle("checked", Boolean(paper.todo));
+    todoToggle.setAttribute("aria-label", "待办");
+    todoToggle.title = "待办";
+    todoToggle.innerHTML = paper.todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
+    todoToggle.addEventListener("click", () => updatePaperTodo(paper, todoToggle, !paper.todo));
+    todoTd.appendChild(todoToggle);
+    cells.push(todoTd);
+
+    const optionsTd = document.createElement("td");
+    optionsTd.className = "paper-options-cell";
     const actions = document.createElement("button");
     actions.type = "button";
     actions.className = "paper-menu-button menu-button";
@@ -373,9 +479,101 @@ function renderPaperList(papers) {
       event.stopPropagation();
       showPaperMenu(paper, actions);
     });
+    optionsTd.appendChild(actions);
+    cells.push(optionsTd);
 
-    card.append(text, actions);
-    paperList.appendChild(card);
+    tr.append(...cells);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  paperList.appendChild(wrap);
+  initPaperTableResize(table);
+}
+
+async function updatePaperRead(paper, toggle, read) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, read }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新已读状态失败。");
+    paper.read = read;
+    if (toggle) {
+      toggle.classList.toggle("checked", read);
+      toggle.innerHTML = read ? paperReadCheckedSvg : paperReadUncheckedSvg;
+    }
+  } catch (error) {
+    console.error("Failed to update read marker.", error);
+    renderLibrary();
+  }
+}
+
+async function updatePaperTodo(paper, toggle, todo) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, todo }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新待办状态失败。");
+    paper.todo = todo;
+    // In the Todo view, unchecking removes the paper from the list, so refresh
+    // the view to reflect that immediately.
+    if (selectedCategoryId === TODO_CATEGORY_ID) {
+      renderLibrary();
+      return;
+    }
+    if (toggle) {
+      toggle.classList.toggle("checked", todo);
+      toggle.innerHTML = todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
+    }
+  } catch (error) {
+    console.error("Failed to update todo marker.", error);
+    renderLibrary();
+  }
+}
+
+let paperColumnWidths = [];
+
+function initPaperTableResize(table) {
+  const ths = Array.from(table.querySelectorAll("thead th"));
+  const resizableCount = ths.length - 1;
+  if (paperColumnWidths.length !== resizableCount) paperColumnWidths = [];
+  // Columns before the last are resizable; the last (选项) is width:auto and
+  // absorbs the delta so the table always fills 100%.
+  const defaults = [36, 15, 17, 7, 12];
+  ths.forEach((th, index) => {
+    if (index === ths.length - 1) return;
+    th.style.width = `${paperColumnWidths[index] || defaults[index]}%`;
+    const handle = document.createElement("div");
+    handle.className = "paper-col-resize-handle";
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = th.getBoundingClientRect().width;
+      const onMove = (moveEvent) => {
+        const nextPx = Math.max(startWidth + (moveEvent.clientX - startX), 56);
+        const tableWidth = table.getBoundingClientRect().width;
+        const pct = Math.min((nextPx / tableWidth) * 100, 70);
+        th.style.width = `${pct}%`;
+        paperColumnWidths[index] = pct;
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.body.classList.remove("resizing-columns");
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.body.classList.add("resizing-columns");
+    });
+    th.appendChild(handle);
   });
 }
 
@@ -683,7 +881,7 @@ function showCategoryMenu(category, anchor) {
 
   const addButton = document.createElement("button");
   addButton.type = "button";
-  addButton.textContent = "Add subcategory";
+  addButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>新建子分类';
   addButton.addEventListener("click", () => {
     menu.remove();
     startInlineCategoryCreate(category, anchor);
@@ -691,7 +889,7 @@ function showCategoryMenu(category, anchor) {
 
   const renameButton = document.createElement("button");
   renameButton.type = "button";
-  renameButton.textContent = "Rename";
+  renameButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>重命名';
   renameButton.disabled = category.locked || !category.id;
   renameButton.addEventListener("click", () => {
     menu.remove();
@@ -700,11 +898,11 @@ function showCategoryMenu(category, anchor) {
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete category";
+  deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
   deleteButton.disabled = category.locked || !category.id;
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`Delete category "${category.name}"? Papers in it will move to Uncategorized.`)) return;
+    if (!window.confirm(`确定删除分类"${category.name}"？其中论文将移入未分类。`)) return;
     await updateCategory({ action: "delete", id: category.id });
   });
 
@@ -724,7 +922,7 @@ function startInlineCategoryRename(category, anchor) {
   input.type = "text";
   input.className = "category-inline-input";
   input.value = category.name;
-  input.setAttribute("aria-label", "Category name");
+  input.setAttribute("aria-label", "分类名称");
   input.setAttribute("maxlength", "120");
   button.replaceWith(input);
   input.focus();
@@ -738,7 +936,7 @@ function startInlineCategoryRename(category, anchor) {
     if (commit && name && name !== category.name) {
       updateCategory({ action: "rename", id: category.id, name }).catch((error) => {
         console.error(error);
-        setLibraryStatus("Rename failed.", true);
+        setLibraryStatus("重命名失败。", true);
         renderLibrary();
       });
     } else {
@@ -766,8 +964,8 @@ function startInlineCategoryCreate(parentCategory, anchor) {
   const input = document.createElement("input");
   input.type = "text";
   input.className = "category-inline-input";
-  input.placeholder = "New category name";
-  input.setAttribute("aria-label", "New category name");
+  input.placeholder = "新分类名称";
+  input.setAttribute("aria-label", "新分类名称");
   input.setAttribute("maxlength", "120");
   newRow.appendChild(input);
 
@@ -809,7 +1007,7 @@ function showPaperMenu(paper, anchor) {
 
   const moveButton = document.createElement("button");
   moveButton.type = "button";
-  moveButton.textContent = "Move category";
+  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 13v4"></path><path d="m9.5 14.5 2.5-2.5 2.5 2.5"></path></svg>移动';
   moveButton.addEventListener("click", () => {
     menu.remove();
     showMovePaperMenu(paper, anchor);
@@ -818,7 +1016,7 @@ function showPaperMenu(paper, anchor) {
   const exportLink = document.createElement("a");
   exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
   exportLink.download = `${paper.title || "paper"}-export.pdf`;
-  exportLink.textContent = "Export";
+  exportLink.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>导出';
   exportLink.addEventListener("click", async (event) => {
     event.preventDefault();
     menu.remove();
@@ -831,10 +1029,10 @@ function showPaperMenu(paper, anchor) {
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete paper";
+  deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`Delete paper "${paper.title}"?`)) return;
+    if (!window.confirm(`确定删除论文"${paper.title}"？`)) return;
     await updatePaper({ action: "delete", id: paper.id });
   });
 
@@ -850,36 +1048,25 @@ function showMovePaperMenu(paper, anchor) {
 
   const heading = document.createElement("div");
   heading.className = "move-menu-heading";
-  heading.textContent = "Move to category";
+  heading.textContent = "移动到分类";
   menu.appendChild(heading);
 
   flattenCategories(libraryTree)
-    .filter((category) => category.id !== RECENT_CATEGORY_ID)
+    .filter((category) => category.id && category.id !== RECENT_CATEGORY_ID)
     .forEach((category) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "move-category-option";
+      if (category.depth >= 2) button.classList.add("move-category-sub");
       button.style.paddingLeft = `${14 + category.depth * 14}px`;
       button.disabled = category.id === paper.category;
-      button.textContent = category.id ? category.name : UNCATEGORIZED_LABEL;
+      button.textContent = category.name || UNCATEGORIZED_LABEL;
       button.addEventListener("click", async () => {
         menu.remove();
-        await updatePaper({ action: "move", id: paper.id, category: category.id || UNCATEGORIZED_LABEL });
+        await updatePaper({ action: "move", id: paper.id, category: category.id });
       });
       menu.appendChild(button);
     });
-
-  const customButton = document.createElement("button");
-  customButton.type = "button";
-  customButton.className = "move-category-custom";
-  customButton.textContent = "Enter new category...";
-  customButton.addEventListener("click", async () => {
-    menu.remove();
-    const category = window.prompt("Target category / subfolder", paper.categoryName || paper.category || UNCATEGORIZED_LABEL);
-    if (!category?.trim()) return;
-    await updatePaper({ action: "move", id: paper.id, category: category.trim() });
-  });
-  menu.appendChild(customButton);
 
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 260);
@@ -1061,6 +1248,22 @@ async function loadCloudSyncStatus() {
   }
 }
 
+let cloudSettingsSaveTimer = null;
+
+function wireCloudSettingsAutoSave() {
+  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  fields.forEach((field) => {
+    if (!field) return;
+    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
+    field.addEventListener(eventName, () => {
+      window.clearTimeout(cloudSettingsSaveTimer);
+      cloudSettingsSaveTimer = window.setTimeout(() => {
+        saveCloudSyncConfig().catch((error) => console.error("Failed to auto-save settings.", error));
+      }, 600);
+    });
+  });
+}
+
 function openCloudConfig() {
   cloudConfigOverlay.hidden = false;
   aiBaseUrlInput.focus();
@@ -1110,13 +1313,10 @@ async function saveCloudSyncConfig() {
     }
     renderSettings(data.settings);
     renderCloudSyncStatus(data.sync);
-    aiApiKeyInput.value = "";
-    cloudPasswordInput.value = "";
-    closeCloudConfig();
-    setLibraryStatus("Settings saved.");
+    setLibraryStatus("设置已自动保存");
   } catch (error) {
     console.error(error);
-    setLibraryStatus(error.message || "Settings save failed.", true);
+    setLibraryStatus(error.message || "设置保存失败。", true);
   } finally {
     setCloudSyncBusy(false);
   }

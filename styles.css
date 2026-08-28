@@ -301,6 +301,17 @@ body {
   font-size: 18px;
 }
 
+#currentCategoryName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#currentCategoryName .category-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .library-brand h1 {
   font-size: 19px;
 }
@@ -385,16 +396,34 @@ body {
   margin-bottom: 4px;
 }
 
+.category-row-special-flat {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+
 .category-item {
   justify-content: flex-start;
   width: 100%;
   min-height: 36px;
   padding: 0 10px;
+  gap: 6px;
   border-color: transparent;
   background: transparent;
   color: var(--ink);
   font-size: 14px;
   font-weight: 650;
+}
+
+.category-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .recent-category-item {
@@ -479,6 +508,20 @@ body {
   font: inherit;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+}
+
+.category-menu button svg,
+.paper-menu button svg,
+.paper-menu a svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .category-menu button:hover:not(:disabled),
@@ -499,15 +542,14 @@ body {
   min-width: 100%;
 }
 
+.move-category-sub {
+  font-size: 12px;
+}
+
 .move-category-option:disabled {
   background: #f7faf8;
 }
 
-.move-category-custom {
-  margin-top: 6px;
-  border-top: 1px solid var(--line) !important;
-  color: var(--ink) !important;
-}
 
 .paper-list-panel {
   display: flex;
@@ -700,6 +742,164 @@ body {
   white-space: nowrap;
 }
 
+.paper-table-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.paper-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.paper-table th,
+.paper-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.paper-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.paper-table th:not(:last-child) {
+  border-right: 1px solid var(--line);
+}
+
+.paper-table tbody tr:hover td {
+  background: var(--soft);
+}
+
+.paper-col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+body.resizing-columns,
+body.resizing-columns * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.paper-title-button {
+  display: block;
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 400;
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-title-button:hover {
+  color: var(--accent);
+}
+
+.paper-date-cell {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.paper-read-cell {
+  text-align: left !important;
+}
+
+.paper-read-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.paper-read-toggle:hover {
+  background: var(--soft);
+}
+
+.paper-read-toggle.checked {
+  color: #2f9d6a;
+}
+
+.paper-read-toggle svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.paper-todo-cell {
+  text-align: left !important;
+}
+
+.paper-todo-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.paper-todo-toggle:hover {
+  background: var(--soft);
+}
+
+.paper-todo-toggle.checked {
+  color: var(--accent);
+}
+
+.paper-todo-toggle svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.paper-options-cell {
+  width: 56px;
+  text-align: left !important;
+}
+
+.paper-options-cell .paper-menu-button {
+  margin: 0;
+}
+
 .paper-card-keywords {
   display: flex;
   flex-wrap: wrap;
@@ -785,10 +985,10 @@ body.upload-menu-open .paper-card:hover {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  min-height: 34px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
   border-radius: 8px;
   background: transparent;
@@ -802,7 +1002,7 @@ body.upload-menu-open .paper-card:hover {
   display: none;
   min-width: 0;
   overflow: hidden;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -810,8 +1010,8 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-left-rail.library-open .reader-logo-button {
   justify-content: flex-start;
-  width: calc(100% - 42px);
-  padding: 0 8px;
+  width: 100%;
+  padding: 0 10px;
 }
 
 .reader-left-rail.library-open .reader-logo-button span {
@@ -821,44 +1021,6 @@ body.upload-menu-open .paper-card:hover {
 .reader-logo-button:hover,
 .reader-logo-button.open {
   background: var(--soft);
-}
-
-.reader-library-collapse-button {
-  position: absolute;
-  top: 22px;
-  right: 8px;
-  z-index: 2;
-  display: none;
-  place-items: center;
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #111;
-  box-shadow: none;
-}
-
-.reader-left-rail.library-open .reader-library-collapse-button {
-  display: inline-grid;
-}
-
-.reader-library-collapse-button:hover {
-  background: transparent;
-  color: var(--accent);
-}
-
-.reader-library-collapse-button svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
 }
 
 .reader-library-drawer {
@@ -1195,8 +1357,8 @@ body.resizing-panes {
 }
 
 .reader-rail-logo {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
 }
 
 .paper-title {
@@ -1620,6 +1782,8 @@ select {
 
 .paper-frame {
   position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 540px;
   overflow: hidden;
@@ -1628,13 +1792,151 @@ select {
   background: var(--panel);
 }
 
-.page-indicator {
+.pdf-toolbar {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  z-index: 9;
+}
+
+.pdf-toolbar-cluster {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pdf-toolbar-right {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+  min-width: 0;
+}
+
+.pdf-toolbar-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.pdf-toolbar-button:hover:not(:disabled) {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.pdf-toolbar-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pdf-toolbar-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.pdf-zoom-label {
+  min-width: 42px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pdf-zoom-label:hover {
+  background: var(--soft);
+}
+
+.pdf-zoom-menu {
   position: absolute;
-  top: 12px;
-  right: 14px;
-  z-index: 8;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.pdf-zoom-menu-item {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+  font-size: 13px;
+}
+
+.pdf-zoom-menu-item:hover {
+  background: var(--soft);
+}
+
+.pdf-zoom-menu-item.active {
+  background: var(--soft-strong);
+  color: var(--ink);
+}
+
+.pdf-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--line);
+}
+
+.pdf-search-input {
+  width: 150px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.pdf-search-count {
+  min-width: 40px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.page-indicator {
   min-width: 58px;
-  padding: 5px 9px;
+  padding: 4px 9px;
   border: 1px solid rgba(37, 109, 133, 0.18);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
@@ -1651,9 +1953,10 @@ select {
 }
 
 .pdf-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  min-height: calc(100vh - 104px);
-  height: calc(100vh - 104px);
+  height: auto;
   overflow: auto;
   padding: 18px;
   background: #e7eceb;
@@ -1750,6 +2053,12 @@ body.selecting-pdf-text .selection-menu {
 
 .pdf-text-layer ::selection {
   background: rgba(37, 109, 133, 0.28);
+}
+
+.pdf-search-hit {
+  color: transparent;
+  background: rgba(255, 200, 40, 0.55);
+  border-radius: 2px;
 }
 
 .pdf-reference-cue {
@@ -2036,10 +2345,28 @@ body.selecting-pdf-text .selection-menu {
 
 .annotation-mode-toggle {
   margin-left: auto;
-  min-height: 28px;
-  padding: 0 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
-  font-size: 12px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.annotation-mode-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .annotation-tab-panel {
@@ -3776,12 +4103,13 @@ body.selecting-pdf-text .selection-menu {
 
 .library-brand {
   min-height: 66px;
-  padding: 12px 14px;
-  border: 1px solid rgba(217, 226, 223, 0.78);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(14px);
+  padding: 12px 14px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .library-brand h1,
@@ -3801,7 +4129,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .library-layout {
-  gap: 18px;
+  gap: 0;
   padding: 0;
 }
 
@@ -3823,15 +4151,24 @@ body.selecting-pdf-text .selection-menu {
 .category-panel,
 .paper-list-panel,
 .paper-info-panel {
-  border: 1px solid rgba(217, 226, 223, 0.82);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(12px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.category-panel {
+  border-right: 1px solid var(--line);
 }
 
 .paper-list-panel {
+  border-right: 1px solid var(--line);
   padding: 16px;
+}
+
+.paper-info-panel {
+  border-left: 1px solid var(--line);
 }
 
 .paper-list-header {
@@ -3873,7 +4210,7 @@ body.selecting-pdf-text .selection-menu {
 .reader-paper-item.active {
   background: var(--soft-strong);
   color: var(--ink);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: none;
 }
 
 .reader-paper-item {
@@ -4343,7 +4680,7 @@ button.ghost:hover,
 .reader-paper-item.active {
   background: var(--soft-strong);
   color: var(--ink);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: none;
 }
 
 .annotation-tab.active {

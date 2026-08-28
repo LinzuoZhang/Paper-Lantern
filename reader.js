@@ -3,7 +3,6 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
-const collapseLibraryButton = document.querySelector("#collapseLibraryButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const createReaderCategoryButton = document.querySelector("#createReaderCategoryButton");
@@ -80,8 +79,19 @@ const notesWorkspace = document.querySelector("#notesWorkspace");
 const notesPreview = document.querySelector("#notesPreview");
 const notesStatus = document.querySelector("#notesStatus");
 const toggleNotesModeButton = document.querySelector("#toggleNotesModeButton");
-const clearNotesButton = document.querySelector("#clearNotesButton");
+const copyNotesButton = document.querySelector("#copyNotesButton");
 const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
+const zoomOutButton = document.querySelector("#zoomOutButton");
+const zoomInButton = document.querySelector("#zoomInButton");
+const fitPageButton = document.querySelector("#fitPageButton");
+const pdfZoomLabel = document.querySelector("#pdfZoomLabel");
+const pdfSearchInput = document.querySelector("#pdfSearchInput");
+const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
+const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
+const pdfSearchCount = document.querySelector("#pdfSearchCount");
+
+let pdfSearchMatches = [];
+let pdfSearchIndex = -1;
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -146,6 +156,7 @@ initReaderTabs();
 initReaderSettings();
 initCitationOverlay();
 initBasicInfoEditing();
+initPdfToolbar();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
@@ -159,12 +170,14 @@ function initReaderLibraryDrawer() {
     }
     openReaderLibraryDrawer();
   });
-  collapseLibraryButton?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeReaderLibraryDrawer();
-  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
+  });
+  // Clicking anywhere outside the left rail closes the library drawer.
+  document.addEventListener("pointerdown", (event) => {
+    if (!readerLibraryDrawer.classList.contains("open")) return;
+    if (event.target.closest("#readerLeftRail")) return;
+    closeReaderLibraryDrawer();
   });
   createReaderCategoryButton?.addEventListener("click", createTopLevelReaderCategory);
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
@@ -329,7 +342,7 @@ function showReaderCategoryMenu(category, anchor) {
 
   const moveButton = document.createElement("button");
   moveButton.type = "button";
-  moveButton.textContent = "Move Here";
+  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg>移动到此处';
   moveButton.disabled = !currentPaper?.id || currentPaper.category === category.id;
   moveButton.addEventListener("click", async () => {
     menu.remove();
@@ -338,7 +351,7 @@ function showReaderCategoryMenu(category, anchor) {
 
   const renameButton = document.createElement("button");
   renameButton.type = "button";
-  renameButton.textContent = "Rename";
+  renameButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>重命名';
   renameButton.disabled = category.locked || !category.id;
   renameButton.addEventListener("click", () => {
     menu.remove();
@@ -347,7 +360,7 @@ function showReaderCategoryMenu(category, anchor) {
 
   const createButton = document.createElement("button");
   createButton.type = "button";
-  createButton.textContent = "Create Subcategory";
+  createButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>新建子分类';
   createButton.addEventListener("click", () => {
     menu.remove();
     startReaderCategoryCreate(category, anchor);
@@ -375,7 +388,7 @@ function startReaderCategoryRename(category, anchor) {
   input.type = "text";
   input.className = "reader-category-inline-input";
   input.value = category.name;
-  input.setAttribute("aria-label", "Category name");
+  input.setAttribute("aria-label", "分类名称");
   input.setAttribute("maxlength", "120");
   button.replaceWith(input);
   input.focus();
@@ -414,8 +427,8 @@ function startReaderCategoryCreate(parentCategory, anchor) {
   const input = document.createElement("input");
   input.type = "text";
   input.className = "reader-category-inline-input";
-  input.placeholder = "New category name";
-  input.setAttribute("aria-label", "New category name");
+  input.placeholder = "新分类名称";
+  input.setAttribute("aria-label", "新分类名称");
   input.setAttribute("maxlength", "120");
   newRow.appendChild(input);
 
@@ -709,13 +722,23 @@ async function exportCurrentPaperPdf() {
 
   exportPdfButton.disabled = true;
   try {
-    const response = await apiFetch(`/api/library/export?id=${encodeURIComponent(currentPaper.id)}`);
-    const blob = await response.blob();
-    if (!response.ok) {
-      const detail = await blob.text();
-      throw new Error(detail || "Export failed.");
-    }
-    triggerBlobDownload(blob, `${currentPaper.title || "paper"}-export.pdf`);
+    // Download straight from the server URL instead of fetching into a blob:
+    // the browser streams the file natively (honouring Content-Length), which
+    // avoids the object-URL/revoke class of issues that can leave a download
+    // sitting at 100% without finalizing.
+    const origin = window.location.origin && window.location.origin !== "null" ? window.location.origin : "http://127.0.0.1:8000";
+    const base = apiBaseUrl || origin;
+    const exportUrl = `${base}/api/library/export?id=${encodeURIComponent(currentPaper.id)}`;
+    setStatus("正在导出...");
+    const link = document.createElement("a");
+    link.href = exportUrl;
+    link.download = `${cleanExportFilename(currentPaper.title)}-export.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => {
+      if (statusText.textContent === "正在导出...") setStatus("");
+    }, 4000);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Export failed.", true);
@@ -734,7 +757,7 @@ function initNotesPanel() {
     }, 700);
   });
   toggleNotesModeButton?.addEventListener("click", toggleNotesMode);
-  clearNotesButton?.addEventListener("click", clearNotes);
+  copyNotesButton?.addEventListener("click", copyNotes);
   exportNotesPdfButton?.addEventListener("click", exportNotesPdf);
   renderNotes("");
 }
@@ -779,16 +802,16 @@ function toggleNotesMode() {
   setNotesMode(notesMode === "edit" ? "preview" : "edit");
 }
 
-function clearNotes() {
-  if (!notesEditor) return;
-  notesEditor.value = "";
-  renderNotesPreview("");
-  setNotesMode("edit");
-  setNotesStatus("Unsaved");
-  window.clearTimeout(notesAutoSaveTimer);
-  notesAutoSaveTimer = window.setTimeout(() => {
-    saveNotes().catch((error) => console.error("Failed to clear notes.", error));
-  }, 120);
+async function copyNotes() {
+  const value = notesEditor?.value || "";
+  if (!value) return;
+  try {
+    await copyTextToClipboard(value);
+    showCopiedFeedback(copyNotesButton);
+  } catch (error) {
+    console.error("Failed to copy notes.", error);
+    setNotesStatus("复制失败。", true);
+  }
 }
 
 function setNotesStatus(message, isError = false) {
@@ -850,6 +873,13 @@ async function exportNotesPdf() {
   }
 }
 
+function cleanExportFilename(value) {
+  return String(value || "")
+    .replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function triggerBlobDownload(blob, filename) {
   const link = document.createElement("a");
   const objectUrl = URL.createObjectURL(blob);
@@ -858,10 +888,13 @@ function triggerBlobDownload(blob, filename) {
   link.style.display = "none";
   document.body.appendChild(link);
   link.click();
+  // Revoking too early can interrupt a large download mid-write (the browser
+  // may sit at 100% without finalizing the file). Keep the URL alive long
+  // enough for the save to finish; it is cleaned up on page unload anyway.
   window.setTimeout(() => {
     link.remove();
     URL.revokeObjectURL(objectUrl);
-  }, 1000);
+  }, 10000);
 }
 
 function setActiveReaderTab(activeTabId) {
@@ -1767,18 +1800,35 @@ function setSummaryPaneCollapsed(isCollapsed, shouldRefreshPdf = true) {
   if (shouldRefreshPdf) refreshPdfAfterPaneResize();
 }
 
+let readerSettingsSaveTimer = null;
+
 function initReaderSettings() {
   readerSettingsButton?.addEventListener("click", openReaderSettings);
   cloudConfigCloseButton?.addEventListener("click", closeReaderSettings);
   cloudConfigOverlay?.addEventListener("pointerdown", (event) => {
     if (event.target === cloudConfigOverlay) closeReaderSettings();
   });
-  cloudConfigForm?.addEventListener("submit", async (event) => {
+  cloudConfigForm?.addEventListener("submit", (event) => {
     event.preventDefault();
-    await saveReaderSettings();
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
   });
   aiApiTestButton?.addEventListener("click", testReaderAiApi);
+  wireReaderSettingsAutoSave();
   loadReaderSettings().catch((error) => console.error("Failed to load settings.", error));
+}
+
+function wireReaderSettingsAutoSave() {
+  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  fields.forEach((field) => {
+    if (!field) return;
+    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
+    field.addEventListener(eventName, () => {
+      window.clearTimeout(readerSettingsSaveTimer);
+      readerSettingsSaveTimer = window.setTimeout(() => {
+        saveReaderSettings().catch((error) => console.error("Failed to auto-save settings.", error));
+      }, 600);
+    });
+  });
 }
 
 function openReaderSettings() {
@@ -1823,13 +1873,10 @@ async function saveReaderSettings() {
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "Settings save failed.");
     renderReaderSettings(data.settings);
-    if (aiApiKeyInput) aiApiKeyInput.value = "";
-    if (cloudPasswordInput) cloudPasswordInput.value = "";
-    closeReaderSettings();
-    setStatus("Settings saved.");
+    setStatus("设置已自动保存");
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Settings save failed.", true);
+    setStatus(error.message || "设置保存失败。", true);
   } finally {
     setReaderSettingsBusy(false);
   }
@@ -1880,7 +1927,6 @@ function renderReaderSettings(settings) {
 }
 
 function setReaderSettingsBusy(isBusy) {
-  if (cloudConfigForm) cloudConfigForm.querySelector("button[type='submit']").disabled = isBusy;
   if (readerSettingsButton) readerSettingsButton.disabled = isBusy;
 }
 
@@ -1948,6 +1994,7 @@ async function renderPdf(file) {
   renderedPdfZoom = 1;
   window.clearTimeout(zoomRenderTimer);
   setPdfZoomPreviewScale(1);
+  updatePdfZoomLabel();
   const loadingNode = document.createElement("div");
   loadingNode.className = "pdf-loading";
   loadingNode.textContent = "Loading PDF...";
@@ -1987,6 +2034,8 @@ async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   restoreHighlights();
   refreshReferenceCitations();
   updatePageIndicator();
+  resetPdfSearchState();
+  updatePdfZoomLabel();
 }
 
 async function renderPdfPage(page, pageNumber, renderId, pagesHost = pdfViewer, zoom = pdfZoom) {
@@ -2073,6 +2122,221 @@ function setPdfZoomPreviewScale(scale) {
   if (!pagesHost) return;
   pagesHost.style.transform = scale === 1 ? "" : `scale(${scale})`;
   pagesHost.style.transformOrigin = "0 0";
+}
+
+const pdfZoomPresets = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.8];
+
+function initPdfToolbar() {
+  zoomOutButton?.addEventListener("click", () => zoomPdf(1 / 1.25));
+  zoomInButton?.addEventListener("click", () => zoomPdf(1.25));
+  fitPageButton?.addEventListener("click", () => fitPdfPage());
+  pdfZoomLabel?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePdfZoomMenu();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".pdf-zoom-menu") || event.target.closest(".pdf-zoom-label")) return;
+    closePdfZoomMenu();
+  });
+  pdfSearchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runPdfSearch(pdfSearchInput.value);
+    } else if (event.key === "Escape") {
+      clearPdfSearch();
+    }
+  });
+  pdfSearchInput?.addEventListener("input", () => {
+    if (!pdfSearchInput.value) clearPdfSearch();
+  });
+  pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(-1));
+  pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
+  updatePdfZoomLabel();
+  updatePdfSearchUI();
+}
+
+function updatePdfZoomLabel() {
+  if (!pdfZoomLabel) return;
+  pdfZoomLabel.textContent = `${Math.round(pdfZoom * 100)}%`;
+}
+
+function togglePdfZoomMenu() {
+  const existing = document.querySelector(".pdf-zoom-menu");
+  if (existing) {
+    existing.remove();
+    return;
+  }
+  const toolbar = pdfZoomLabel?.closest(".pdf-toolbar");
+  if (!toolbar || !currentPdfDocument) return;
+
+  const menu = document.createElement("div");
+  menu.className = "pdf-zoom-menu";
+  pdfZoomPresets.forEach((value) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "pdf-zoom-menu-item";
+    item.textContent = `${Math.round(value * 100)}%`;
+    item.classList.toggle("active", Math.abs(value - pdfZoom) < 0.01);
+    item.addEventListener("click", () => {
+      setPdfZoomTo(value);
+      menu.remove();
+    });
+    menu.appendChild(item);
+  });
+  toolbar.appendChild(menu);
+
+  const toolbarRect = toolbar.getBoundingClientRect();
+  const labelRect = pdfZoomLabel.getBoundingClientRect();
+  menu.style.top = `${labelRect.bottom - toolbarRect.top + 4}px`;
+  menu.style.left = `${labelRect.left - toolbarRect.left}px`;
+}
+
+function closePdfZoomMenu() {
+  document.querySelector(".pdf-zoom-menu")?.remove();
+}
+
+function setPdfZoomTo(value) {
+  if (!currentPdfDocument) return;
+  const nextZoom = clamp(value, 0.6, 2.8);
+  if (nextZoom === pdfZoom) return;
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  schedulePdfRerender();
+  updatePdfZoomLabel();
+}
+
+function zoomPdf(factor) {
+  if (!currentPdfDocument) return;
+  const previousZoom = pdfZoom;
+  const nextZoom = clamp(pdfZoom * factor, 0.6, 2.8);
+  if (nextZoom === previousZoom) return;
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const anchor = getPdfViewportAnchor(viewerRect.left + viewerRect.width / 2, viewerRect.top + viewerRect.height / 2);
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  restorePdfViewportAnchor(anchor);
+  schedulePdfRerender(anchor);
+  updatePdfZoomLabel();
+}
+
+async function fitPdfPage() {
+  if (!currentPdfDocument) return;
+  const page = await currentPdfDocument.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
+  const containerHeight = Math.max(pdfViewer.clientHeight - 36, 320);
+  const widthBase = Math.min(containerWidth / base.width, 1.6);
+  const fitScale = Math.min(containerWidth / base.width, containerHeight / base.height, 1.6);
+  const nextZoom = clamp(fitScale / widthBase, 0.6, 2.8);
+  if (nextZoom === pdfZoom) return;
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  schedulePdfRerender();
+  updatePdfZoomLabel();
+}
+
+function runPdfSearch(query) {
+  const q = String(query || "").trim();
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  if (!q) {
+    updatePdfSearchUI();
+    return;
+  }
+  const lower = q.toLowerCase();
+  Array.from(pdfViewer.querySelectorAll(".pdf-page")).forEach((pageNode) => {
+    const textLayer = pageNode.querySelector(".pdf-text-layer");
+    if (!textLayer) return;
+    const pageText = (textLayer.textContent || "").toLowerCase();
+    if (pageText.includes(lower)) {
+      pdfSearchMatches.push(Number(pageNode.dataset.pageNumber) || 0);
+      highlightInTextLayer(pageNode, q);
+    }
+  });
+  if (pdfSearchMatches.length) {
+    pdfSearchIndex = 0;
+    jumpToPdfSearchMatch();
+  }
+  updatePdfSearchUI();
+}
+
+function clearPdfSearch() {
+  if (pdfSearchInput) pdfSearchInput.value = "";
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  updatePdfSearchUI();
+}
+
+function clearSearchHighlights() {
+  pdfViewer.querySelectorAll(".pdf-search-hit").forEach((mark) => {
+    const parent = mark.parentNode;
+    const fragment = document.createDocumentFragment();
+    while (mark.firstChild) fragment.appendChild(mark.firstChild);
+    mark.replaceWith(fragment);
+  });
+}
+
+function highlightInTextLayer(pageNode, query) {
+  const textLayer = pageNode.querySelector(".pdf-text-layer");
+  if (!textLayer) return 0;
+  const lower = query.toLowerCase();
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  let count = 0;
+  nodes.forEach((node) => {
+    const text = node.nodeValue || "";
+    const lowerText = text.toLowerCase();
+    let idx = lowerText.indexOf(lower);
+    if (idx === -1) return;
+    const fragment = document.createDocumentFragment();
+    let pos = 0;
+    while (idx !== -1) {
+      if (idx > pos) fragment.appendChild(document.createTextNode(text.slice(pos, idx)));
+      const mark = document.createElement("mark");
+      mark.className = "pdf-search-hit";
+      mark.textContent = text.slice(idx, idx + query.length);
+      fragment.appendChild(mark);
+      pos = idx + query.length;
+      idx = lowerText.indexOf(lower, pos);
+      count += 1;
+    }
+    if (pos < text.length) fragment.appendChild(document.createTextNode(text.slice(pos)));
+    node.replaceWith(fragment);
+  });
+  return count;
+}
+
+function stepPdfSearch(delta) {
+  if (!pdfSearchMatches.length) return;
+  pdfSearchIndex = (pdfSearchIndex + delta + pdfSearchMatches.length) % pdfSearchMatches.length;
+  jumpToPdfSearchMatch();
+}
+
+function jumpToPdfSearchMatch() {
+  if (pdfSearchIndex < 0 || pdfSearchIndex >= pdfSearchMatches.length) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pdfSearchMatches[pdfSearchIndex]}"]`);
+  if (pageNode) pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
+  updatePdfSearchUI();
+}
+
+function updatePdfSearchUI() {
+  if (pdfSearchCount) pdfSearchCount.textContent = pdfSearchMatches.length ? `${pdfSearchIndex + 1}/${pdfSearchMatches.length}` : "";
+  if (pdfSearchPrevButton) pdfSearchPrevButton.disabled = !pdfSearchMatches.length;
+  if (pdfSearchNextButton) pdfSearchNextButton.disabled = !pdfSearchMatches.length;
+}
+
+function resetPdfSearchState() {
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  updatePdfSearchUI();
 }
 
 async function extractPdfText(file) {
@@ -2906,7 +3170,12 @@ function showAnnotationEditor(highlight, clientX, clientY) {
       <div class="annotation-tabs" role="tablist" aria-label="Annotation fields">
         <button class="annotation-tab active" type="button" role="tab" aria-selected="true" data-annotation-tab="comment">Comment</button>
         <button class="annotation-tab" type="button" role="tab" aria-selected="false" data-annotation-tab="translation">Translation</button>
-        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit">Preview</button>
+        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit" aria-label="Preview" title="Preview">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+          </svg>
+        </button>
       </div>
       <div class="annotation-tab-panel active" data-annotation-panel="comment">
         <textarea class="translation-text annotation-comment" placeholder="Add or edit comment with Markdown..." spellcheck="false"></textarea>
@@ -3010,8 +3279,21 @@ function setAnnotationMode(editor, mode) {
   });
   const toggle = editor.querySelector(".annotation-mode-toggle");
   if (toggle) {
+    const isPreview = nextMode === "preview";
     toggle.dataset.annotationMode = nextMode;
-    toggle.textContent = nextMode === "preview" ? "Edit" : "Preview";
+    toggle.setAttribute("aria-label", isPreview ? "Edit" : "Preview");
+    toggle.title = isPreview ? "Edit" : "Preview";
+    // Same icons as the notes preview/edit toggle: pencil in preview mode,
+    // eye in edit mode.
+    toggle.innerHTML = isPreview
+      ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 20h9"></path>
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+        </svg>`
+      : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+        </svg>`;
   }
 }
 

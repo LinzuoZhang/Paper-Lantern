@@ -20,12 +20,6 @@
           <img class="site-logo reader-rail-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
           <span>Paper Lantern</span>
         </button>
-        <button id="collapseLibraryButton" class="reader-library-collapse-button" type="button" aria-label="Collapse library" title="Collapse library">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M18 6 6 18"></path>
-            <path d="m6 6 12 12"></path>
-          </svg>
-        </button>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
           <section class="reader-library-section">
             <button id="createReaderCategoryButton" class="reader-create-category-button" type="button">
@@ -46,7 +40,32 @@
       </nav>
       <section class="reader-pane" aria-label="Paper reader">
         <div class="paper-frame">
-          <div id="pageIndicator" class="page-indicator" hidden>0 / 0</div>
+          <div id="pdfToolbar" class="pdf-toolbar">
+            <div class="pdf-toolbar-cluster">
+              <button id="zoomOutButton" class="pdf-toolbar-button" type="button" title="缩小" aria-label="缩小">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M8 11h6"></path></svg>
+              </button>
+              <button id="zoomInButton" class="pdf-toolbar-button" type="button" title="放大" aria-label="放大">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M11 8v6"></path><path d="M8 11h6"></path></svg>
+              </button>
+              <button id="fitPageButton" class="pdf-toolbar-button" type="button" title="适合页面" aria-label="适合页面">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+              </button>
+              <button id="pdfZoomLabel" class="pdf-zoom-label" type="button" title="缩放">100%</button>
+            </div>
+            <div class="pdf-toolbar-right">
+              <span class="pdf-toolbar-divider"></span>
+              <input id="pdfSearchInput" class="pdf-search-input" type="text" placeholder="全文搜索" aria-label="全文搜索" autocomplete="off" />
+              <button id="pdfSearchPrevButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="上一个匹配" aria-label="上一个匹配" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <button id="pdfSearchNextButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="下一个匹配" aria-label="下一个匹配" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>
+              </button>
+              <span id="pdfSearchCount" class="pdf-search-count"></span>
+              <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+            </div>
+          </div>
           <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
           <div id="selectionMenu" class="selection-menu" hidden>
             <button id="highlightButton" type="button">高亮</button>
@@ -256,13 +275,10 @@
                     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
                   </svg>
                 </button>
-                <button id="clearNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Clear notes" title="Clear notes">
+                <button id="copyNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Copy notes" title="Copy notes">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M3 6h18"></path>
-                    <path d="M8 6V4h8v2"></path>
-                    <path d="M6 6l1 15h10l1-15"></path>
-                    <path d="M10 11v6"></path>
-                    <path d="M14 11v6"></path>
+                    <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
                 </button>
                 <button id="exportNotesPdfButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Export notes PDF" title="Export notes PDF">
@@ -367,7 +383,6 @@
           <input id="cloudAutoPushInput" type="checkbox" />
           <span>Auto sync after library changes</span>
         </label>
-        <button type="submit">Save Settings</button>
       </form>
     </div>
     <div id="citationOverlay" class="citation-overlay" hidden>
