@@ -46,6 +46,8 @@ const recentCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
 const libraryCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
+const folderCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
 const paperReadUncheckedSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 const paperReadCheckedSvg =
@@ -56,6 +58,8 @@ const paperTodoCheckedSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 12 2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 const todoCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
+const plusCircleSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 
 let libraryTree = null;
 let selectedCategoryId = RECENT_CATEGORY_ID;
@@ -288,7 +292,7 @@ function renderLibrary() {
   // Search bar sits right below 待办 and above the category list.
   const searchBar = document.querySelector(".category-search");
   if (searchBar) categoryTree.appendChild(searchBar);
-  categories.forEach((category) => renderCategoryRow(category));
+  renderCategoryNode(libraryTree, 0);
 
   const allPapers = collectPapers(libraryTree);
   let papers = [];
@@ -310,38 +314,88 @@ function renderLibrary() {
   renderPaperList(filterPapers(papers, searchQuery));
 }
 
-function renderCategoryRow(category) {
+function renderCategoryNode(node, depth = 0) {
+  renderCategoryRow(node, depth);
+  const folders = node.folders || [];
+  if (folders.length && !isCategoryCollapsed(node.id)) {
+    folders.forEach((folder) => renderCategoryNode(folder, depth + 1));
+  }
+}
+
+function renderCategoryRow(node, depth = 0) {
   const row = document.createElement("div");
   row.className = "category-row";
-  row.style.paddingLeft = `${category.depth * 18}px`;
+  row.style.paddingLeft = `${depth * 18}px`;
 
+  const hasChildren = Boolean(node.folders && node.folders.length);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "category-item";
-  button.classList.toggle("active", category.id === selectedCategoryId);
-  const label = `${category.name} (${category.paperCount})`;
-  if (!category.id) {
-    button.innerHTML = `${libraryCategoryIconSvg}<span>${label}</span>`;
-  } else {
-    button.textContent = label;
+  button.classList.toggle("active", node.id === selectedCategoryId);
+  button.classList.toggle("category-has-children", hasChildren);
+
+  const icon = document.createElement("span");
+  icon.className = "category-folder-icon";
+  icon.innerHTML = node.id ? folderCategoryIconSvg : libraryCategoryIconSvg;
+  button.appendChild(icon);
+
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCategoryCollapsed(node.id);
+      renderLibrary();
+    });
+    button.appendChild(toggle);
   }
+
+  const paperCount = collectPapers(node).length;
+  button.appendChild(document.createTextNode(`${node.name} (${paperCount})`));
   button.addEventListener("click", () => {
-    selectedCategoryId = category.id;
+    selectedCategoryId = node.id;
     renderLibrary();
   });
 
-  const menuButton = document.createElement("button");
-  menuButton.type = "button";
-  menuButton.className = "category-menu-button menu-button";
-  menuButton.setAttribute("aria-label", `${category.name} category actions`);
-  menuButton.textContent = "...";
-  menuButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    showCategoryMenu(category, menuButton);
-  });
-
-  row.append(button, menuButton);
+  if (!node.id) {
+    // 文献库: a circle-plus directly creates a new top-level category.
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "category-menu-button menu-button category-add-button";
+    addButton.setAttribute("aria-label", "新建分类");
+    addButton.title = "新建分类";
+    addButton.innerHTML = plusCircleSvg;
+    addButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      startInlineCategoryCreate(node, addButton);
+    });
+    row.append(button, addButton);
+  } else {
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.className = "category-menu-button menu-button";
+    menuButton.setAttribute("aria-label", `${node.name} category actions`);
+    menuButton.textContent = "...";
+    menuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showCategoryMenu(node, menuButton);
+    });
+    row.append(button, menuButton);
+  }
   categoryTree.appendChild(row);
+}
+
+function isCategoryCollapsed(categoryId) {
+  return localStorage.getItem(`paperLanternCollapsed:${categoryId || "__root"}`) === "true";
+}
+
+function toggleCategoryCollapsed(categoryId) {
+  const key = `paperLanternCollapsed:${categoryId || "__root"}`;
+  const next = localStorage.getItem(key) !== "true";
+  localStorage.setItem(key, String(next));
+  return next;
 }
 
 function renderRecentCategory() {

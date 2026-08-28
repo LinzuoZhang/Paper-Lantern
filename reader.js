@@ -5,7 +5,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
-const createReaderCategoryButton = document.querySelector("#createReaderCategoryButton");
 const readerPaperList = document.querySelector("#readerPaperList");
 const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
 const readerLeftRail = document.querySelector("#readerLeftRail");
@@ -90,6 +89,22 @@ const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
 const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
 const pdfSearchCount = document.querySelector("#pdfSearchCount");
 
+const READER_LIBRARY_ALL_ID = "__library";
+const READER_RECENT_ID = "__recent";
+const READER_TODO_ID = "__todo";
+
+const readerLibraryIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
+const readerFolderIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+const readerRecentIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
+const readerTodoIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
+const readerPlusCircleSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+
+let readerLibraryHoverTimer = null;
 let pdfSearchMatches = [];
 let pdfSearchIndex = -1;
 
@@ -164,23 +179,59 @@ openReaderFromUrl();
 
 function initReaderLibraryDrawer() {
   openLibraryDrawerButton?.addEventListener("click", () => {
+    // Clicking the brand while the drawer is open goes back to the library.
     if (readerLibraryDrawer.classList.contains("open")) {
       window.location.href = "./index.html";
       return;
     }
     openReaderLibraryDrawer();
   });
+  // Hover the left rail to expand, leave to auto-collapse.
+  readerLeftRail?.addEventListener("pointerenter", () => {
+    window.clearTimeout(readerLibraryHoverTimer);
+    openReaderLibraryDrawer();
+  });
+  readerLeftRail?.addEventListener("pointerleave", () => {
+    window.clearTimeout(readerLibraryHoverTimer);
+    readerLibraryHoverTimer = window.setTimeout(() => {
+      if (document.querySelector(".library-menu")) return;
+      closeReaderLibraryDrawer();
+    }, 220);
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeReaderLibraryDrawer();
   });
-  // Clicking anywhere outside the left rail closes the library drawer.
-  document.addEventListener("pointerdown", (event) => {
-    if (!readerLibraryDrawer.classList.contains("open")) return;
-    if (event.target.closest("#readerLeftRail")) return;
-    closeReaderLibraryDrawer();
-  });
-  createReaderCategoryButton?.addEventListener("click", createTopLevelReaderCategory);
+  initReaderLibraryResize();
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
+}
+
+function initReaderLibraryResize() {
+  const divider = document.querySelector("#readerLibraryDivider");
+  const categorySection = document.querySelector(".reader-category-section");
+  const drawer = document.querySelector("#readerLibraryDrawer");
+  if (!divider || !categorySection || !drawer) return;
+  const saved = Number(localStorage.getItem("paperLanternReaderCategoryHeight"));
+  if (saved > 60) categorySection.style.height = `${saved}px`;
+
+  divider.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startH = categorySection.getBoundingClientRect().height;
+    const onMove = (moveEvent) => {
+      const delta = moveEvent.clientY - startY;
+      const next = Math.max(Math.min(startH + delta, drawer.clientHeight - 60), 60);
+      categorySection.style.height = `${next}px`;
+      localStorage.setItem("paperLanternReaderCategoryHeight", String(next));
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizing-categories");
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.classList.add("resizing-categories");
+  });
 }
 
 async function openReaderLibraryDrawer() {
@@ -204,10 +255,6 @@ function closeReaderLibraryDrawer() {
   openLibraryDrawerButton.setAttribute("aria-label", "Open library");
 }
 
-function createTopLevelReaderCategory() {
-  startReaderCategoryCreate(null, createReaderCategoryButton);
-}
-
 async function loadReaderLibrary() {
   const response = await apiFetch("/api/library");
   const data = await readJsonResponse(response);
@@ -221,45 +268,46 @@ function renderReaderLibrary() {
   if (!readerLibraryTree) return;
   const categories = flattenReaderCategories(readerLibraryTree);
   readerCategoryList.innerHTML = "";
-  let rootCategoryCount = 0;
-  categories.forEach((category) => {
-    const row = document.createElement("div");
-    row.className = "reader-category-row";
-    if (category.depth === 0) {
-      rootCategoryCount += 1;
-      row.classList.add("reader-category-row-root");
-      if (rootCategoryCount > 1) row.classList.add("reader-category-row-root-separated");
-    }
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "reader-category-item";
-    button.classList.toggle("active", category.id === readerSelectedCategoryId);
-    button.style.paddingLeft = `${8 + category.depth * 12}px`;
-    if (isReaderUncategorizedCategory(category)) {
-      button.appendChild(createReaderUncategorizedIcon());
-    }
-    button.appendChild(document.createTextNode(`${category.name} (${category.paperCount})`));
-    button.addEventListener("click", () => {
-      readerSelectedCategoryId = category.id;
-      renderReaderLibrary();
-    });
-    const menuButton = document.createElement("button");
-    menuButton.type = "button";
-    menuButton.className = "reader-category-menu-button menu-button";
-    menuButton.textContent = "...";
-    menuButton.setAttribute("aria-label", `${category.name} category actions`);
-    menuButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      showReaderCategoryMenu(category, menuButton);
-    });
-    row.appendChild(button);
-    row.appendChild(menuButton);
-    readerCategoryList.appendChild(row);
-  });
 
-  const selected = categories.find((category) => category.id === readerSelectedCategoryId) || categories[0];
-  const papers = readerSelectedCategoryId ? selected?.papers || [] : collectReaderPapers(readerLibraryTree);
-  readerLibraryTitle.textContent = selected?.id ? selected.name : "All Papers";
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(READER_RECENT_ID, "最近", readerRecentIconSvg, String(getReaderRecentPapers().length)),
+  );
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(READER_TODO_ID, "待办", readerTodoIconSvg, String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length)),
+  );
+
+  // 文献库: all papers, with the existing categories as its sub-list.
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true),
+  );
+  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID)) {
+    renderReaderCategoryNode(readerLibraryTree, 0);
+  }
+
+  let papers;
+  if (readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId) {
+    papers = collectReaderPapers(readerLibraryTree);
+  } else if (readerSelectedCategoryId === READER_RECENT_ID) {
+    papers = getReaderRecentPapers();
+  } else if (readerSelectedCategoryId === READER_TODO_ID) {
+    papers = collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo);
+  } else {
+    const selected = categories.find((category) => category.id === readerSelectedCategoryId);
+    papers = selected ? selected.papers || [] : [];
+  }
+
+  const titleNode = document.querySelector("#readerLibraryTitle");
+  if (titleNode) {
+    const selectedCategory = categories.find((category) => category.id === readerSelectedCategoryId);
+    titleNode.textContent =
+      readerSelectedCategoryId === READER_RECENT_ID
+        ? "最近"
+        : readerSelectedCategoryId === READER_TODO_ID
+          ? "待办"
+          : readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId
+            ? "文献库"
+            : selectedCategory?.name || "文献库";
+  }
   readerPaperList.innerHTML = "";
   if (!papers.length) {
     const empty = document.createElement("div");
@@ -280,6 +328,131 @@ function renderReaderLibrary() {
     });
     readerPaperList.appendChild(button);
   });
+}
+
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false) {
+  const row = document.createElement("div");
+  row.className = "reader-category-row reader-special-row";
+  const collapsed = isReaderCategoryCollapsed(id);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reader-category-item reader-special-item";
+  button.classList.toggle("active", readerSelectedCategoryId === id);
+  button.classList.toggle("reader-category-has-children", collapsible);
+  button.style.paddingLeft = `${collapsible ? 8 : 20}px`;
+  const icon = document.createElement("span");
+  icon.className = "reader-category-folder-icon";
+  icon.innerHTML = iconSvg;
+  button.appendChild(icon);
+  if (collapsible) {
+    const toggle = document.createElement("span");
+    toggle.className = "reader-category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = collapsed ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReaderCategoryCollapsed(id);
+      renderReaderLibrary();
+    });
+    button.appendChild(toggle);
+  }
+  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
+  button.addEventListener("click", () => {
+    readerSelectedCategoryId = id;
+    renderReaderLibrary();
+  });
+  row.appendChild(button);
+  if (addHandler) {
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "reader-category-menu-button menu-button reader-add-category-button";
+    addButton.setAttribute("aria-label", "新建分类");
+    addButton.title = "新建分类";
+    addButton.innerHTML = readerPlusCircleSvg;
+    addButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      addHandler(addButton);
+    });
+    row.appendChild(addButton);
+  }
+  return row;
+}
+
+function renderReaderCategoryNode(node, depth) {
+  (node.folders || []).forEach((folder) => {
+    renderReaderCategoryRow(folder, depth);
+    if (folder.folders && folder.folders.length && !isReaderCategoryCollapsed(folder.id)) {
+      renderReaderCategoryNode(folder, depth + 1);
+    }
+  });
+}
+
+function renderReaderCategoryRow(node, depth) {
+  const row = document.createElement("div");
+  row.className = "reader-category-row";
+  const hasChildren = Boolean(node.folders && node.folders.length);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reader-category-item";
+  button.classList.toggle("active", node.id === readerSelectedCategoryId);
+  button.classList.toggle("reader-category-has-children", hasChildren);
+  button.style.paddingLeft = `${8 + (depth + 1) * 12}px`;
+  const icon = document.createElement("span");
+  icon.className = "reader-category-folder-icon";
+  icon.innerHTML = readerFolderIconSvg;
+  button.appendChild(icon);
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "reader-category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = isReaderCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReaderCategoryCollapsed(node.id);
+      renderReaderLibrary();
+    });
+    button.appendChild(toggle);
+  }
+  button.appendChild(document.createTextNode(`${node.name} (${collectReaderPapers(node).length})`));
+  button.addEventListener("click", () => {
+    readerSelectedCategoryId = node.id;
+    renderReaderLibrary();
+  });
+  const menuButton = document.createElement("button");
+  menuButton.type = "button";
+  menuButton.className = "reader-category-menu-button menu-button";
+  menuButton.textContent = "...";
+  menuButton.setAttribute("aria-label", `${node.name} category actions`);
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showReaderCategoryMenu(node, menuButton);
+  });
+  row.appendChild(button);
+  row.appendChild(menuButton);
+  readerCategoryList.appendChild(row);
+}
+
+function isReaderCategoryCollapsed(categoryId) {
+  return localStorage.getItem(`paperLanternReaderCollapsed:${categoryId || "__root"}`) === "true";
+}
+
+function toggleReaderCategoryCollapsed(categoryId) {
+  const key = `paperLanternReaderCollapsed:${categoryId || "__root"}`;
+  const next = localStorage.getItem(key) !== "true";
+  localStorage.setItem(key, String(next));
+  return next;
+}
+
+function getReaderRecentPapers() {
+  const all = collectReaderPapers(readerLibraryTree);
+  let records = [];
+  try {
+    records = JSON.parse(localStorage.getItem("paperLanternRecentPapers") || "[]");
+  } catch (error) {
+    records = [];
+  }
+  const ids = new Set((Array.isArray(records) ? records : []).map((record) => record && record.id));
+  return all.filter((paper) => ids.has(paper.id));
 }
 
 function isReaderUncategorizedCategory(category) {
@@ -342,7 +515,7 @@ function showReaderCategoryMenu(category, anchor) {
 
   const moveButton = document.createElement("button");
   moveButton.type = "button";
-  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg>移动到此处';
+  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 13v4"></path><path d="m9.5 14.5 2.5-2.5 2.5 2.5"></path></svg>移动到此处';
   moveButton.disabled = !currentPaper?.id || currentPaper.category === category.id;
   moveButton.addEventListener("click", async () => {
     menu.remove();
@@ -436,6 +609,11 @@ function startReaderCategoryCreate(parentCategory, anchor) {
     const parentRow = anchor.closest(".reader-category-row");
     input.style.paddingLeft = `${8 + (Number(parentCategory.depth || 0) + 1) * 12}px`;
     if (parentRow) parentRow.after(newRow);
+    else readerCategoryList.prepend(newRow);
+  } else if (anchor) {
+    // Creating a top-level category: insert right below the 文献库 row.
+    const anchorRow = anchor.closest(".reader-category-row");
+    if (anchorRow) anchorRow.after(newRow);
     else readerCategoryList.prepend(newRow);
   } else {
     readerCategoryList.prepend(newRow);
