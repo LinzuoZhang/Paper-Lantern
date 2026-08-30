@@ -20,6 +20,10 @@ SYNCED_PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussi
 ROOT_SYNCED_FILES = (MANIFEST_NAME,)
 
 
+class SyncCancelled(RuntimeError):
+    pass
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -43,6 +47,8 @@ def get_sync_config(base_dir):
         "password": password,
         "auto_push": auto_push,
         "state_file": Path(base_dir) / ".cache" / ".cloud_sync_state.json",
+        "progress_file": Path(base_dir) / ".cache" / ".cloud_sync_progress.json",
+        "cancel_file": Path(base_dir) / ".cache" / ".cloud_sync_cancel.json",
     }
 
 
@@ -59,6 +65,8 @@ def save_sync_config(base_dir, payload):
         raise ValueError("Local sync folder is required.")
     if provider == "webdav" and not webdav_url:
         raise ValueError("WebDAV URL is required.")
+    if provider == "webdav":
+        validate_webdav_url(webdav_url)
     save_config(base_dir, {"sync": {"provider": provider, "localDir": local_dir, "webdavUrl": webdav_url, "username": username, "password": password, "autoSync": auto_push}})
     return public_status(get_sync_config(base_dir))
 
@@ -84,24 +92,55 @@ def describe_target(config):
     return ""
 
 
-def sync_library(library_dir, config):
+def sync_library(library_dir, config, progress=None):
+    def emit(step, detail="", current=0, total=1, status="running", **extra):
+        if callable(progress):
+            progress({
+                "active": status == "running",
+                "step": step,
+                "detail": detail,
+                "current": current,
+                "total": total,
+                "status": status,
+                "updatedAt": utc_now(),
+                **extra,
+            })
+
+    clear_sync_cancel(config)
     ensure_configured(config)
     library_dir = Path(library_dir)
+    emit("prepare", "Reading local and remote library manifests.", 0, 1)
     local_db_path = library_dir / "library_db.json"
+    raise_if_sync_cancelled(config)
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     remote_db = read_remote_manifest(config)
     merged_db = merge_dbs(local_db, remote_db)
     write_json(local_db_path, merged_db)
     ensure_local_sync_hashes(library_dir, merged_db)
+    emit("prepare", "Library manifests loaded.", 1, 1)
 
+    emit("compare", "Building sync index and checking differences.", 0, 1)
+    raise_if_sync_cancelled(config)
     local_index = build_local_sync_index(library_dir, merged_db)
     remote_index = read_remote_sync_index(config)
     if not remote_index.get("files"):
         remote_index = build_legacy_remote_sync_index(config, remote_db)
 
     plan = plan_sync_actions(local_index, remote_index)
-    stats = execute_sync_plan(library_dir, config, plan)
+    files_to_download = len(plan.get("download", []))
+    files_to_upload = len(plan.get("upload", []))
+    emit(
+        "compare",
+        f"Found {files_to_download + files_to_upload} files to transfer.",
+        1,
+        1,
+        filesToDownload=files_to_download,
+        filesToUpload=files_to_upload,
+    )
+    stats = execute_sync_plan(library_dir, config, plan, emit)
 
+    emit("finalize", "Refreshing local library records.", 0, 1)
+    raise_if_sync_cancelled(config)
     local_db = normalize_db(read_json(local_db_path, new_manifest_db()))
     final_db = merge_dbs(local_db, remote_db)
     write_json(local_db_path, final_db)
@@ -116,6 +155,8 @@ def sync_library(library_dir, config):
 
     result = {**public_status(config), "action": "sync", "syncedAt": utc_now(), "mergedPapers": len(final_db.get("papers", {})), **stats}
     write_sync_state(config, result)
+    emit("finalize", "Sync complete.", 1, 1, "complete", result=result)
+    clear_sync_cancel(config)
     return result
 
 
@@ -164,6 +205,8 @@ def ensure_configured(config):
 
 def validate_webdav_url(url):
     parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("WebDAV 地址必须是完整的 http/https URL，例如 https://dav.jianguoyun.com/dav/PaperLantern。")
     host = parsed.netloc.lower()
     if "jianguoyun.com" in host and host != "dav.jianguoyun.com":
         raise ValueError("坚果云同步请使用 WebDAV 地址，例如 https://dav.jianguoyun.com/dav/PaperLantern，不要使用分享链接。")
@@ -334,7 +377,7 @@ def index_entry_is_newer(candidate, existing):
     return int(candidate.get("size") or 0) >= int(existing.get("size") or 0)
 
 
-def execute_sync_plan(library_dir, config, plan):
+def execute_sync_plan(library_dir, config, plan, progress=None):
     stats = {
         "downloaded": 0,
         "uploaded": 0,
@@ -344,17 +387,45 @@ def execute_sync_plan(library_dir, config, plan):
         "discussionsMerged": 0,
         "_downloadedPaperIds": [],
     }
-    for relative_path in plan.get("download", []):
-        download_sync_file(library_dir, config, relative_path)
+    downloads = plan.get("download", [])
+    uploads = plan.get("upload", [])
+    if progress:
+        progress("download", f"{len(downloads)} files queued for download.", 0, len(downloads), filesToDownload=len(downloads), filesToUpload=len(uploads))
+    for index, relative_path in enumerate(downloads, start=1):
+        raise_if_sync_cancelled(config)
+        if progress:
+            progress("download", f"Downloading {relative_path}", index - 1, len(downloads), currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+        try:
+            download_sync_file(library_dir, config, relative_path)
+        except Exception:
+            if progress:
+                progress("download", f"Download failed: {relative_path}", index - 1, len(downloads), "error", currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+            raise
         if relative_path.endswith("/paper.pdf"):
             stats["downloaded"] += 1
         paper_id = paper_id_from_remote_path(relative_path)
         if paper_id and paper_id not in stats["_downloadedPaperIds"]:
             stats["_downloadedPaperIds"].append(paper_id)
-    for relative_path in plan.get("upload", []):
-        upload_sync_file(library_dir, config, relative_path)
+        if progress:
+            progress("download", f"Downloaded {relative_path}", index, len(downloads), currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+        raise_if_sync_cancelled(config)
+    if progress:
+        progress("upload", f"{len(uploads)} files queued for upload.", 0, len(uploads), filesToDownload=len(downloads), filesToUpload=len(uploads))
+    for index, relative_path in enumerate(uploads, start=1):
+        raise_if_sync_cancelled(config)
+        if progress:
+            progress("upload", f"Uploading {relative_path}", index - 1, len(uploads), currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+        try:
+            upload_sync_file(library_dir, config, relative_path)
+        except Exception:
+            if progress:
+                progress("upload", f"Upload failed: {relative_path}", index - 1, len(uploads), "error", currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+            raise
         if relative_path.endswith("/paper.pdf"):
             stats["uploaded"] += 1
+        if progress:
+            progress("upload", f"Uploaded {relative_path}", index, len(uploads), currentFile=relative_path, filesToDownload=len(downloads), filesToUpload=len(uploads))
+        raise_if_sync_cancelled(config)
     return stats
 
 
@@ -709,6 +780,7 @@ def ensure_webdav_dirs(config, relative_dir):
 
 
 def webdav_request(config, method, relative_path, data=None):
+    validate_webdav_url(config.get("webdav_url", ""))
     encoded_path = "/".join(urllib.parse.quote(part) for part in str(relative_path).replace("\\", "/").split("/") if part)
     url = f"{config['webdav_url']}/{encoded_path}" if encoded_path else config["webdav_url"]
     headers = {"User-Agent": "PaperLantern/1.0"}
@@ -722,6 +794,10 @@ def webdav_request(config, method, relative_path, data=None):
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"WebDAV {method} failed: HTTP {exc.code} {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"WebDAV {method} failed: 无法连接到 WebDAV 地址，请检查 URL、网络和代理设置。({exc})") from exc
+    except (ValueError, OSError) as exc:
+        raise RuntimeError(f"WebDAV {method} failed: WebDAV 地址无效或不可访问。({exc})") from exc
 
 
 def read_json(path, fallback):
@@ -741,6 +817,39 @@ def write_sync_state(config, state):
     if state_file:
         Path(state_file).parent.mkdir(parents=True, exist_ok=True)
         Path(state_file).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_sync_progress(config, state):
+    progress_file = config.get("progress_file")
+    if progress_file:
+        Path(progress_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(progress_file).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def request_sync_cancel(config):
+    cancel_file = config.get("cancel_file")
+    if cancel_file:
+        Path(cancel_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(cancel_file).write_text(json.dumps({"cancelledAt": utc_now()}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def clear_sync_cancel(config):
+    cancel_file = config.get("cancel_file")
+    if cancel_file:
+        try:
+            Path(cancel_file).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def sync_cancel_requested(config):
+    cancel_file = config.get("cancel_file")
+    return bool(cancel_file and Path(cancel_file).exists())
+
+
+def raise_if_sync_cancelled(config):
+    if sync_cancel_requested(config):
+        raise SyncCancelled("Sync was stopped by the user.")
 
 
 def read_sync_state(config):
@@ -766,3 +875,14 @@ def read_sync_state(config):
         )
         if key in data
     }
+
+
+def read_sync_progress(config):
+    progress_file = config.get("progress_file")
+    if not progress_file or not Path(progress_file).exists():
+        return {}
+    try:
+        data = json.loads(Path(progress_file).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}

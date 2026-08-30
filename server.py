@@ -17,7 +17,7 @@ import urllib.request
 from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
-from cloud_sync import auto_sync_library, get_sync_config, public_status, save_sync_config, sync_library, update_paper_sync_hash
+from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
 from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
 
 
@@ -1260,11 +1260,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         request_path = urlparse(self.path).path
+        if request_path == "/api/health":
+            self._send_json(200, {"ok": True, "app": "Paper Lantern", "root": str(LIBRARY_DIR)})
+            return
         if request_path == "/api/library":
             self._send_json(200, {"root": str(LIBRARY_DIR), "tree": read_library_tree()})
             return
         if request_path == "/api/cloud-sync":
             self._send_json(200, public_status(get_cloud_sync_config()))
+            return
+        if request_path == "/api/cloud-sync/progress":
+            self._send_json(200, read_sync_progress(get_cloud_sync_config()))
             return
         if request_path == "/api/settings":
             self._send_json(200, public_config(load_config(BASE_DIR)))
@@ -1626,12 +1632,65 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
         try:
             config = get_cloud_sync_config()
+            if action == "cancel":
+                current_progress = read_sync_progress(config)
+                request_sync_cancel(config)
+                write_sync_progress(config, {
+                    **current_progress,
+                    "active": True,
+                    "step": current_progress.get("step") or "prepare",
+                    "detail": "Stopping sync after the current file.",
+                    "current": current_progress.get("current", 0),
+                    "total": current_progress.get("total", 1),
+                    "status": "canceling",
+                    "updatedAt": datetime.now(timezone.utc).isoformat(),
+                })
+                self._send_json(200, {"cancelled": True, "message": "Stopping sync."})
+                return
             if action in {"sync", ""}:
-                result = sync_library(LIBRARY_DIR, config)
+                started_at = datetime.now(timezone.utc).isoformat()
+
+                def record_progress(progress):
+                    write_sync_progress(config, {"startedAt": started_at, **progress})
+
+                record_progress({
+                    "active": True,
+                    "step": "prepare",
+                    "detail": "Starting cloud sync.",
+                    "current": 0,
+                    "total": 1,
+                    "status": "running",
+                    "updatedAt": started_at,
+                })
+                result = sync_library(LIBRARY_DIR, config, progress=record_progress)
                 self._send_json(200, {**result, "tree": read_library_tree()})
                 return
             self._send_json(400, {"error": "Unknown cloud sync action."})
+        except SyncCancelled as exc:
+            current_progress = read_sync_progress(get_cloud_sync_config())
+            write_sync_progress(get_cloud_sync_config(), {
+                **current_progress,
+                "active": False,
+                "step": current_progress.get("step") or "download",
+                "detail": str(exc),
+                "current": current_progress.get("current", 0),
+                "total": current_progress.get("total", 1),
+                "status": "cancelled",
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            })
+            self._send_json(409, {"cancelled": True, "error": str(exc), **public_status(get_cloud_sync_config())})
         except (OSError, RuntimeError, ValueError) as exc:
+            current_progress = read_sync_progress(get_cloud_sync_config())
+            write_sync_progress(get_cloud_sync_config(), {
+                **current_progress,
+                "active": False,
+                "step": current_progress.get("step") or "error",
+                "detail": str(exc),
+                "current": current_progress.get("current", 0),
+                "total": current_progress.get("total", 1),
+                "status": "error",
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            })
             self._send_json(400, {"error": str(exc), **public_status(get_cloud_sync_config())})
 
     def _handle_cloud_sync_config(self):

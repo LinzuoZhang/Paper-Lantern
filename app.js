@@ -1,4 +1,7 @@
 const libraryRoot = document.querySelector("#libraryRoot");
+const libraryLayout = document.querySelector(".library-layout");
+const categoryPanel = document.querySelector(".category-panel");
+const libraryLayoutResizer = document.querySelector("#libraryLayoutResizer");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
 const categoryTopRows = document.querySelector("#categoryTopRows");
@@ -43,6 +46,7 @@ const TODO_CATEGORY_ID = "__todo";
 const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
 const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
+const LIBRARY_CATEGORY_PANEL_WIDTH_KEY = "paperLanternLibraryCategoryPanelWidth";
 
 const recentCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
@@ -91,16 +95,69 @@ function sortPapers(papers) {
 }
 let searchQuery = "";
 let arxivDownloadOverlayTimer = null;
+let cloudSyncProgressHideTimer = null;
+let cloudSyncProgressPollTimer = null;
+let cloudSyncProgressValue = 0;
+let cloudSyncCancelRequested = false;
 let libCitationFormats = null;
 let libCitationFormat = "gbt7714";
 
 loadLibrary();
+initLibraryLayoutResize();
 initLibraryCitationOverlay();
 loadCloudSyncStatus();
 loadSettings();
 migrateLegacyRecentPapers();
 if (new URLSearchParams(window.location.search).get("settings") === "1") {
   openCloudConfig();
+}
+
+function initLibraryLayoutResize() {
+  if (!libraryLayout || !categoryPanel || !libraryLayoutResizer) return;
+  applySavedLibraryCategoryPanelWidth();
+  window.addEventListener("resize", applySavedLibraryCategoryPanelWidth);
+
+  libraryLayoutResizer.addEventListener("pointerdown", (event) => {
+    if (!isLibraryLayoutResizable()) return;
+    event.preventDefault();
+    const onMove = (moveEvent) => {
+      setLibraryCategoryPanelWidth(moveEvent.clientX - libraryLayout.getBoundingClientRect().left);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizing-library-layout");
+      const width = Math.round(categoryPanel.getBoundingClientRect().width);
+      localStorage.setItem(LIBRARY_CATEGORY_PANEL_WIDTH_KEY, String(width));
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.classList.add("resizing-library-layout");
+  });
+}
+
+function applySavedLibraryCategoryPanelWidth() {
+  if (!categoryPanel) return;
+  if (!isLibraryLayoutResizable()) {
+    categoryPanel.style.width = "";
+    categoryPanel.style.flexBasis = "";
+    return;
+  }
+  const savedWidth = Number(localStorage.getItem(LIBRARY_CATEGORY_PANEL_WIDTH_KEY));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) setLibraryCategoryPanelWidth(savedWidth);
+}
+
+function isLibraryLayoutResizable() {
+  return window.matchMedia("(min-width: 901px)").matches;
+}
+
+function setLibraryCategoryPanelWidth(width) {
+  if (!libraryLayout || !categoryPanel) return;
+  const layoutWidth = libraryLayout.getBoundingClientRect().width || window.innerWidth;
+  const maxWidth = Math.min(520, Math.max(260, layoutWidth * 0.45));
+  const nextWidth = Math.round(Math.min(Math.max(Number(width) || 280, 220), maxWidth));
+  categoryPanel.style.width = `${nextWidth}px`;
+  categoryPanel.style.flexBasis = `${nextWidth}px`;
 }
 
 libraryPdfInput.addEventListener("change", async () => {
@@ -1186,7 +1243,7 @@ function renderMoveCategoryRow(node, depth, paper, container, rerender) {
   button.className = "move-category-option";
   if (depth >= 1) button.classList.add("move-category-sub");
   button.classList.toggle("move-category-has-children", hasChildren);
-  if (isAncestor && !isExact) button.classList.add("move-category-current");
+  if (isExact || isAncestor) button.classList.add("move-category-current");
   button.disabled = isExact;
 
   const icon = document.createElement("span");
@@ -1522,7 +1579,9 @@ function formatAiApiTestError(data) {
 
 async function runCloudSync() {
   setCloudSyncBusy(true);
+  startCloudSyncProgress();
   try {
+    updateCloudSyncProgress("Connecting to sync target...", "Checking the remote library index.", 28);
     const response = await apiFetch("/api/cloud-sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1532,6 +1591,12 @@ async function runCloudSync() {
     if (!response.ok) {
       renderCloudSyncStatus(data);
       setLibraryStatus(data.error || "Cloud sync failed.", true);
+      await pollCloudSyncProgress();
+      if (data.cancelled) {
+        settleCloudSyncProgress();
+      } else {
+        finishCloudSyncProgress("Sync failed", data.error || "Cloud sync failed.", true);
+      }
       return;
     }
     renderCloudSyncStatus(data);
@@ -1543,12 +1608,187 @@ async function runCloudSync() {
     setLibraryStatus(
       `Cloud synced. Downloaded ${data.downloaded || 0}, uploaded ${data.uploaded || 0}, merged highlights ${data.highlightsMerged || 0}.`,
     );
+    finishCloudSyncProgress(
+      "Sync complete",
+      formatCloudSyncTransferSummary(data),
+      false,
+    );
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Cloud sync failed.", true);
+    await pollCloudSyncProgress();
+    finishCloudSyncProgress("Sync failed", error.message || "Cloud sync failed.", true);
   } finally {
     setCloudSyncBusy(false);
   }
+}
+
+function startCloudSyncProgress() {
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  window.clearInterval(cloudSyncProgressPollTimer);
+  cloudSyncCancelRequested = false;
+  cloudSyncProgressValue = 8;
+  updateCloudSyncProgress("Preparing sync...", "Scanning local library files.", cloudSyncProgressValue);
+  cloudSyncProgressPollTimer = window.setInterval(pollCloudSyncProgress, 700);
+}
+
+function updateCloudSyncProgress(title, detail, progress, isError = false) {
+  cloudSyncProgressValue = Math.max(cloudSyncProgressValue, progress);
+  let overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "cloudSyncProgressOverlay";
+    overlay.className = "cloud-sync-progress-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <section class="cloud-sync-progress-card">
+        <div class="cloud-sync-progress-icon" aria-hidden="true"></div>
+        <div class="cloud-sync-progress-content">
+          <div class="cloud-sync-progress-top">
+            <strong class="cloud-sync-progress-title"></strong>
+            <button class="cloud-sync-cancel-button" type="button" aria-label="Stop sync" title="Stop sync">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+              </svg>
+            </button>
+          </div>
+          <p class="cloud-sync-progress-detail"></p>
+          <div class="cloud-sync-progress-meter">
+            <span class="cloud-sync-progress-label">0/1</span>
+            <div class="cloud-sync-progress-track" aria-hidden="true">
+              <div class="cloud-sync-progress-bar"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector(".cloud-sync-cancel-button").addEventListener("click", cancelCloudSync);
+  }
+  overlay.classList.toggle("error", Boolean(isError));
+  overlay.classList.toggle("complete", !isError && cloudSyncProgressValue >= 100);
+  overlay.querySelector(".cloud-sync-progress-title").textContent = title;
+  overlay.querySelector(".cloud-sync-progress-detail").textContent = detail || "";
+  updateCloudSyncProgressBar(overlay, progress, 100, isError ? "error" : "running");
+}
+
+async function pollCloudSyncProgress() {
+  try {
+    const response = await apiFetch("/api/cloud-sync/progress", { cache: "no-store" });
+    const progress = await readJsonResponse(response);
+    if (response.ok && progress?.step) updateCloudSyncProgressFromServer(progress);
+  } catch (error) {
+    console.error("Failed to read sync progress.", error);
+  }
+}
+
+function updateCloudSyncProgressFromServer(progress) {
+  const title =
+    progress.status === "error"
+      ? "Sync failed"
+      : progress.status === "cancelled"
+        ? "Sync stopped"
+        : progress.status === "canceling"
+          ? "Stopping sync..."
+          : progress.status === "complete"
+            ? "Sync complete"
+            : cloudSyncProgressTitle(progress.step);
+  const detail = progress.currentFile ? `${progress.detail || ""} (${progress.currentFile})` : progress.detail || "";
+  updateCloudSyncProgress(title, detail, overallCloudSyncProgress(progress), progress.status === "error");
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (overlay) {
+    overlay.classList.toggle("cancelled", progress.status === "cancelled" || progress.status === "canceling");
+    const cancelButton = overlay.querySelector(".cloud-sync-cancel-button");
+    if (cancelButton) {
+      cancelButton.disabled = cloudSyncCancelRequested || ["canceling", "cancelled", "complete", "error"].includes(progress.status);
+      cancelButton.hidden = ["cancelled", "complete", "error"].includes(progress.status);
+    }
+    updateCloudSyncProgressBar(overlay, progress.current, progress.total, progress.status);
+  }
+}
+
+function updateCloudSyncProgressBar(overlay, currentValue, totalValue, status = "running") {
+  const total = Math.max(0, Number(totalValue || 0));
+  const current = Math.max(0, Number(currentValue || 0));
+  const percent = total > 0 ? Math.round((Math.min(current, total) / total) * 100) : 100;
+  const label =
+    status === "error"
+      ? "Error"
+      : status === "cancelled"
+        ? "Stopped"
+        : status === "complete"
+          ? "Done"
+          : `${Math.min(current, total)}/${total || 0}`;
+  overlay.querySelector(".cloud-sync-progress-label").textContent = label;
+  overlay.querySelector(".cloud-sync-progress-bar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
+function cloudSyncProgressTitle(step) {
+  if (step === "compare") return "Checking differences...";
+  if (step === "download") return "Downloading files...";
+  if (step === "upload") return "Uploading files...";
+  if (step === "finalize") return "Finalizing sync...";
+  return "Preparing sync...";
+}
+
+function overallCloudSyncProgress(progress) {
+  const total = Number(progress.total || 0);
+  const current = Number(progress.current || 0);
+  return total > 0 ? Math.round((current / total) * 100) : 100;
+}
+
+function finishCloudSyncProgress(title, detail, isError) {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  updateCloudSyncProgress(title, detail, isError ? cloudSyncProgressValue : 100, isError);
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (overlay) {
+    const cancelButton = overlay.querySelector(".cloud-sync-cancel-button");
+    if (cancelButton) cancelButton.hidden = true;
+    if (!isError) updateCloudSyncProgressBar(overlay, 1, 1, "complete");
+  }
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  cloudSyncProgressHideTimer = window.setTimeout(hideCloudSyncProgress, isError ? 4200 : 1800);
+}
+
+function settleCloudSyncProgress(delay = 2600) {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  cloudSyncProgressHideTimer = window.setTimeout(hideCloudSyncProgress, delay);
+}
+
+function hideCloudSyncProgress() {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  document.querySelector("#cloudSyncProgressOverlay")?.remove();
+}
+
+async function cancelCloudSync() {
+  if (cloudSyncCancelRequested) return;
+  cloudSyncCancelRequested = true;
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  const cancelButton = overlay?.querySelector(".cloud-sync-cancel-button");
+  if (cancelButton) cancelButton.disabled = true;
+  updateCloudSyncProgress("Stopping sync...", "Waiting for the current file to finish.", cloudSyncProgressValue);
+  try {
+    const response = await apiFetch("/api/cloud-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    await readJsonResponse(response);
+    await pollCloudSyncProgress();
+  } catch (error) {
+    console.error(error);
+    updateCloudSyncProgress("Stop request failed", error.message || "Unable to stop sync.", cloudSyncProgressValue, true);
+  }
+}
+
+function formatCloudSyncTransferSummary(data) {
+  const filesDownloaded = Number(data?.filesDownloaded || 0);
+  const filesUploaded = Number(data?.filesUploaded || 0);
+  const totalFiles = filesDownloaded + filesUploaded;
+  return `Transferred ${totalFiles} files: downloaded ${filesDownloaded}, uploaded ${filesUploaded}.`;
 }
 
 function renderCloudSyncStatus(status) {
