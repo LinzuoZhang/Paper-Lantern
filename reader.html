@@ -27,7 +27,10 @@
     <main class="app-shell">
       <section class="reader-pane" aria-label="Paper reader">
         <header class="toolbar">
-          <h1 id="fileName" class="paper-title">Loading paper...</h1>
+          <div class="reader-paper-title-wrap">
+            <span id="readerPaperTagIndicators" aria-label="Paper tags"></span>
+            <h1 id="fileName" class="paper-title">Loading paper...</h1>
+          </div>
           <button id="readerPaperMenuButton" class="paper-menu-button menu-button" type="button" aria-label="Paper actions" aria-haspopup="menu" disabled>...</button>
         </header>
         <div class="pdf-controls" role="toolbar" aria-label="PDF controls">

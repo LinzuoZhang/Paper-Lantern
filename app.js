@@ -6,6 +6,8 @@ const libraryLayout = document.querySelector(".library-layout");
 const libraryPaneResizer = document.querySelector("#libraryPaneResizer");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const librarySearchInput = document.querySelector("#librarySearchInput");
+const tagFilterList = document.querySelector("#tagFilterList");
+const clearTagFiltersButton = document.querySelector("#clearTagFiltersButton");
 const uploadForm = document.querySelector("#uploadForm");
 const libraryPdfInput = document.querySelector("#libraryPdfInput");
 const uploadMenuButton = document.querySelector("#uploadMenuButton");
@@ -41,6 +43,7 @@ let libraryTree = null;
 let selectedCategoryId = "";
 let apiBaseUrl = "";
 let searchQuery = "";
+let selectedTagNames = new Set();
 let draggedCategory = null;
 let draggedPaperId = "";
 let suppressPaperOpenUntil = 0;
@@ -74,6 +77,11 @@ arxivUploadButton.addEventListener("click", async () => {
 
 librarySearchInput.addEventListener("input", () => {
   searchQuery = librarySearchInput.value.trim().toLowerCase();
+  renderLibrary();
+});
+
+clearTagFiltersButton.addEventListener("click", () => {
+  selectedTagNames = new Set();
   renderLibrary();
 });
 
@@ -326,6 +334,7 @@ function renderLibrary() {
   categories.forEach((category) => renderCategoryRow(category));
 
   const allPapers = collectPapers(libraryTree);
+  renderTagFilters(allPapers);
   let papers = [];
   if (selectedCategoryId === RECENT_CATEGORY_ID) {
     currentCategoryName.textContent = "Recent Papers";
@@ -335,7 +344,45 @@ function renderLibrary() {
     currentCategoryName.textContent = selected?.id ? selected.name : "All Papers";
     papers = selectedCategoryId ? selected?.papers || [] : allPapers;
   }
-  renderPaperList(filterPapers(papers, searchQuery));
+  renderPaperList(filterPapers(papers, searchQuery, selectedTagNames));
+}
+
+function renderTagFilters(papers) {
+  const tagMap = new Map();
+  papers.forEach((paper) => {
+    normalizePaperTags(paper.tags).forEach((tag) => {
+      const key = tag.name.toLocaleLowerCase();
+      const current = tagMap.get(key) || { ...tag, count: 0 };
+      current.count += 1;
+      tagMap.set(key, current);
+    });
+  });
+  const available = Array.from(tagMap.entries()).sort(([, left], [, right]) => left.name.localeCompare(right.name, "zh-CN"));
+  selectedTagNames.forEach((key) => {
+    if (!tagMap.has(key)) selectedTagNames.delete(key);
+  });
+  tagFilterList.innerHTML = "";
+  if (!available.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-filter-empty";
+    empty.textContent = "No tags yet";
+    tagFilterList.appendChild(empty);
+  }
+  available.forEach(([key, tag]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tag-filter-chip";
+    button.classList.toggle("active", selectedTagNames.has(key));
+    button.title = `Filter by ${tag.name}`;
+    button.append(createTagColorIndicator([tag]), document.createTextNode(`${tag.name} (${tag.count})`));
+    button.addEventListener("click", () => {
+      if (selectedTagNames.has(key)) selectedTagNames.delete(key);
+      else selectedTagNames.add(key);
+      renderLibrary();
+    });
+    tagFilterList.appendChild(button);
+  });
+  clearTagFiltersButton.hidden = selectedTagNames.size === 0;
 }
 
 function renderCategoryRow(category) {
@@ -447,7 +494,7 @@ function renderPaperList(papers) {
     return;
   }
 
-  const canReorder = Boolean(selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID && !searchQuery);
+  const canReorder = Boolean(selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID && !searchQuery && !selectedTagNames.size);
   papers.forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
     const card = document.createElement("article");
@@ -464,7 +511,7 @@ function renderPaperList(papers) {
     });
 
     const title = document.createElement("h3");
-    title.textContent = paper.title;
+    title.append(createTagColorIndicator(paper.tags), document.createTextNode(paper.title));
 
     const meta = document.createElement("p");
     meta.textContent = `Uploaded: ${formatUploadDate(paper.uploadedAt)} · Last read: ${formatViewedDate(viewedAt)}`;
@@ -545,6 +592,36 @@ function createPaperHoverSummary(paper) {
     box.appendChild(line);
   });
   return box;
+}
+
+function normalizePaperTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  return tags
+    .map((tag) => ({
+      name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
+      color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
+    }))
+    .filter((tag) => {
+      const key = tag.name.toLocaleLowerCase();
+      if (!tag.name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 16);
+}
+
+function createTagColorIndicator(tags) {
+  const indicator = document.createElement("span");
+  indicator.className = "tag-color-indicators";
+  normalizePaperTags(tags).forEach((tag) => {
+    const dot = document.createElement("span");
+    dot.className = "tag-color-dot";
+    dot.style.backgroundColor = tag.color;
+    dot.title = tag.name;
+    indicator.appendChild(dot);
+  });
+  return indicator;
 }
 
 function showCategoryMenu(category, anchor) {
@@ -691,6 +768,14 @@ function showPaperMenu(paper, anchor) {
   const menu = document.createElement("div");
   menu.className = "paper-menu library-menu";
 
+  const tagsButton = document.createElement("button");
+  tagsButton.type = "button";
+  tagsButton.textContent = "Manage tags";
+  tagsButton.addEventListener("click", () => {
+    menu.remove();
+    showPaperTagEditor(paper, anchor);
+  });
+
   const moveButton = document.createElement("button");
   moveButton.type = "button";
   moveButton.textContent = "Move category";
@@ -730,9 +815,122 @@ function showPaperMenu(paper, anchor) {
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton, exportLink, revealButton, deleteButton);
+  menu.append(tagsButton, moveButton, exportLink, revealButton, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+function showPaperTagEditor(paper, anchor) {
+  document.querySelector(".library-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu tag-editor-menu library-menu";
+  document.body.appendChild(menu);
+  positionMenu(menu, anchor, 290);
+  renderPaperTagEditor(menu, paper);
+}
+
+function renderPaperTagEditor(menu, paper) {
+  const tags = normalizePaperTags(paper.tags);
+  menu.innerHTML = "";
+
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "Tags";
+  menu.appendChild(heading);
+
+  const list = document.createElement("div");
+  list.className = "tag-editor-list";
+  if (!tags.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-editor-empty";
+    empty.textContent = "No tags yet";
+    list.appendChild(empty);
+  }
+  tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "tag-editor-row";
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = tag.color;
+    color.setAttribute("aria-label", `${tag.name} color`);
+    color.addEventListener("change", async () => {
+      await savePaperTagsFromEditor(menu, paper, tags.map((item) => (item.name === tag.name ? { ...item, color: color.value } : item)));
+    });
+    const name = document.createElement("span");
+    name.textContent = tag.name;
+    name.title = tag.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-remove-button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove ${tag.name}`);
+    remove.addEventListener("click", async () => {
+      await savePaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name));
+    });
+    row.append(color, name, remove);
+    list.appendChild(row);
+  });
+
+  const addRow = document.createElement("div");
+  addRow.className = "tag-editor-add-row";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 48;
+  input.placeholder = "New tag";
+  input.setAttribute("aria-label", "New tag name");
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = "#2c758c";
+  color.setAttribute("aria-label", "New tag color");
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add";
+  const submit = async () => {
+    const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!name) return;
+    const existing = tags.find((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const next = existing
+      ? tags.map((tag) => (tag === existing ? { ...tag, color: color.value } : tag))
+      : [...tags, { name, color: color.value }];
+    await savePaperTagsFromEditor(menu, paper, next);
+  };
+  add.addEventListener("click", submit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  });
+  addRow.append(input, color, add);
+  menu.append(list, addRow);
+}
+
+async function savePaperTagsFromEditor(menu, paper, tags) {
+  const saved = await savePaperTags(paper.id, tags);
+  if (!saved) return;
+  paper.tags = normalizePaperTags(saved.tags);
+  renderLibrary();
+  renderPaperTagEditor(menu, paper);
+}
+
+async function savePaperTags(paperId, tags) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paperId, tags: normalizePaperTags(tags) }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to save tags.");
+    if (data.tree) libraryTree = data.tree;
+    setLibraryStatus("Tags saved.");
+    reportSyncResult(data.sync);
+    return data.paper;
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Failed to save tags.", true);
+    return null;
+  }
 }
 
 async function revealPaperInFolder(paperId) {
@@ -893,10 +1091,13 @@ function collectPapers(node) {
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectPapers)];
 }
 
-function filterPapers(papers, query) {
-  if (!query) return papers;
+function filterPapers(papers, query, tagNames = new Set()) {
   return papers.filter((paper) => {
-    const haystack = [paper.title, paper.category, paper.categoryName, ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
+    const tags = normalizePaperTags(paper.tags);
+    const matchesTags = !tagNames.size || Array.from(tagNames).every((tagName) => tags.some((tag) => tag.name.toLocaleLowerCase() === tagName));
+    if (!matchesTags) return false;
+    if (!query) return true;
+    const haystack = [paper.title, paper.category, paper.categoryName, ...tags.map((tag) => tag.name), ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();

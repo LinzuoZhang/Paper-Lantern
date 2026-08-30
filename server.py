@@ -40,6 +40,9 @@ DB_FILE = LIBRARY_DIR / "library_db.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
+DEFAULT_TAG_COLOR = "#2c758c"
+MAX_PAPER_TAGS = 16
+MAX_TAG_NAME_LENGTH = 48
 
 
 def load_env_file(path):
@@ -337,6 +340,34 @@ def maybe_auto_sync_library():
     return auto_sync_library(LIBRARY_DIR, get_cloud_sync_config())
 
 
+def normalize_tag_color(value):
+    color = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        return color.lower()
+    if re.fullmatch(r"#[0-9a-fA-F]{3}", color):
+        return "#" + "".join(character * 2 for character in color[1:].lower())
+    return DEFAULT_TAG_COLOR
+
+
+def normalize_paper_tags(value):
+    if not isinstance(value, list):
+        return []
+    tags = []
+    seen = set()
+    for item in value:
+        raw_name = item.get("name", "") if isinstance(item, dict) else item
+        name = " ".join(str(raw_name or "").split())[:MAX_TAG_NAME_LENGTH]
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        color = normalize_tag_color(item.get("color")) if isinstance(item, dict) else DEFAULT_TAG_COLOR
+        tags.append({"name": name, "color": color})
+        if len(tags) >= MAX_PAPER_TAGS:
+            break
+    return tags
+
+
 def default_metadata(title, category):
     return {
         "title": str(title),
@@ -348,6 +379,7 @@ def default_metadata(title, category):
         "methodSections": [],
         "methodConclusion": "",
         "basicInfo": {},
+        "tags": [],
     }
 
 
@@ -397,6 +429,7 @@ def read_paper(paper_id):
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
+        "tags": normalize_paper_tags(metadata.get("tags", [])),
     }
 
 
@@ -701,6 +734,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
+        "tags": normalize_paper_tags(metadata.get("tags", [])),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "discussion": discussion,
         "extractedText": extracted_text,
@@ -1295,6 +1329,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             sync_relevant_changed = True
         if isinstance(payload.get("basicInfo"), dict):
             metadata["basicInfo"] = normalize_basic_info(payload["basicInfo"])
+            sync_relevant_changed = True
+        if isinstance(payload.get("tags"), list):
+            metadata["tags"] = normalize_paper_tags(payload["tags"])
             sync_relevant_changed = True
         if isinstance(payload.get("highlights"), list):
             write_json(paper_dir / "highlights.json", payload["highlights"])

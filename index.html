@@ -70,6 +70,13 @@
             <span>Search</span>
             <input id="librarySearchInput" type="search" placeholder="Search title or category" autocomplete="off" />
           </label>
+          <section class="tag-filter-panel" aria-labelledby="tagFilterTitle">
+            <div class="tag-filter-header">
+              <span id="tagFilterTitle">Tags</span>
+              <button id="clearTagFiltersButton" type="button" hidden>Clear</button>
+            </div>
+            <div id="tagFilterList" class="tag-filter-list"></div>
+          </section>
           <div id="categoryTree" class="category-tree"></div>
         </aside>
         <div id="libraryPaneResizer" class="library-pane-resizer" role="separator" aria-orientation="vertical" aria-label="调整分类侧栏宽度" tabindex="0"></div>

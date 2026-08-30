@@ -21,6 +21,7 @@ const translateWithContextButton = document.querySelector("#translateWithContext
 const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
+const readerPaperTagIndicators = document.querySelector("#readerPaperTagIndicators");
 const readerPaperMenuButton = document.querySelector("#readerPaperMenuButton");
 const pageIndicator = document.querySelector("#pageIndicator");
 const pdfZoomOutButton = document.querySelector("#pdfZoomOutButton");
@@ -93,6 +94,12 @@ let discussionThreadMenu = null;
 let commentAutoSaveTimer = null;
 let annotationAutoSaveTimer = null;
 let discussionWebUrl = "https://chatgpt.com/";
+let citationPreviewNode = null;
+let citationPreviewHideTimer = null;
+let citationPreviewToken = 0;
+const citationPreviewCache = new Map();
+const pdfLinkPageCache = new Map();
+const pdfLinkTextCache = new Map();
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -237,8 +244,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   renderDiscussionHistory(currentPaper.discussion || []);
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo);
-  fileName.textContent = currentPaper.title;
-  fileName.title = currentPaper.title;
+  setReaderPaperTitle(currentPaper.title);
   renderReaderLibrary();
 
   const pdfResponse = await apiFetch(currentPaper.pdfUrl);
@@ -258,8 +264,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     const extractedText = extraction.text;
     lastExtractedText = extractedText;
     if (extraction.title) {
-      fileName.textContent = extraction.title;
-      fileName.title = extraction.title;
+      setReaderPaperTitle(extraction.title);
     }
 
     if (extractedText.trim().length < 80) {
@@ -283,11 +288,56 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 }
 
+function normalizePaperTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  return tags
+    .map((tag) => ({
+      name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
+      color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
+    }))
+    .filter((tag) => {
+      const key = tag.name.toLocaleLowerCase();
+      if (!tag.name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 16);
+}
+
+function createTagColorIndicator(tags) {
+  const indicator = document.createElement("span");
+  indicator.className = "tag-color-indicators";
+  normalizePaperTags(tags).forEach((tag) => {
+    const dot = document.createElement("span");
+    dot.className = "tag-color-dot";
+    dot.style.backgroundColor = tag.color;
+    dot.title = tag.name;
+    indicator.appendChild(dot);
+  });
+  return indicator;
+}
+
+function setReaderPaperTitle(title) {
+  const displayTitle = String(title || currentPaper?.title || "Loading paper...");
+  fileName.textContent = displayTitle;
+  fileName.title = displayTitle;
+  readerPaperTagIndicators.replaceChildren(createTagColorIndicator(currentPaper?.tags));
+}
+
 function showReaderPaperMenu(paper, anchor) {
   document.querySelector(".reader-paper-menu")?.remove();
   const menu = document.createElement("div");
   menu.className = "paper-menu library-menu reader-paper-menu";
   menu.setAttribute("role", "menu");
+
+  const tagsButton = document.createElement("button");
+  tagsButton.type = "button";
+  tagsButton.textContent = "Manage tags";
+  tagsButton.addEventListener("click", () => {
+    menu.remove();
+    showReaderPaperTagEditor(paper, anchor);
+  });
 
   const moveButton = document.createElement("button");
   moveButton.type = "button";
@@ -342,9 +392,107 @@ function showReaderPaperMenu(paper, anchor) {
     }
   });
 
-  menu.append(moveButton, exportLink, revealButton, deleteButton);
+  menu.append(tagsButton, moveButton, exportLink, revealButton, deleteButton);
   document.body.appendChild(menu);
   positionReaderPaperMenu(menu, anchor, 190);
+}
+
+function showReaderPaperTagEditor(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu tag-editor-menu library-menu reader-paper-menu";
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 290);
+  renderReaderPaperTagEditor(menu, paper);
+}
+
+function renderReaderPaperTagEditor(menu, paper) {
+  const tags = normalizePaperTags(paper.tags);
+  menu.innerHTML = "";
+
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "Tags";
+  menu.appendChild(heading);
+
+  const list = document.createElement("div");
+  list.className = "tag-editor-list";
+  if (!tags.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-editor-empty";
+    empty.textContent = "No tags yet";
+    list.appendChild(empty);
+  }
+  tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "tag-editor-row";
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = tag.color;
+    color.setAttribute("aria-label", `${tag.name} color`);
+    color.addEventListener("change", async () => {
+      await saveReaderPaperTagsFromEditor(menu, paper, tags.map((item) => (item.name === tag.name ? { ...item, color: color.value } : item)));
+    });
+    const name = document.createElement("span");
+    name.textContent = tag.name;
+    name.title = tag.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-remove-button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove ${tag.name}`);
+    remove.addEventListener("click", async () => {
+      await saveReaderPaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name));
+    });
+    row.append(color, name, remove);
+    list.appendChild(row);
+  });
+
+  const addRow = document.createElement("div");
+  addRow.className = "tag-editor-add-row";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 48;
+  input.placeholder = "New tag";
+  input.setAttribute("aria-label", "New tag name");
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = "#2c758c";
+  color.setAttribute("aria-label", "New tag color");
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add";
+  const submit = async () => {
+    const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!name) return;
+    const existing = tags.find((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const next = existing
+      ? tags.map((tag) => (tag === existing ? { ...tag, color: color.value } : tag))
+      : [...tags, { name, color: color.value }];
+    await saveReaderPaperTagsFromEditor(menu, paper, next);
+  };
+  add.addEventListener("click", submit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  });
+  addRow.append(input, color, add);
+  menu.append(list, addRow);
+}
+
+async function saveReaderPaperTagsFromEditor(menu, paper, tags) {
+  try {
+    await saveCurrentPaper({ tags: normalizePaperTags(tags) });
+    paper.tags = normalizePaperTags(currentPaper?.tags);
+    setReaderPaperTitle(currentPaper?.title || paper.title);
+    renderReaderPaperTagEditor(menu, paper);
+    setStatus("Tags saved.");
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Failed to save tags.", true);
+  }
 }
 
 async function showReaderMovePaperMenu(paper, anchor) {
@@ -1386,7 +1534,9 @@ async function saveCurrentPaper(extra = {}) {
     body: JSON.stringify({ id: currentPaper.id, ...extra }),
   });
   const data = await readJsonResponse(response);
-  if (response.ok) currentPaper = data.paper;
+  if (!response.ok) throw new Error(data.error || "Failed to save paper.");
+  if (data.paper) currentPaper = data.paper;
+  return data;
 }
 
 async function saveHighlights() {
@@ -1404,8 +1554,7 @@ function showPdf(file, displayTitle = "") {
   pageIndicator.hidden = false;
   setPageIndicator(0, 0);
   const title = displayTitle || file.name.replace(/\.pdf$/i, "");
-  fileName.textContent = title;
-  fileName.title = title;
+  setReaderPaperTitle(title);
 }
 
 function initPdfControls() {
@@ -1636,6 +1785,10 @@ function refreshPdfAfterPaneResize() {
 async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
+  hideCitationPreview();
+  citationPreviewCache.clear();
+  pdfLinkPageCache.clear();
+  pdfLinkTextCache.clear();
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
@@ -1746,9 +1899,460 @@ async function renderPdfPage(pageNumber, renderId) {
     viewport,
   }).render();
   if (currentPdfTask !== renderId) return;
+  await renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId);
+  if (currentPdfTask !== renderId) return;
+  await renderReferenceActionButtons(pageNode, page, viewport, pageNumber, renderId);
+  if (currentPdfTask !== renderId) return;
   pageNode.dataset.rendered = "true";
   delete pageNode.dataset.rendering;
   restoreHighlightsForPage(pageNode);
+}
+
+async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId) {
+  let annotations = [];
+  try {
+    annotations = await page.getAnnotations({ intent: "display" });
+  } catch (error) {
+    console.warn("Unable to read PDF links for previews.", error);
+    return;
+  }
+  if (currentPdfTask !== renderId) return;
+
+  const links = annotations.filter((annotation) => annotation.subtype === "Link" && annotation.dest && Array.isArray(annotation.rect));
+  if (!links.length) return;
+
+  const linkLayer = document.createElement("div");
+  linkLayer.className = "pdf-link-layer";
+  links.forEach((annotation, index) => {
+    const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(annotation.rect);
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    if (width < 1 || height < 1) return;
+
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "pdf-internal-link";
+    link.style.left = `${left}px`;
+    link.style.top = `${top}px`;
+    link.style.width = `${width}px`;
+    link.style.height = `${height}px`;
+    link.setAttribute("aria-label", "Preview linked PDF content");
+    link.dataset.linkId = `${pageNumber}:${annotation.id || index}`;
+    link.addEventListener("pointerenter", () => showCitationPreview(link, pageNumber, annotation, renderId));
+    link.addEventListener("pointerleave", scheduleCitationPreviewHide);
+    link.addEventListener("focus", () => showCitationPreview(link, pageNumber, annotation, renderId));
+    link.addEventListener("blur", scheduleCitationPreviewHide);
+    link.addEventListener("click", async () => {
+      const preview = await getCitationPreview(pageNumber, annotation);
+      if (preview?.pageNumber) await goToPdfLinkDestination(preview);
+    });
+    linkLayer.appendChild(link);
+  });
+  if (linkLayer.childElementCount) pageNode.appendChild(linkLayer);
+}
+
+function isCitationDestination(destination) {
+  if (typeof destination !== "string") return false;
+  return /(?:^|[.:/_-])(?:cite|citation)(?:[.:/_-]|$)/i.test(destination);
+}
+
+function ensureCitationPreview() {
+  if (citationPreviewNode) return citationPreviewNode;
+  const node = document.createElement("aside");
+  node.className = "citation-preview";
+  node.hidden = true;
+  node.setAttribute("role", "dialog");
+  node.addEventListener("pointerenter", () => window.clearTimeout(citationPreviewHideTimer));
+  node.addEventListener("pointerleave", scheduleCitationPreviewHide);
+  node.addEventListener("focusin", () => window.clearTimeout(citationPreviewHideTimer));
+  node.addEventListener("focusout", (event) => {
+    if (!node.contains(event.relatedTarget)) scheduleCitationPreviewHide();
+  });
+  document.body.appendChild(node);
+  citationPreviewNode = node;
+  return node;
+}
+
+function setCitationPreviewContent(preview) {
+  const node = ensureCitationPreview();
+  const heading = document.createElement("strong");
+  heading.className = "citation-preview-label";
+  heading.textContent = preview.label;
+  const children = [heading];
+  if (preview.source) {
+    const viewer = document.createElement("div");
+    viewer.className = "pdf-link-preview-viewer";
+    viewer.setAttribute("aria-label", `Interactive preview of linked content on page ${preview.pageNumber}`);
+    const content = document.createElement("div");
+    content.className = "pdf-link-preview-page";
+    preview.source.canvas.className = "pdf-link-preview-canvas";
+    preview.source.canvas.setAttribute("aria-label", `Linked PDF page ${preview.pageNumber}`);
+    content.appendChild(preview.source.canvas);
+    viewer.appendChild(content);
+    initPdfLinkPreviewPan(viewer);
+    children.push(viewer);
+    if (preview.isCitation) {
+      const actions = createReferenceActionControls(preview);
+      actions.classList.add("pdf-link-preview-actions");
+      children.push(actions);
+    }
+    requestAnimationFrame(() => centerPdfLinkPreview(viewer, preview.destination, preview.source.viewport));
+  }
+  if (preview.text) {
+    const body = document.createElement("p");
+    body.textContent = preview.text;
+    children.push(body);
+  }
+  node._pdfLinkPreview = preview;
+  node.replaceChildren(...children);
+  return node;
+}
+
+function positionCitationPreview(anchor) {
+  const node = ensureCitationPreview();
+  const rect = anchor.getBoundingClientRect();
+  const gap = 2;
+  const margin = 12;
+  const width = node.offsetWidth;
+  const height = node.offsetHeight;
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+  const below = rect.bottom + gap;
+  const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap);
+  node.style.left = `${left}px`;
+  node.style.top = `${top}px`;
+}
+
+function scheduleCitationPreviewHide() {
+  window.clearTimeout(citationPreviewHideTimer);
+  citationPreviewHideTimer = window.setTimeout(hideCitationPreview, 90);
+}
+
+function hideCitationPreview() {
+  window.clearTimeout(citationPreviewHideTimer);
+  citationPreviewToken += 1;
+  if (citationPreviewNode) citationPreviewNode.hidden = true;
+}
+
+async function showCitationPreview(anchor, pageNumber, annotation, renderId) {
+  window.clearTimeout(citationPreviewHideTimer);
+  const token = ++citationPreviewToken;
+  const loadingNode = setCitationPreviewContent({ label: "Loading linked content...", text: "", pageNumber: 0 });
+  loadingNode.hidden = false;
+  positionCitationPreview(anchor);
+
+  try {
+    const preview = await getCitationPreview(pageNumber, annotation);
+    if (token !== citationPreviewToken || currentPdfTask !== renderId || !anchor.isConnected || !isCitationPreviewActive(anchor)) return;
+    const node = setCitationPreviewContent(preview);
+    node.hidden = false;
+    positionCitationPreview(anchor);
+  } catch (error) {
+    if (token !== citationPreviewToken || !anchor.isConnected || !isCitationPreviewActive(anchor)) return;
+    const node = setCitationPreviewContent({ label: "Linked content", text: "The linked content could not be read.", pageNumber: 0 });
+    node.hidden = false;
+    positionCitationPreview(anchor);
+  }
+}
+
+function isCitationPreviewActive(anchor) {
+  return anchor.matches(":hover, :focus") || citationPreviewNode?.matches(":hover, :focus-within");
+}
+
+async function getCitationPreview(sourcePageNumber, annotation) {
+  const cacheKey = `${sourcePageNumber}:${annotation.id || JSON.stringify(annotation.dest)}`;
+  if (!citationPreviewCache.has(cacheKey)) {
+    citationPreviewCache.set(cacheKey, resolveCitationPreview(annotation));
+  }
+  return citationPreviewCache.get(cacheKey);
+}
+
+async function resolveCitationPreview(annotation) {
+  if (!currentPdfDocument) return { label: "Linked content", text: "No paper is open.", pageNumber: 0, searchQuery: "" };
+  const destination = typeof annotation.dest === "string" ? await currentPdfDocument.getDestination(annotation.dest) : annotation.dest;
+  if (!Array.isArray(destination) || !destination[0]) {
+    return { label: "Linked content", text: "The linked content has no readable destination.", pageNumber: 0, searchQuery: "" };
+  }
+
+  const pageIndex = await currentPdfDocument.getPageIndex(destination[0]);
+  const pageNumber = pageIndex + 1;
+  const page = await currentPdfDocument.getPage(pageNumber);
+  const textContent = await getPdfLinkTextContent(page, pageNumber);
+  const referenceText = extractReferenceText(textContent.items, getCitationDestinationY(destination));
+  const isCitation = isCitationDestination(annotation.dest) || /^\s*\[\s*\d+\s*\]/.test(referenceText);
+  const text = isCitation ? referenceText : "";
+  const source = await getPdfLinkPreviewSource(page, pageNumber);
+  return {
+    label: isCitation ? `Reference · page ${pageNumber}` : `Linked content · page ${pageNumber}`,
+    text: isCitation ? text || "Reference text is not available in this PDF." : "",
+    pageNumber,
+    destination,
+    source,
+    isCitation,
+    searchQuery: isCitation ? buildReferenceSearchQuery(text) : "",
+    arxivUrl: isCitation ? getArxivUrl(text) : "",
+  };
+}
+
+async function getPdfLinkPreviewSource(page, pageNumber) {
+  if (!pdfLinkPageCache.has(pageNumber)) {
+    if (pdfLinkPageCache.size >= 8) pdfLinkPageCache.delete(pdfLinkPageCache.keys().next().value);
+    pdfLinkPageCache.set(
+      pageNumber,
+      (async () => {
+        const viewport = page.getViewport({ scale: 1.35 });
+        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width * outputScale);
+        canvas.height = Math.ceil(viewport.height * outputScale);
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+        const context = canvas.getContext("2d", { alpha: false });
+        const transform = outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0];
+        await page.render({ canvasContext: context, viewport, transform }).promise;
+        return { canvas, viewport };
+      })(),
+    );
+  }
+  return pdfLinkPageCache.get(pageNumber);
+}
+
+async function getPdfLinkTextContent(page, pageNumber) {
+  if (!pdfLinkTextCache.has(pageNumber)) pdfLinkTextCache.set(pageNumber, page.getTextContent());
+  return pdfLinkTextCache.get(pageNumber);
+}
+
+function buildReferenceSearchQuery(referenceText) {
+  const text = String(referenceText || "").replace(/^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s*/, "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const sentences = text
+    .split(/\.\s+(?=[A-Z])/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const isMetadata = (item) => /(?:arxiv|proceedings|conference|journal|coRR|pages|vol\.?|doi|neural computation|ACL)/i.test(item);
+  const title = sentences.slice(1).find((item) => item.length >= 8 && item.length <= 300 && !isMetadata(item))
+    || sentences.find((item) => item.length >= 18 && item.length <= 300 && !isMetadata(item))
+    || text;
+  return `${title} ${text}`.slice(0, 1200);
+}
+
+function getArxivUrl(referenceText) {
+  const text = String(referenceText || "");
+  const directUrl = text.match(/https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/([^\s),]+)/i);
+  if (directUrl) return `https://arxiv.org/abs/${directUrl[1].replace(/\.pdf$/i, "")}`;
+  const identifier = text.match(/\barXiv\s*(?:preprint\s*)?(?:arXiv\s*:\s*)?(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+  return identifier ? `https://arxiv.org/abs/${identifier[1]}` : "";
+}
+
+async function renderReferenceActionButtons(pageNode, page, viewport, pageNumber, renderId) {
+  pageNode.querySelector(".pdf-reference-actions-layer")?.remove();
+  const textContent = await getPdfLinkTextContent(page, pageNumber);
+  if (currentPdfTask !== renderId) return;
+  const entries = extractReferenceEntries(textContent.items);
+  if (entries.length < 2) return;
+  const layer = document.createElement("div");
+  layer.className = "pdf-reference-actions-layer";
+  entries.forEach((entry) => {
+    const detail = {
+      ...entry,
+      isCitation: true,
+      searchQuery: buildReferenceSearchQuery(entry.text),
+      arxivUrl: getArxivUrl(entry.text),
+    };
+    const actions = createReferenceActionControls(detail);
+    actions.classList.add("pdf-reference-list-actions");
+    positionReferenceActionsAtPdfY(actions, entry.y, viewport);
+    layer.appendChild(actions);
+  });
+  if (layer.childElementCount) pageNode.appendChild(layer);
+}
+
+function createReferenceActionControls(reference) {
+  const actions = document.createElement("div");
+  actions.className = "pdf-reference-action-controls";
+  if (reference.searchQuery) {
+    const scholarLink = document.createElement("a");
+    scholarLink.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(reference.searchQuery)}`;
+    scholarLink.target = "_blank";
+    scholarLink.rel = "noopener noreferrer";
+    scholarLink.textContent = "Scholar";
+    scholarLink.title = "在 Google Scholar 中搜索此参考文献";
+    scholarLink.setAttribute("aria-label", "在 Google Scholar 中搜索此参考文献");
+    actions.appendChild(scholarLink);
+  }
+  if (reference.arxivUrl) {
+    const arxivLink = document.createElement("a");
+    arxivLink.href = reference.arxivUrl;
+    arxivLink.target = "_blank";
+    arxivLink.rel = "noopener noreferrer";
+    arxivLink.textContent = "arXiv";
+    arxivLink.title = "打开 arXiv 页面";
+    arxivLink.setAttribute("aria-label", "打开 arXiv 页面");
+    actions.appendChild(arxivLink);
+  }
+  return actions;
+}
+
+function positionReferenceActions(actions, destination, viewport) {
+  const point = getPdfDestinationPoint(destination, viewport);
+  actions.style.left = `${Math.max(6, viewport.width - 138)}px`;
+  actions.style.top = `${clamp(point.y + 2, 4, Math.max(4, viewport.height - 30))}px`;
+}
+
+function positionReferenceActionsAtPdfY(actions, pdfY, viewport) {
+  const [, pointY] = viewport.convertToViewportPoint(viewport.viewBox[0], pdfY);
+  actions.style.left = `${Math.max(6, viewport.width - 138)}px`;
+  actions.style.top = `${clamp(pointY + 2, 4, Math.max(4, viewport.height - 30))}px`;
+}
+
+function centerPdfLinkPreview(viewer, destination, viewport) {
+  const point = getPdfDestinationPoint(destination, viewport);
+  viewer.scrollLeft = Math.max(0, point.x - viewer.clientWidth * 0.42);
+  viewer.scrollTop = Math.max(0, point.y - viewer.clientHeight * 0.34);
+}
+
+function initPdfLinkPreviewPan(viewer) {
+  let pan = null;
+  viewer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("a")) return;
+    pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: viewer.scrollLeft, top: viewer.scrollTop };
+    viewer.setPointerCapture(event.pointerId);
+    viewer.classList.add("is-panning");
+  });
+  viewer.addEventListener("pointermove", (event) => {
+    if (!pan || event.pointerId !== pan.pointerId) return;
+    viewer.scrollLeft = pan.left - (event.clientX - pan.x);
+    viewer.scrollTop = pan.top - (event.clientY - pan.y);
+  });
+  const finish = (event) => {
+    if (!pan || event.pointerId !== pan.pointerId) return;
+    if (viewer.hasPointerCapture(event.pointerId)) viewer.releasePointerCapture(event.pointerId);
+    pan = null;
+    viewer.classList.remove("is-panning");
+  };
+  viewer.addEventListener("pointerup", finish);
+  viewer.addEventListener("pointercancel", finish);
+}
+
+function getPdfDestinationPoint(destination, viewport) {
+  const mode = destination[1]?.name;
+  const viewBox = viewport.viewBox;
+  let x = (viewBox[0] + viewBox[2]) / 2;
+  let y = (viewBox[1] + viewBox[3]) / 2;
+  if (mode === "XYZ") {
+    if (Number.isFinite(Number(destination[2]))) x = Number(destination[2]);
+    if (Number.isFinite(Number(destination[3]))) y = Number(destination[3]);
+  } else if (mode === "FitH" || mode === "FitBH") {
+    if (Number.isFinite(Number(destination[2]))) y = Number(destination[2]);
+  } else if (mode === "FitR") {
+    if (Number.isFinite(Number(destination[2])) && Number.isFinite(Number(destination[4]))) x = (Number(destination[2]) + Number(destination[4])) / 2;
+    if (Number.isFinite(Number(destination[5]))) y = Number(destination[5]);
+  }
+  const [pointX, pointY] = viewport.convertToViewportPoint(x, y);
+  return { x: pointX, y: pointY };
+}
+
+async function goToPdfLinkDestination(preview) {
+  if (!currentPdfDocument || !preview?.pageNumber) return;
+  goToPdfPage(preview.pageNumber);
+  const [page, pageNode] = await Promise.all([
+    currentPdfDocument.getPage(preview.pageNumber),
+    Promise.resolve(pdfViewer.querySelector(`.pdf-page[data-page-number="${preview.pageNumber}"]`)),
+  ]);
+  if (!pageNode || !preview.destination) return;
+  const viewport = getPdfPageViewport(page);
+  const point = getPdfDestinationPoint(preview.destination, viewport);
+  pdfViewer.scrollTo({
+    left: Math.max(0, point.x - pdfViewer.clientWidth * 0.45),
+    top: Math.max(0, pageNode.offsetTop + point.y - 42),
+    behavior: "smooth",
+  });
+  renderPdfPage(preview.pageNumber, currentPdfTask).catch((error) => console.error("Failed to render linked page.", error));
+}
+
+function getCitationDestinationY(destination) {
+  const mode = destination[1]?.name;
+  if (mode === "FitH" || mode === "FitBH") return Number(destination[2]);
+  if (mode === "FitR") return Number(destination[5]);
+  return Number(destination[3] ?? destination[2]);
+}
+
+function buildPdfTextLines(items) {
+  const lines = [];
+  items.forEach((item) => {
+    const text = String(item.str || "").trim();
+    const x = Number(item.transform?.[4]);
+    const y = Number(item.transform?.[5]);
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    const tolerance = Math.max(2, Number(item.height || 8) * 0.28);
+    let line = lines.find((candidate) => Math.abs(candidate.y - y) <= tolerance);
+    if (!line) {
+      line = { y, items: [] };
+      lines.push(line);
+    }
+    line.items.push({ x, text });
+  });
+  lines.sort((left, right) => right.y - left.y);
+  lines.forEach((line) => {
+    line.text = line.items.sort((left, right) => left.x - right.x).map((item) => item.text).join(" ").replace(/\s+/g, " ").trim();
+  });
+  return lines;
+}
+
+function isReferenceStart(text) {
+  return /^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s+/.test(text);
+}
+
+function extractReferenceEntries(items) {
+  const lines = buildPdfTextLines(items);
+  const entries = [];
+  let current = null;
+  lines.forEach((line) => {
+    if (isReferenceStart(line.text)) {
+      if (current) entries.push(current);
+      current = { y: line.y, text: line.text };
+      return;
+    }
+    if (current && current.text.length < 900) current.text = `${current.text} ${line.text}`.trim();
+  });
+  if (current) entries.push(current);
+  return entries.filter((entry) => entry.text.length >= 18);
+}
+
+function extractReferenceText(items, destinationY) {
+  if (!Number.isFinite(destinationY)) return "";
+  const lines = buildPdfTextLines(items);
+  if (!lines.length) return "";
+
+  let start = lines.findIndex((line) => line.y <= destinationY + 2);
+  if (start < 0) {
+    let distance = Infinity;
+    lines.forEach((line, index) => {
+      const nextDistance = Math.abs(line.y - destinationY);
+      if (nextDistance < distance) {
+        start = index;
+        distance = nextDistance;
+      }
+    });
+  }
+
+  for (let index = start; index >= Math.max(0, start - 6); index -= 1) {
+    if (isReferenceStart(lines[index].text)) {
+      start = index;
+      break;
+    }
+  }
+
+  const parts = [];
+  for (let index = start; index < lines.length && parts.length < 8; index += 1) {
+    const text = lines[index].text;
+    if (!text) continue;
+    if (parts.length && isReferenceStart(text)) break;
+    parts.push(text);
+    if (parts.join(" ").length >= 900) break;
+  }
+  return parts.join(" ").slice(0, 900).trim();
 }
 
 function handlePdfWheel(event) {
@@ -1820,8 +2424,7 @@ async function summarizeText(text) {
   renderBasicInfo(data.summary?.basicInfo);
   await saveCurrentPaper({ summary: data.summary });
   if (data.summary?.paperTitle) {
-    fileName.textContent = data.summary.paperTitle;
-    fileName.title = data.summary.paperTitle;
+    setReaderPaperTitle(data.summary.paperTitle);
   }
   clearStatus();
 }
@@ -1842,8 +2445,7 @@ async function refreshOverviewInfo(text) {
   renderBasicInfo(data.overviewInfo?.basicInfo);
   await saveCurrentPaper({ overviewInfo: data.overviewInfo });
   if (data.overviewInfo?.paperTitle) {
-    fileName.textContent = data.overviewInfo.paperTitle;
-    fileName.title = data.overviewInfo.paperTitle;
+    setReaderPaperTitle(data.overviewInfo.paperTitle);
   }
 }
 
