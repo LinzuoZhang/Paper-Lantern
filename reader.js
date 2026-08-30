@@ -28,6 +28,10 @@ const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
 const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
 const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
 const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
+const pdfLinksInput = document.querySelector("#pdfLinksInput");
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "ftp:"]);
+let pdfLinkAnnotationsCache = new Map(); // pageNumber -> Promise<Annotation[]>
+let pdfLinkDestCache = new Map();        // destName(string) -> Promise<{pageIndex, top, left}|null>
 const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
@@ -2074,6 +2078,16 @@ function initReaderSettings() {
   });
   aiApiTestButton?.addEventListener("click", testReaderAiApi);
   wireReaderSettingsAutoSave();
+  pdfLinksInput?.addEventListener("change", () => {
+    localStorage.setItem("paperLanternReaderPdfLinks", pdfLinksInput.checked ? "on" : "off");
+    if (!currentPdfDocument) return;
+    if (pdfLinksInput.checked) {
+      renderPdfPages(Symbol("pdfLinksToggle"), { keepExisting: true }).catch((error) =>
+        console.error("Failed to re-render PDF after enabling links.", error));
+    } else {
+      pdfViewer.querySelectorAll(".pdf-link-layer").forEach((layer) => layer.remove());
+    }
+  });
   loadReaderSettings().catch((error) => console.error("Failed to load settings.", error));
 }
 
@@ -2094,6 +2108,7 @@ function wireReaderSettingsAutoSave() {
 function openReaderSettings() {
   if (!cloudConfigOverlay) return;
   cloudConfigOverlay.hidden = false;
+  if (pdfLinksInput) pdfLinksInput.checked = arePdfLinksEnabled();
   aiBaseUrlInput?.focus();
 }
 
@@ -2271,6 +2286,8 @@ async function renderPdf(file) {
   pdfRenderedPages = new Map();
   pdfRenderingPages = new Map();
   pdfPageTextCache = new Map();
+  pdfLinkAnnotationsCache = new Map();
+  pdfLinkDestCache = new Map();
   setPageIndicator(1, pdf.numPages);
 
   await renderPdfPages(renderId);
@@ -2412,6 +2429,9 @@ async function renderPdfPageInto(pageNumber, pageNode, renderId = currentPdfTask
     container: textLayer,
     viewport,
   }).render();
+  if (currentPdfTask !== renderId) return;
+
+  if (pageNode.isConnected) await decoratePdfLinks(pageNode, pageNumber, page, viewport);
   if (currentPdfTask !== renderId) return;
 
   pageNode.classList.remove("pdf-page-placeholder");
@@ -3337,6 +3357,196 @@ function refreshReferenceCitations() {
     const textLayer = pageNode.querySelector(".pdf-text-layer");
     if (textLayer) decorateReferenceCitations(pageNode, textLayer);
   });
+}
+
+function arePdfLinksEnabled() {
+  return localStorage.getItem("paperLanternReaderPdfLinks") !== "off";
+}
+
+// 只允许绝对协议的 http/https/mailto/ftp，丢弃 javascript:/data:/file:/相对路径
+function getSafePdfLinkUrl(url) {
+  if (typeof url !== "string") return null;
+  const trimmed = url.trim();
+  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
+  if (!match) return null;
+  return SAFE_LINK_PROTOCOLS.has(match[1].toLowerCase()) ? trimmed : null;
+}
+
+// dest 解析为 { pageIndex(0-based), top, left }；top/left 仅 /XYZ、/FitH、/FitBH 有值，否则 null
+async function resolvePdfLinkDestination(pdf, dest) {
+  try {
+    if (typeof dest === "string") {
+      if (pdfLinkDestCache.has(dest)) return pdfLinkDestCache.get(dest);
+      const promise = (async () => {
+        const arr = await pdf.getDestination(dest);
+        return arr ? computePdfLinkDestination(pdf, arr) : null;
+      })().catch(() => null);
+      pdfLinkDestCache.set(dest, promise);
+      return promise;
+    }
+    return computePdfLinkDestination(pdf, dest);
+  } catch {
+    return null;
+  }
+}
+
+async function computePdfLinkDestination(pdf, destArray) {
+  const target = destArray[0];
+  let pageIndex = null;
+  if (typeof target === "number") {
+    pageIndex = Math.min(Math.max(0, target), pdf.numPages - 1);
+  } else if (typeof target === "object" && target !== null) {
+    pageIndex = Math.min(Math.max(0, await pdf.getPageIndex(target)), pdf.numPages - 1);
+  } else {
+    return null;
+  }
+  // pdf.js 中 dest 的类型位可能是字符串（如 "XYZ"）或 Name 对象（如 { name: "XYZ" }）
+  const typeEntry = destArray[1];
+  const type = typeof typeEntry === "string" ? typeEntry : (typeEntry && typeEntry.name) || "";
+  let top = null;
+  let left = null;
+  if (type === "XYZ") {
+    left = typeof destArray[2] === "number" ? destArray[2] : null;
+    top = typeof destArray[3] === "number" ? destArray[3] : null;
+  } else if (type === "FitH" || type === "FitBH") {
+    top = typeof destArray[2] === "number" ? destArray[2] : null;
+  }
+  return { pageIndex, top, left };
+}
+
+// 目标页文本项按行聚合；行以 [n] 开头且 n 在 referenceEntries 中 => 参考文献条目行
+async function detectPdfLinkReferenceNumber(targetPage, destTop, destLeft) {
+  try {
+    const pageHeightPdf = targetPage.getViewport({ scale: 1 }).height;
+    const { items } = await targetPage.getTextContent();
+    const rows = new Map(); // 行顶(round) -> { top, left, parts }
+    items.forEach((item) => {
+      const str = (item.str || "").trim();
+      if (!str) return;
+      const top = pageHeightPdf - item.transform[5]; // 基线距页顶（PDF 单位）
+      const rowTop = Math.round(top / 2) * 2;        // 粗粒度行锚点
+      const row = rows.get(rowTop) || { top: 0, left: Infinity, parts: [] };
+      row.top = top;
+      const itemLeft = item.transform[4];
+      if (itemLeft < row.left) row.left = itemLeft;
+      row.parts.push({ left: itemLeft, str });
+      rows.set(rowTop, row);
+    });
+
+    let best = null; // { number, lineTop, dist }
+    rows.forEach((row) => {
+      const lineText = row.parts
+        .slice().sort((a, b) => a.left - b.left)
+        .map((p) => p.str).join(" ");
+      const marker = lineText.trimStart().match(/^\[(\d{1,3})\]/);
+      if (!marker || !referenceEntries.has(marker[1])) return;
+      const dist = Math.abs(row.top - destTop);
+      if (!best || dist < best.dist || (dist === best.dist && row.top > best.lineTop)) {
+        best = { number: marker[1], lineTop: row.top, dist };
+      }
+    });
+    return best ? best.number : null;
+  } catch {
+    return null;
+  }
+}
+
+async function decoratePdfLinks(pageNode, pageNumber, page, viewport) {
+  if (!arePdfLinksEnabled()) return;
+
+  let annotations;
+  try {
+    const cached = pdfLinkAnnotationsCache.get(pageNumber);
+    if (cached) {
+      annotations = await cached;
+    } else {
+      const promise = page.getAnnotations({ intent: "display" }).catch(() => []);
+      pdfLinkAnnotationsCache.set(pageNumber, promise);
+      annotations = await promise;
+    }
+  } catch {
+    return;
+  }
+
+  const pageWidth = viewport.width;
+  const pageHeight = viewport.height;
+  const layer = document.createElement("div");
+  layer.className = "pdf-link-layer";
+
+  for (const annotation of annotations) {
+    if (annotation.subtype !== "Link") continue;
+    const url = getSafePdfLinkUrl(annotation.url);
+    const isInternal = url == null && annotation.dest != null;
+    if (!url && !isInternal) continue;
+
+    // rect 是 PDF 坐标（左下原点）-> convertToViewportRectangle 转成视口坐标（左上原点），再归一化、钳制到页内
+    const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle(annotation.rect || [0, 0, 0, 0]);
+    const left = Math.max(0, Math.min(vx1, vx2));
+    const top = Math.max(0, Math.min(vy1, vy2));
+    const width = Math.min(Math.abs(vx2 - vx1), pageWidth - left);
+    const height = Math.min(Math.abs(vy2 - vy1), pageHeight - top);
+    if (width < 2 || height < 2) continue;
+
+    const link = document.createElement("a");
+    link.className = "pdf-link";
+    Object.assign(link.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
+
+    if (url) {
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.title = url;
+      link.setAttribute("aria-label", url);
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation(); // 阻止 handlePdfClick 触发（引用/高亮命中测试）
+        window.open(url, "_blank", "noopener,noreferrer");
+      });
+    } else {
+      link.href = "#";
+      link.title = "PDF 内部链接";
+      link.setAttribute("aria-label", "PDF 内部链接");
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handlePdfInternalLinkClick(annotation.dest, event.clientX, event.clientY);
+      });
+    }
+    layer.appendChild(link);
+  }
+
+  if (layer.childElementCount) pageNode.appendChild(layer);
+}
+
+function handlePdfInternalLinkClick(dest, clientX, clientY) {
+  handlePdfInternalLinkClickAsync(dest, clientX, clientY)
+    .catch((error) => console.error("Failed to follow PDF internal link.", error));
+}
+
+async function handlePdfInternalLinkClickAsync(dest, clientX, clientY) {
+  const resolved = await resolvePdfLinkDestination(currentPdfDocument, dest);
+  if (resolved && resolved.top != null) {
+    const targetPageNumber = resolved.pageIndex + 1;
+    const targetPage = await currentPdfDocument.getPage(targetPageNumber);
+    const refNumber = await detectPdfLinkReferenceNumber(targetPage, resolved.top, resolved.left);
+    if (refNumber != null) {
+      showReferencePopover([refNumber], clientX, clientY); // 原地弹框，不跳转
+      return;
+    }
+  }
+  if (resolved) jumpToPdfLinkPage(resolved.pageIndex + 1);
+}
+
+function jumpToPdfLinkPage(pageNumber) {
+  jumpToPdfLinkPageAsync(pageNumber).catch((error) => console.error("Failed to follow PDF link.", error));
+}
+
+async function jumpToPdfLinkPageAsync(pageNumber) {
+  if (!currentPdfDocument || !currentPdfTask) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+  if (!pageNode) return;
+  pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
+  await renderPdfPageInto(pageNumber, pageNode, currentPdfTask);
 }
 
 function handlePdfClick(event) {

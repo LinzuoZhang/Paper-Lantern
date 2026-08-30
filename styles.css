@@ -2567,6 +2567,31 @@ body.selecting-pdf-text .selection-menu {
   background: rgba(37, 109, 133, 0.2);
 }
 
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3; /* 与 .pdf-text-layer 同级，DOM 顺序在其后 => 盖在文本上方 */
+  pointer-events: none; /* 空白区域穿透到文本层，保留选择能力 */
+}
+
+.pdf-link {
+  position: absolute;
+  display: block;
+  pointer-events: auto; /* 仅链接矩形拦截指针事件 */
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pdf-link:hover {
+  background: rgba(37, 109, 133, 0.12);
+}
+
+.pdf-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .reference-popover {
   position: absolute;
   z-index: 24;
