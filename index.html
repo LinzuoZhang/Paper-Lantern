@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
-    <link rel="icon" type="image/jpeg" href="./.cache/figure.jpg" />
-    <link rel="apple-touch-icon" href="./.cache/figure.jpg" />
+    <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
+    <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -13,16 +13,19 @@
       <div class="library-layout">
         <aside class="category-panel">
           <div class="brand-lockup library-brand">
-            <img class="site-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
+            <img class="site-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
             <div>
               <h1>Paper Lantern</h1>
               <p id="libraryRoot" hidden></p>
             </div>
           </div>
-          <label class="category-search">
-            <input id="librarySearchInput" type="search" placeholder="搜索标题或分类" autocomplete="off" />
-          </label>
-          <div id="categoryTree" class="category-tree"></div>
+          <div id="categoryTree" class="category-tree">
+            <div id="categoryTopRows"></div>
+            <label class="category-search">
+              <input id="librarySearchInput" type="search" placeholder="搜索标题或分类" autocomplete="off" />
+            </label>
+            <div id="categoryMainRows"></div>
+          </div>
           <div class="library-footer-actions">
             <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
               <svg viewBox="0 0 24 24" aria-hidden="true">

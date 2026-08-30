@@ -105,6 +105,8 @@ const readerPlusCircleSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 const readerBookmarkPlusSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 8v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 11h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const readerBookmarkCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 11 2 2 4-5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 
 let readerLibraryHoverTimer = null;
 let pdfSearchMatches = [];
@@ -275,14 +277,25 @@ function renderReaderLibrary() {
     createReaderSpecialRow(READER_RECENT_ID, "最近", readerRecentIconSvg, String(getReaderRecentPapers().length)),
   );
   readerCategoryList.appendChild(
-    createReaderSpecialRow(READER_TODO_ID, "待办", readerTodoIconSvg, String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length), (button) => addCurrentPaperToTodo(), false, readerBookmarkPlusSvg, "加入待办"),
+    createReaderSpecialRow(
+      READER_TODO_ID,
+      "待办",
+      readerTodoIconSvg,
+      String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length),
+      () => toggleCurrentPaperTodo(),
+      false,
+      isCurrentPaperTodo() ? readerBookmarkCheckedSvg : readerBookmarkPlusSvg,
+      isCurrentPaperTodo() ? "移除待办" : "加入待办",
+      isCurrentPaperTodo(),
+    ),
   );
 
   // 文献库: all papers, with the existing categories as its sub-list.
+  const shouldShowCurrentCategoryPath = readerCategoryContainsId(readerLibraryTree, currentPaper?.category);
   readerCategoryList.appendChild(
-    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true),
+    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false, shouldShowCurrentCategoryPath),
   );
-  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID)) {
+  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID) || shouldShowCurrentCategoryPath) {
     renderReaderCategoryNode(readerLibraryTree, 0);
   }
 
@@ -295,7 +308,8 @@ function renderReaderLibrary() {
     papers = collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo);
   } else {
     const selected = categories.find((category) => category.id === readerSelectedCategoryId);
-    papers = selected ? selected.papers || [] : [];
+    // Include papers from the selected category and all of its subcategories.
+    papers = collectReaderPapers(findReaderCategoryNode(readerLibraryTree, readerSelectedCategoryId) || selected);
   }
 
   const titleNode = document.querySelector("#readerLibraryTitle");
@@ -332,10 +346,10 @@ function renderReaderLibrary() {
   });
 }
 
-function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类") {
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
   const row = document.createElement("div");
   row.className = "reader-category-row reader-special-row";
-  const collapsed = isReaderCategoryCollapsed(id);
+  const collapsed = isReaderCategoryCollapsed(id) && !forceExpanded;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "reader-category-item reader-special-item";
@@ -368,6 +382,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
     const addButton = document.createElement("button");
     addButton.type = "button";
     addButton.className = "reader-category-menu-button menu-button reader-add-category-button";
+    addButton.classList.toggle("reader-add-category-button-active", addActive);
     addButton.setAttribute("aria-label", addTitle);
     addButton.title = addTitle;
     addButton.innerHTML = addIconSvg;
@@ -383,7 +398,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
 function renderReaderCategoryNode(node, depth) {
   (node.folders || []).forEach((folder) => {
     renderReaderCategoryRow(folder, depth);
-    if (folder.folders && folder.folders.length && !isReaderCategoryCollapsed(folder.id)) {
+    if (folder.folders && folder.folders.length && (!isReaderCategoryCollapsed(folder.id) || readerCategoryContainsId(folder, currentPaper?.category))) {
       renderReaderCategoryNode(folder, depth + 1);
     }
   });
@@ -397,6 +412,7 @@ function renderReaderCategoryRow(node, depth) {
   button.type = "button";
   button.className = "reader-category-item";
   button.classList.toggle("active", node.id === readerSelectedCategoryId);
+  button.classList.toggle("reader-current-category-path", readerCategoryContainsId(node, currentPaper?.category));
   button.classList.toggle("reader-category-has-children", hasChildren);
   button.style.paddingLeft = `${8 + (depth + 1) * 12}px`;
   const icon = document.createElement("span");
@@ -404,10 +420,11 @@ function renderReaderCategoryRow(node, depth) {
   icon.innerHTML = readerFolderIconSvg;
   button.appendChild(icon);
   if (hasChildren) {
+    const collapsed = isReaderCategoryCollapsed(node.id) && !readerCategoryContainsId(node, currentPaper?.category);
     const toggle = document.createElement("span");
     toggle.className = "reader-category-collapse-toggle";
     toggle.setAttribute("aria-label", "展开/收起");
-    toggle.textContent = isReaderCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.textContent = collapsed ? "▸" : "▾";
     toggle.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleReaderCategoryCollapsed(node.id);
@@ -457,25 +474,32 @@ function getReaderRecentPapers() {
   return all.filter((paper) => ids.has(paper.id));
 }
 
-async function addCurrentPaperToTodo() {
+function isCurrentPaperTodo() {
+  return Boolean(currentPaper?.todo || collectReaderPapers(readerLibraryTree).find((paper) => paper.id === currentPaper?.id)?.todo);
+}
+
+async function toggleCurrentPaperTodo() {
   if (!currentPaper?.id) {
     setStatus("未打开论文。", true);
     return;
   }
+  const nextTodo = !isCurrentPaperTodo();
   try {
     const response = await apiFetch("/api/library/paper", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: currentPaper.id, todo: true }),
+      body: JSON.stringify({ id: currentPaper.id, todo: nextTodo }),
     });
     const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "加入待办失败。");
-    currentPaper.todo = true;
-    setStatus("已加入待办。");
+    if (!response.ok) throw new Error(data.error || "更新待办失败。");
+    currentPaper.todo = nextTodo;
+    const libraryPaper = collectReaderPapers(readerLibraryTree).find((paper) => paper.id === currentPaper.id);
+    if (libraryPaper) libraryPaper.todo = nextTodo;
+    setStatus(nextTodo ? "已加入待办。" : "已移除待办。");
     renderReaderLibrary();
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "加入待办失败。", true);
+    setStatus(error.message || "更新待办失败。", true);
   }
 }
 
@@ -715,6 +739,22 @@ function collectReaderPapers(node) {
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectReaderPapers)];
 }
 
+function findReaderCategoryNode(node, id) {
+  if (!node) return null;
+  if ((node.id || "") === id) return node;
+  for (const folder of node.folders || []) {
+    const found = findReaderCategoryNode(folder, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function readerCategoryContainsId(node, categoryId) {
+  if (!node || !categoryId) return false;
+  if (node.id === categoryId) return true;
+  return (node.folders || []).some((folder) => readerCategoryContainsId(folder, categoryId));
+}
+
 async function openReaderFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const paperId = params.get("id");
@@ -911,7 +951,6 @@ function initReaderTabs() {
 function initReaderSideRail() {
   const tabs = document.querySelector(".reader-tabs");
   if (readerSideRail && tabs) readerSideRail.append(tabs);
-  if (readerLeftRail) readerLeftRail.append(...[readerSettingsButton, exportPdfButton].filter(Boolean));
 }
 
 exportPdfButton?.addEventListener("click", exportCurrentPaperPdf);

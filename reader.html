@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
-    <link rel="icon" type="image/jpeg" href="./.cache/figure.jpg" />
-    <link rel="apple-touch-icon" href="./.cache/figure.jpg" />
+    <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
+    <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -17,7 +17,7 @@
     <main class="app-shell">
       <nav id="readerLeftRail" class="reader-left-rail" aria-label="Reader library controls">
         <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
-          <img class="site-logo reader-rail-logo" src="./.cache/figure.jpg" alt="" aria-hidden="true" />
+          <img class="site-logo reader-rail-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
           <span>Paper Lantern</span>
         </button>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
@@ -57,6 +57,19 @@
               </button>
               <span id="pdfSearchCount" class="pdf-search-count"></span>
               <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+              <button id="readerSettingsButton" class="reader-settings-button pdf-toolbar-button" type="button" aria-label="Settings" title="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+                  <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+                </svg>
+              </button>
+              <button id="exportPdfButton" class="reader-export-button pdf-toolbar-button" type="button" aria-label="Export PDF" title="Export PDF">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 3v11"></path>
+                  <path d="m7 9 5 5 5-5"></path>
+                  <path d="M5 19h14"></path>
+                </svg>
+              </button>
             </div>
           </div>
           <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
@@ -302,21 +315,6 @@
         </div>
       </aside>
       <nav id="readerSideRail" class="reader-side-rail" aria-label="Reader side controls"></nav>
-      <button id="readerSettingsButton" class="reader-settings-button" type="button" aria-label="Settings" title="Settings">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
-          <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
-        </svg>
-        <span>settings</span>
-      </button>
-      <button id="exportPdfButton" class="reader-export-button" type="button" aria-label="Export PDF" title="Export PDF">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M12 3v11"></path>
-          <path d="m7 9 5 5 5-5"></path>
-          <path d="M5 19h14"></path>
-        </svg>
-        <span>Export PDF</span>
-      </button>
     </main>
     <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
       <form id="cloudConfigForm" class="cloud-config-card">

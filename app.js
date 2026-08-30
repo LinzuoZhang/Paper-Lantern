@@ -1,6 +1,8 @@
 const libraryRoot = document.querySelector("#libraryRoot");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
+const categoryTopRows = document.querySelector("#categoryTopRows");
+const categoryMainRows = document.querySelector("#categoryMainRows");
 const paperList = document.querySelector("#paperList");
 const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
@@ -64,7 +66,6 @@ const plusCircleSvg =
 let libraryTree = null;
 let selectedCategoryId = RECENT_CATEGORY_ID;
 let apiBaseUrl = "";
-let categorySearchBar = null;
 let paperSort = { key: "uploadedAt", dir: "desc" };
 
 function sortPapers(papers) {
@@ -307,17 +308,15 @@ async function loadLibrary(focusPaperId = "") {
 }
 
 function renderLibrary() {
-  categoryTree.innerHTML = "";
+  // The search bar is a static child of the tree, so only clear the dynamic
+  // rows — this keeps the search input mounted and focused while typing.
+  categoryTopRows.innerHTML = "";
+  categoryMainRows.innerHTML = "";
   paperList.innerHTML = "";
   hidePaperInfoPanel();
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
   renderTodoCategory();
-  // Search bar sits right below 待办 and above the category list. Cache the
-  // reference so it survives re-renders (innerHTML="" would otherwise remove it
-  // from the DOM and querySelector would stop finding it).
-  if (!categorySearchBar) categorySearchBar = document.querySelector(".category-search");
-  if (categorySearchBar) categoryTree.appendChild(categorySearchBar);
   renderCategoryNode(libraryTree, 0);
 
   const allPapers = collectPapers(libraryTree);
@@ -335,7 +334,8 @@ function renderLibrary() {
     } else {
       currentCategoryName.innerHTML = `${libraryCategoryIconSvg}<span>文献库</span>`;
     }
-    papers = selectedCategoryId ? selected?.papers || [] : allPapers;
+    // Show the papers of the selected category and all of its subcategories.
+    papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
   renderPaperList(filterPapers(papers, searchQuery));
 }
@@ -410,7 +410,7 @@ function renderCategoryRow(node, depth = 0) {
     });
     row.append(button, menuButton);
   }
-  categoryTree.appendChild(row);
+  categoryMainRows.appendChild(row);
 }
 
 function isCategoryCollapsed(categoryId) {
@@ -440,7 +440,7 @@ function renderRecentCategory() {
   });
 
   row.appendChild(button);
-  categoryTree.appendChild(row);
+  categoryTopRows.appendChild(row);
 }
 
 function renderTodoCategory() {
@@ -459,7 +459,7 @@ function renderTodoCategory() {
   });
 
   row.appendChild(button);
-  categoryTree.appendChild(row);
+  categoryTopRows.appendChild(row);
 }
 
 function renderPaperList(papers) {
@@ -525,13 +525,14 @@ function renderPaperList(papers) {
     });
 
     const titleTd = document.createElement("td");
-    const titleButton = document.createElement("button");
-    titleButton.type = "button";
+    titleTd.className = "paper-title-cell";
+    const titleButton = document.createElement("span");
     titleButton.className = "paper-title-button";
     titleButton.textContent = paper.title;
     titleButton.title = paper.title;
-    titleButton.addEventListener("click", () => openPaperReader(paper.id));
     titleTd.appendChild(titleButton);
+    // The whole title cell is clickable.
+    titleTd.addEventListener("click", () => openPaperReader(paper.id));
 
     const uploadTd = document.createElement("td");
     uploadTd.className = "paper-date-cell";
@@ -1070,7 +1071,7 @@ function startInlineCategoryCreate(parentCategory, anchor) {
   newRow.appendChild(input);
 
   if (row) row.after(newRow);
-  else categoryTree.appendChild(newRow);
+  else categoryMainRows.appendChild(newRow);
   input.focus();
 
   let done = false;
@@ -1151,25 +1152,67 @@ function showMovePaperMenu(paper, anchor) {
   heading.textContent = "移动到分类";
   menu.appendChild(heading);
 
-  flattenCategories(libraryTree)
-    .filter((category) => category.id && category.id !== RECENT_CATEGORY_ID)
-    .forEach((category) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "move-category-option";
-      if (category.depth >= 2) button.classList.add("move-category-sub");
-      button.style.paddingLeft = `${14 + category.depth * 14}px`;
-      button.disabled = category.id === paper.category;
-      button.textContent = category.name || UNCATEGORIZED_LABEL;
-      button.addEventListener("click", async () => {
-        menu.remove();
-        await updatePaper({ action: "move", id: paper.id, category: category.id });
-      });
-      menu.appendChild(button);
-    });
+  const list = document.createElement("div");
+  list.className = "move-category-list";
+  menu.appendChild(list);
+
+  const rerender = () => showMovePaperMenu(paper, anchor);
+  renderMoveCategoryNode(libraryTree, 0, paper, list, rerender);
 
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 260);
+}
+
+function renderMoveCategoryNode(node, depth, paper, container, rerender) {
+  (node.folders || []).forEach((folder) => {
+    renderMoveCategoryRow(folder, depth, paper, container, rerender);
+    if (folder.folders && folder.folders.length && !isCategoryCollapsed(folder.id)) {
+      renderMoveCategoryNode(folder, depth + 1, paper, container, rerender);
+    }
+  });
+}
+
+function renderMoveCategoryRow(node, depth, paper, container, rerender) {
+  const row = document.createElement("div");
+  row.className = "move-category-row";
+  row.style.paddingLeft = `${14 + depth * 14}px`;
+
+  const hasChildren = Boolean(node.folders && node.folders.length);
+  const paperCategory = String(paper.category || "");
+  const isExact = node.id === paperCategory;
+  const isAncestor = Boolean(paperCategory) && paperCategory.startsWith(`${node.id}/`);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "move-category-option";
+  if (depth >= 1) button.classList.add("move-category-sub");
+  button.classList.toggle("move-category-has-children", hasChildren);
+  if (isAncestor && !isExact) button.classList.add("move-category-current");
+  button.disabled = isExact;
+
+  const icon = document.createElement("span");
+  icon.className = "move-category-folder-icon";
+  icon.innerHTML = folderCategoryIconSvg;
+  button.appendChild(icon);
+
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "move-category-toggle";
+    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCategoryCollapsed(node.id);
+      rerender();
+    });
+    button.appendChild(toggle);
+  }
+
+  button.appendChild(document.createTextNode(node.name));
+  button.addEventListener("click", async () => {
+    document.querySelector(".library-menu")?.remove();
+    await updatePaper({ action: "move", id: paper.id, category: node.id });
+  });
+  row.appendChild(button);
+  container.appendChild(row);
 }
 
 function positionMenu(menu, anchor, width) {
@@ -1267,6 +1310,16 @@ function flattenCategories(node, depth = 0) {
 function collectPapers(node) {
   if (!node) return [];
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectPapers)];
+}
+
+function findCategoryNode(node, id) {
+  if (!node) return null;
+  if ((node.id || "") === id) return node;
+  for (const folder of node.folders || []) {
+    const found = findCategoryNode(folder, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 function filterPapers(papers, query) {
