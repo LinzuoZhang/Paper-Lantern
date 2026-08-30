@@ -1871,13 +1871,6 @@ select {
   background: #fff;
 }
 
-.pdf-reference-actions-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-}
-
 .pdf-reference-action-controls {
   position: absolute;
   display: flex;
@@ -1886,10 +1879,76 @@ select {
   pointer-events: auto;
 }
 
-.pdf-link-preview-actions {
+.pdf-reference-action-dots {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.pdf-reference-preview-dots {
+  z-index: 2;
+}
+
+.pdf-reference-action-dot {
+  position: absolute;
+  width: 14px;
+  min-width: 0;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pdf-reference-action-dot::before {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 58%, transparent);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.88);
+  content: "";
+  transition: width 120ms ease, height 120ms ease, top 120ms ease, left 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.pdf-reference-action-dot:hover::before,
+.pdf-reference-action-dot:focus-visible::before {
+  top: 3px;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.pdf-reference-action-dot:focus-visible {
+  outline: none;
+}
+
+.pdf-reference-action-popover {
+  position: fixed;
+  z-index: 45;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 8px 20px rgba(29, 37, 32, 0.16);
+}
+
+.pdf-reference-action-popover[hidden] {
+  display: none;
+}
+
+.pdf-reference-popover-actions {
   position: static;
-  width: fit-content;
-  margin: -3px 0 8px;
 }
 
 .pdf-reference-action-controls a {

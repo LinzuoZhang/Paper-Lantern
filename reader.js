@@ -97,6 +97,8 @@ let discussionWebUrl = "https://chatgpt.com/";
 let citationPreviewNode = null;
 let citationPreviewHideTimer = null;
 let citationPreviewToken = 0;
+let referenceActionPopover = null;
+let referenceActionHideTimer = null;
 const citationPreviewCache = new Map();
 const pdfLinkPageCache = new Map();
 const pdfLinkTextCache = new Map();
@@ -1786,6 +1788,7 @@ async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
   hideCitationPreview();
+  hideReferenceActionPopover();
   citationPreviewCache.clear();
   pdfLinkPageCache.clear();
   pdfLinkTextCache.clear();
@@ -1901,7 +1904,7 @@ async function renderPdfPage(pageNumber, renderId) {
   if (currentPdfTask !== renderId) return;
   await renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId);
   if (currentPdfTask !== renderId) return;
-  await renderReferenceActionButtons(pageNode, page, viewport, pageNumber, renderId);
+  await renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId);
   if (currentPdfTask !== renderId) return;
   pageNode.dataset.rendered = "true";
   delete pageNode.dataset.rendering;
@@ -1990,17 +1993,15 @@ function setCitationPreviewContent(preview) {
     preview.source.canvas.className = "pdf-link-preview-canvas";
     preview.source.canvas.setAttribute("aria-label", `Linked PDF page ${preview.pageNumber}`);
     content.appendChild(preview.source.canvas);
+    if (preview.referenceEntries?.length) {
+      renderReferenceActionDotLayer(content, preview.referenceEntries, preview.source.viewport, "pdf-reference-preview-dots");
+    }
     viewer.appendChild(content);
     initPdfLinkPreviewPan(viewer);
     children.push(viewer);
-    if (preview.isCitation) {
-      const actions = createReferenceActionControls(preview);
-      actions.classList.add("pdf-link-preview-actions");
-      children.push(actions);
-    }
     requestAnimationFrame(() => centerPdfLinkPreview(viewer, preview.destination, preview.source.viewport));
   }
-  if (preview.text) {
+  if (preview.text && !preview.isCitation) {
     const body = document.createElement("p");
     body.textContent = preview.text;
     children.push(body);
@@ -2082,6 +2083,7 @@ async function resolveCitationPreview(annotation) {
   const referenceText = extractReferenceText(textContent.items, getCitationDestinationY(destination));
   const isCitation = isCitationDestination(annotation.dest) || /^\s*\[\s*\d+\s*\]/.test(referenceText);
   const text = isCitation ? referenceText : "";
+  const referenceEntries = isCitation && isReferenceListPage(textContent.items) ? extractReferenceEntries(textContent.items) : [];
   const source = await getPdfLinkPreviewSource(page, pageNumber);
   return {
     label: isCitation ? `Reference · page ${pageNumber}` : `Linked content · page ${pageNumber}`,
@@ -2090,6 +2092,7 @@ async function resolveCitationPreview(annotation) {
     destination,
     source,
     isCitation,
+    referenceEntries,
     searchQuery: isCitation ? buildReferenceSearchQuery(text) : "",
     arxivUrl: isCitation ? getArxivUrl(text) : "",
   };
@@ -2145,14 +2148,17 @@ function getArxivUrl(referenceText) {
   return identifier ? `https://arxiv.org/abs/${identifier[1]}` : "";
 }
 
-async function renderReferenceActionButtons(pageNode, page, viewport, pageNumber, renderId) {
-  pageNode.querySelector(".pdf-reference-actions-layer")?.remove();
+async function renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId) {
+  pageNode.querySelector(".pdf-reference-action-dots")?.remove();
   const textContent = await getPdfLinkTextContent(page, pageNumber);
-  if (currentPdfTask !== renderId) return;
+  if (currentPdfTask !== renderId || !isReferenceListPage(textContent.items)) return;
   const entries = extractReferenceEntries(textContent.items);
-  if (entries.length < 2) return;
+  if (entries.length) renderReferenceActionDotLayer(pageNode, entries, viewport);
+}
+
+function renderReferenceActionDotLayer(container, entries, viewport, extraClass = "") {
   const layer = document.createElement("div");
-  layer.className = "pdf-reference-actions-layer";
+  layer.className = `pdf-reference-action-dots ${extraClass}`.trim();
   entries.forEach((entry) => {
     const detail = {
       ...entry,
@@ -2160,12 +2166,24 @@ async function renderReferenceActionButtons(pageNode, page, viewport, pageNumber
       searchQuery: buildReferenceSearchQuery(entry.text),
       arxivUrl: getArxivUrl(entry.text),
     };
-    const actions = createReferenceActionControls(detail);
-    actions.classList.add("pdf-reference-list-actions");
-    positionReferenceActionsAtPdfY(actions, entry.y, viewport);
-    layer.appendChild(actions);
+    if (!detail.searchQuery && !detail.arxivUrl) return;
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "pdf-reference-action-dot";
+    dot.title = "打开此参考文献的 Scholar / arXiv 链接";
+    dot.setAttribute("aria-label", "打开此参考文献的 Scholar / arXiv 链接");
+    positionReferenceActionDot(dot, entry, viewport);
+    dot.addEventListener("pointerenter", () => showReferenceActionPopover(dot, detail));
+    dot.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
+    dot.addEventListener("focus", () => showReferenceActionPopover(dot, detail));
+    dot.addEventListener("blur", scheduleReferenceActionPopoverHide);
+    dot.addEventListener("click", (event) => {
+      event.preventDefault();
+      showReferenceActionPopover(dot, detail);
+    });
+    layer.appendChild(dot);
   });
-  if (layer.childElementCount) pageNode.appendChild(layer);
+  if (layer.childElementCount) container.appendChild(layer);
 }
 
 function createReferenceActionControls(reference) {
@@ -2194,16 +2212,55 @@ function createReferenceActionControls(reference) {
   return actions;
 }
 
-function positionReferenceActions(actions, destination, viewport) {
-  const point = getPdfDestinationPoint(destination, viewport);
-  actions.style.left = `${Math.max(6, viewport.width - 138)}px`;
-  actions.style.top = `${clamp(point.y + 2, 4, Math.max(4, viewport.height - 30))}px`;
+function positionReferenceActionDot(dot, entry, viewport) {
+  const [pointX, pointY] = viewport.convertToViewportPoint(Number(entry.x || viewport.viewBox[0]), entry.y);
+  dot.style.left = `${Math.max(1, pointX - 12)}px`;
+  dot.style.top = `${Math.max(1, pointY + 2)}px`;
 }
 
-function positionReferenceActionsAtPdfY(actions, pdfY, viewport) {
-  const [, pointY] = viewport.convertToViewportPoint(viewport.viewBox[0], pdfY);
-  actions.style.left = `${Math.max(6, viewport.width - 138)}px`;
-  actions.style.top = `${clamp(pointY + 2, 4, Math.max(4, viewport.height - 30))}px`;
+function ensureReferenceActionPopover() {
+  if (referenceActionPopover) return referenceActionPopover;
+  const popover = document.createElement("aside");
+  popover.className = "pdf-reference-action-popover";
+  popover.hidden = true;
+  popover.setAttribute("role", "dialog");
+  popover.addEventListener("pointerenter", () => window.clearTimeout(referenceActionHideTimer));
+  popover.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
+  popover.addEventListener("focusin", () => window.clearTimeout(referenceActionHideTimer));
+  popover.addEventListener("focusout", (event) => {
+    if (!popover.contains(event.relatedTarget)) scheduleReferenceActionPopoverHide();
+  });
+  document.body.appendChild(popover);
+  referenceActionPopover = popover;
+  return popover;
+}
+
+function showReferenceActionPopover(anchor, reference) {
+  window.clearTimeout(referenceActionHideTimer);
+  const popover = ensureReferenceActionPopover();
+  const actions = createReferenceActionControls(reference);
+  actions.classList.add("pdf-reference-popover-actions");
+  popover.replaceChildren(actions);
+  popover.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  const margin = 10;
+  const left = Math.max(margin, Math.min(rect.left - 6, window.innerWidth - popover.offsetWidth - margin));
+  const below = rect.bottom + 4;
+  const top = below + popover.offsetHeight <= window.innerHeight - margin
+    ? below
+    : Math.max(margin, rect.top - popover.offsetHeight - 4);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+function scheduleReferenceActionPopoverHide() {
+  window.clearTimeout(referenceActionHideTimer);
+  referenceActionHideTimer = window.setTimeout(hideReferenceActionPopover, 100);
+}
+
+function hideReferenceActionPopover() {
+  window.clearTimeout(referenceActionHideTimer);
+  if (referenceActionPopover) referenceActionPopover.hidden = true;
 }
 
 function centerPdfLinkPreview(viewer, destination, viewport) {
@@ -2215,7 +2272,7 @@ function centerPdfLinkPreview(viewer, destination, viewport) {
 function initPdfLinkPreviewPan(viewer) {
   let pan = null;
   viewer.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest("a")) return;
+    if (event.button !== 0 || event.target.closest("a, button")) return;
     pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: viewer.scrollLeft, top: viewer.scrollTop };
     viewer.setPointerCapture(event.pointerId);
     viewer.classList.add("is-panning");
@@ -2291,7 +2348,7 @@ function buildPdfTextLines(items) {
       line = { y, items: [] };
       lines.push(line);
     }
-    line.items.push({ x, text });
+    line.items.push({ x, width: Number(item.width), text });
   });
   lines.sort((left, right) => right.y - left.y);
   lines.forEach((line) => {
@@ -2304,20 +2361,69 @@ function isReferenceStart(text) {
   return /^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s+/.test(text);
 }
 
+function isBracketReferenceStart(text) {
+  return /^\s*\[\s*\d+\s*\]\s+/.test(text);
+}
+
+function isReferenceListPage(items) {
+  const lines = buildPdfReferenceLines(items);
+  const hasReferenceHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
+  const bracketReferenceCount = lines.filter((line) => isBracketReferenceStart(line.text)).length;
+  return hasReferenceHeading || bracketReferenceCount >= 4;
+}
+
 function extractReferenceEntries(items) {
-  const lines = buildPdfTextLines(items);
+  const lines = buildPdfReferenceLines(items);
   const entries = [];
-  let current = null;
-  lines.forEach((line) => {
-    if (isReferenceStart(line.text)) {
-      if (current) entries.push(current);
-      current = { y: line.y, text: line.text };
-      return;
-    }
-    if (current && current.text.length < 900) current.text = `${current.text} ${line.text}`.trim();
+  buildPdfReferenceColumns(lines).forEach((column) => {
+    let current = null;
+    column.forEach((line) => {
+      if (isReferenceStart(line.text)) {
+        if (current) entries.push(current);
+        current = { y: line.y, x: line.x, text: line.text };
+        return;
+      }
+      if (current && current.text.length < 900) current.text = `${current.text} ${line.text}`.trim();
+    });
+    if (current) entries.push(current);
   });
-  if (current) entries.push(current);
   return entries.filter((entry) => entry.text.length >= 18);
+}
+
+function buildPdfReferenceLines(items) {
+  const gapThreshold = 26;
+  return buildPdfTextLines(items).flatMap((line) => {
+    const segments = [];
+    let segment = null;
+    let previous = null;
+    line.items.forEach((item) => {
+      const previousRight = previous ? previous.x + Math.max(previous.width || 0, 1) : 0;
+      if (!segment || item.x - previousRight > gapThreshold) {
+        segment = { y: line.y, items: [] };
+        segments.push(segment);
+      }
+      segment.items.push(item);
+      previous = item;
+    });
+    return segments.map((segment) => ({
+      y: segment.y,
+      x: Math.min(...segment.items.map((item) => item.x)),
+      items: segment.items,
+      text: segment.items.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim(),
+    }));
+  });
+}
+
+function buildPdfReferenceColumns(lines) {
+  const columns = [];
+  [...lines].sort((left, right) => left.x - right.x).forEach((line) => {
+    const column = columns.find((candidate) => Math.abs(candidate.x - line.x) <= 56);
+    if (column) column.lines.push(line);
+    else columns.push({ x: line.x, lines: [line] });
+  });
+  return columns
+    .sort((left, right) => left.x - right.x)
+    .map((column) => column.lines.sort((left, right) => right.y - left.y));
 }
 
 function extractReferenceText(items, destinationY) {
@@ -2797,7 +2903,7 @@ function scheduleCommentAutoSave() {
   }, 450);
 }
 
-async function saveCommentDraft() {
+async function saveCommentDraft({ refreshHighlights = false } = {}) {
   const bubble = document.querySelector("#commentBubble");
   const comment = bubble?.querySelector(".comment-text")?.value.trim() || "";
   if (!commentDraftHighlights.length) return;
@@ -2818,7 +2924,7 @@ async function saveCommentDraft() {
       if (!isSameHighlightGroup(highlight, draftGroupId)) return highlight;
       return { ...highlight, comment, type: highlight.translation ? "comment-translation" : "comment" };
     });
-    redrawHighlights();
+    if (refreshHighlights) redrawHighlights();
   } else {
     commentDraftHighlights.forEach((highlight) => {
       const annotation = { ...highlight, comment };
@@ -2828,7 +2934,6 @@ async function saveCommentDraft() {
     });
   }
 
-  window.getSelection()?.removeAllRanges();
   await saveHighlights();
 }
 
@@ -3091,7 +3196,7 @@ function hideTranslationBubble() {
 
 function hideCommentBubble() {
   window.clearTimeout(commentAutoSaveTimer);
-  saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
+  saveCommentDraft({ refreshHighlights: true }).catch((error) => console.error("Failed to auto-save comment.", error));
   document.querySelector("#commentBubble")?.remove();
   commentDraftHighlights = [];
 }
