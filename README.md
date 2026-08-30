@@ -8,12 +8,12 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 
 ## 功能
 
-- 文献库首页：按分类管理论文，支持搜索、最近阅读、本地 PDF 拖拽上传和 arXiv 导入。
+- 文献库首页：按分类管理论文，支持搜索、最近阅读、本地 PDF 拖拽上传、PDF URL 和 arXiv 导入。
 - PDF 阅读器：基于本地 `vendor/pdfjs/` 渲染 PDF，不依赖外部 CDN。
 - AI 论文解析：生成关键词、基本信息、三行摘要、方法概览、方法拆解和结论。
 - 论文讨论：围绕当前论文上下文问答，支持多讨论线程和历史保存。
 - 划词工具：选中 PDF 文本后可以高亮、评论、翻译，或解释该段在论文中的作用。
-- 批注导出：可以导出带高亮和评论标记的 PDF；此功能需要额外安装 PyMuPDF。
+- 批注导出：可以导出带高亮和评论标记的 PDF；Notes 支持 Markdown 预览和 PDF 导出。
 - 本地数据保存：论文、元数据、摘要、批注、讨论历史和文本缓存都写入本地文献库。
 - 云同步：支持同步到本地文件夹或 WebDAV，并可开启自动同步。
 - Prompt 可编辑：AI 总结、方法拆解和翻译提示词集中放在 `prompts/ai/`。
@@ -43,11 +43,13 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 - 浏览器
 - AI API Key
 
-核心后端只使用 Python 标准库。只有导出带批注的 PDF 时需要额外安装：
+核心后端只使用 Python 标准库。导出 PDF 和 Notes Markdown PDF 时需要额外安装：
 
 ```powershell
-pip install pymupdf
+pip install pymupdf markdown-it-py matplotlib
 ```
+
+其中 `matplotlib` 用于把 Notes 中的 `$...$` / `$$...$$` 公式渲染为图片（未安装时公式会退化为纯文本）。
 
 ## 启动
 
@@ -106,11 +108,11 @@ CLOUD_SYNC_AUTO_PUSH=true
 ## 使用流程
 
 1. 打开文献库首页。
-2. 点击上传入口选择 `Upload PDF`，拖拽本地 PDF 到上传区域，或使用 `arXiv upload` 导入 arXiv 论文。
+2. 点击上传入口选择 `Upload PDF`，拖拽本地 PDF 到上传区域，或使用 `PDF URL or arXiv` 导入远程 PDF / arXiv 论文。
 3. 进入阅读器后，PDF 会在左侧显示，右侧显示 AI 摘要、基本信息、方法拆解和讨论区。
 4. 在 PDF 中选中文本，可以高亮、写评论、翻译，或让 AI 解释这段话在论文中的作用。
 5. 点击刷新/解析按钮，可以重新生成当前论文摘要或基本信息。
-6. 在文献库卡片菜单中可以移动分类、删除论文或导出带批注 PDF。
+6. 在文献库卡片菜单中可以移动、删除或导出带批注 PDF。
 
 ## 数据保存
 
@@ -154,7 +156,8 @@ WebDAV 注意事项：
 - `GET /api/library/pdf?id=...`：读取论文 PDF。
 - `GET /api/library/export?id=...`：导出带批注的 PDF。
 - `POST /api/library/upload`：上传本地 PDF。
-- `POST /api/library/arxiv`：从 arXiv 导入 PDF。
+- `POST /api/library/remote-pdf`：从 PDF URL 或 arXiv 导入 PDF。
+- `POST /api/library/arxiv`：兼容旧版 arXiv 导入调用。
 - `POST /api/library/paper`：移动、删除或保存论文相关数据。
 - `POST /api/library/category`：新增、重命名或删除分类。
 - `GET /api/settings` / `POST /api/settings`：读取或保存 AI 与同步设置。

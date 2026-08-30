@@ -1,9 +1,13 @@
 const libraryRoot = document.querySelector("#libraryRoot");
+const libraryLayout = document.querySelector(".library-layout");
+const categoryPanel = document.querySelector(".category-panel");
+const libraryLayoutResizer = document.querySelector("#libraryLayoutResizer");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
+const categoryTopRows = document.querySelector("#categoryTopRows");
+const categoryMainRows = document.querySelector("#categoryMainRows");
 const paperList = document.querySelector("#paperList");
-const libraryLayout = document.querySelector(".library-layout");
-const libraryPaneResizer = document.querySelector("#libraryPaneResizer");
+const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const librarySearchInput = document.querySelector("#librarySearchInput");
 const tagFilterList = document.querySelector("#tagFilterList");
@@ -20,12 +24,21 @@ const cloudSyncButton = document.querySelector("#cloudSyncButton");
 const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
 const cloudConfigForm = document.querySelector("#cloudConfigForm");
 const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
+const libCitationOverlay = document.querySelector("#libCitationOverlay");
+const libCitationOverlayTitle = document.querySelector("#libCitationOverlayTitle");
+const libCitationOverlayMeta = document.querySelector("#libCitationOverlayMeta");
+const libCitationOverlayCloseButton = document.querySelector("#libCitationOverlayCloseButton");
+const libCitationFormatSelect = document.querySelector("#libCitationFormatSelect");
+const libCitationCopyButton = document.querySelector("#libCitationCopyButton");
+const libCitationOutput = document.querySelector("#libCitationOutput");
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
 const aiExtraParamsInput = document.querySelector("#aiExtraParamsInput");
 const aiTaskConfigSections = Array.from(document.querySelectorAll("[data-ai-task]"));
 const discussionWebUrlInput = document.querySelector("#discussionWebUrlInput");
+const aiApiTestButton = document.querySelector("#aiApiTestButton");
+const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
 const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
 const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
@@ -34,26 +47,128 @@ const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
 const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 
 const RECENT_CATEGORY_ID = "__recent";
+const TODO_CATEGORY_ID = "__todo";
 const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
 const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
-const LIBRARY_SIDEBAR_WIDTH_KEY = "paperLanternLibrarySidebarWidth";
+const LIBRARY_CATEGORY_PANEL_WIDTH_KEY = "paperLanternLibraryCategoryPanelWidth";
+
+const recentCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
+const libraryCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
+const folderCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+const paperReadUncheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperReadCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperTodoUncheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 7v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 10h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const paperTodoCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 12 2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const todoCategoryIconSvg =
+  '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
+const plusCircleSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 
 let libraryTree = null;
-let selectedCategoryId = "";
+let selectedCategoryId = RECENT_CATEGORY_ID;
 let apiBaseUrl = "";
+let paperSort = { key: "uploadedAt", dir: "desc" };
+
+function sortPapers(papers) {
+  const { key, dir } = paperSort;
+  if (key === "manual") return [...papers];
+  const sign = dir === "asc" ? 1 : -1;
+  const list = [...papers];
+  list.sort((a, b) => {
+    if (key === "title") {
+      const va = String(a.title || "").toLowerCase();
+      const vb = String(b.title || "").toLowerCase();
+      return sign * va.localeCompare(vb);
+    }
+    const rawA = key === "lastRead" ? getPaperViewedAt(a.id) : a.uploadedAt;
+    const rawB = key === "lastRead" ? getPaperViewedAt(b.id) : b.uploadedAt;
+    const ta = rawA ? new Date(rawA).getTime() : NaN;
+    const tb = rawB ? new Date(rawB).getTime() : NaN;
+    if (Number.isNaN(ta) && Number.isNaN(tb)) return 0;
+    if (Number.isNaN(ta)) return 1;
+    if (Number.isNaN(tb)) return -1;
+    return sign * (ta - tb);
+  });
+  return list;
+}
 let searchQuery = "";
 let selectedTagNames = new Set();
 let draggedCategory = null;
 let draggedPaperId = "";
 let suppressPaperOpenUntil = 0;
-let isResizingLibrarySidebar = false;
+let arxivDownloadOverlayTimer = null;
+let cloudSyncProgressHideTimer = null;
+let cloudSyncProgressPollTimer = null;
+let cloudSyncProgressValue = 0;
+let cloudSyncCancelRequested = false;
+let libCitationFormats = null;
+let libCitationFormat = "gbt7714";
 
 loadLibrary();
+initLibraryLayoutResize();
+initLibraryCitationOverlay();
 loadCloudSyncStatus();
 loadSettings();
 migrateLegacyRecentPapers();
-initLibraryPaneResizer();
+if (new URLSearchParams(window.location.search).get("settings") === "1") {
+  openCloudConfig();
+}
+
+function initLibraryLayoutResize() {
+  if (!libraryLayout || !categoryPanel || !libraryLayoutResizer) return;
+  applySavedLibraryCategoryPanelWidth();
+  window.addEventListener("resize", applySavedLibraryCategoryPanelWidth);
+
+  libraryLayoutResizer.addEventListener("pointerdown", (event) => {
+    if (!isLibraryLayoutResizable()) return;
+    event.preventDefault();
+    const onMove = (moveEvent) => {
+      setLibraryCategoryPanelWidth(moveEvent.clientX - libraryLayout.getBoundingClientRect().left);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizing-library-layout");
+      const width = Math.round(categoryPanel.getBoundingClientRect().width);
+      localStorage.setItem(LIBRARY_CATEGORY_PANEL_WIDTH_KEY, String(width));
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.classList.add("resizing-library-layout");
+  });
+}
+
+function applySavedLibraryCategoryPanelWidth() {
+  if (!categoryPanel) return;
+  if (!isLibraryLayoutResizable()) {
+    categoryPanel.style.width = "";
+    categoryPanel.style.flexBasis = "";
+    return;
+  }
+  const savedWidth = Number(localStorage.getItem(LIBRARY_CATEGORY_PANEL_WIDTH_KEY));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) setLibraryCategoryPanelWidth(savedWidth);
+}
+
+function isLibraryLayoutResizable() {
+  return window.matchMedia("(min-width: 901px)").matches;
+}
+
+function setLibraryCategoryPanelWidth(width) {
+  if (!libraryLayout || !categoryPanel) return;
+  const layoutWidth = libraryLayout.getBoundingClientRect().width || window.innerWidth;
+  const maxWidth = Math.min(520, Math.max(260, layoutWidth * 0.45));
+  const nextWidth = Math.round(Math.min(Math.max(Number(width) || 280, 220), maxWidth));
+  categoryPanel.style.width = `${nextWidth}px`;
+  categoryPanel.style.flexBasis = `${nextWidth}px`;
+}
 
 libraryPdfInput.addEventListener("change", async () => {
   const file = libraryPdfInput.files && libraryPdfInput.files[0];
@@ -68,10 +183,10 @@ uploadMenuButton.addEventListener("click", () => {
 });
 
 arxivUploadButton.addEventListener("click", async () => {
-  const arxivId = arxivUploadInput.value;
-  if (!arxivId?.trim()) return;
+  const source = arxivUploadInput.value;
+  if (!source?.trim()) return;
   closeUploadMenu();
-  await uploadArxivPaper(arxivId.trim());
+  await uploadRemotePdf(source.trim());
   arxivUploadInput.value = "";
 });
 
@@ -80,7 +195,7 @@ librarySearchInput.addEventListener("input", () => {
   renderLibrary();
 });
 
-clearTagFiltersButton.addEventListener("click", () => {
+clearTagFiltersButton?.addEventListener("click", () => {
   selectedTagNames = new Set();
   renderLibrary();
 });
@@ -97,12 +212,16 @@ cloudConfigCloseButton.addEventListener("click", closeCloudConfig);
 cloudConfigOverlay.addEventListener("pointerdown", (event) => {
   if (event.target === cloudConfigOverlay) closeCloudConfig();
 });
-cloudConfigForm.addEventListener("submit", async (event) => {
+cloudConfigForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  await saveCloudSyncConfig();
+  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
 });
+wireCloudSettingsAutoSave();
 aiTaskConfigSections.forEach((section) => {
-  section.querySelector("[data-ai-task-default]").addEventListener("change", () => updateAiTaskSection(section));
+  section.querySelector("[data-ai-task-default]")?.addEventListener("change", () => updateAiTaskSection(section));
+});
+aiApiTestButton.addEventListener("click", async () => {
+  await testAiApi();
 });
 
 uploadForm.addEventListener("dragenter", handleUploadDrag);
@@ -161,10 +280,6 @@ function handleUploadDrag(event) {
   }
 }
 
-async function handlePdfUpload(file, category = "") {
-  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), category || getActiveUploadCategory());
-}
-
 function getDroppedPdf(event) {
   return Array.from(event.dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
 }
@@ -180,79 +295,15 @@ function handleLibrarySidebarDrag(event) {
   categoryTree.classList.add("file-drag-over");
 }
 
+async function handlePdfUpload(file, category = getActiveUploadCategory()) {
+  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), category);
+}
+
 function clearLibraryDragState() {
   draggedCategory = null;
   draggedPaperId = "";
   document.querySelectorAll(".dragging, .drag-over-reorder, .file-drag-over").forEach((element) => {
     element.classList.remove("dragging", "drag-over-reorder", "file-drag-over");
-  });
-}
-
-function getLibrarySidebarWidthBounds() {
-  const min = 220;
-  const available = Math.max(libraryLayout?.clientWidth || 0, window.innerWidth || 0);
-  const max = available > 0 ? Math.max(min, Math.min(520, available - 380)) : 520;
-  return { min, max };
-}
-
-function setLibrarySidebarWidth(width, persist = true) {
-  if (!libraryLayout || window.matchMedia("(max-width: 900px)").matches) return;
-  const { min, max } = getLibrarySidebarWidthBounds();
-  const next = Math.round(Math.min(max, Math.max(min, Number(width) || min)));
-  document.documentElement.style.setProperty("--library-category-width", `${next}px`);
-  libraryPaneResizer?.setAttribute("aria-valuemin", String(min));
-  libraryPaneResizer?.setAttribute("aria-valuemax", String(max));
-  libraryPaneResizer?.setAttribute("aria-valuenow", String(next));
-  if (persist) localStorage.setItem(LIBRARY_SIDEBAR_WIDTH_KEY, String(next));
-}
-
-function initLibraryPaneResizer() {
-  if (!libraryLayout || !libraryPaneResizer) return;
-  window.requestAnimationFrame(() => {
-    const savedWidth = Number(localStorage.getItem(LIBRARY_SIDEBAR_WIDTH_KEY));
-    if (Number.isFinite(savedWidth)) setLibrarySidebarWidth(savedWidth, false);
-    else setLibrarySidebarWidth(280, false);
-  });
-
-  libraryPaneResizer.addEventListener("pointerdown", (event) => {
-    if (window.matchMedia("(max-width: 900px)").matches) return;
-    event.preventDefault();
-    isResizingLibrarySidebar = true;
-    libraryPaneResizer.setPointerCapture(event.pointerId);
-    document.body.classList.add("resizing-library-sidebar");
-  });
-  libraryPaneResizer.addEventListener("pointermove", (event) => {
-    if (!isResizingLibrarySidebar) return;
-    setLibrarySidebarWidth(event.clientX - libraryLayout.getBoundingClientRect().left, false);
-  });
-  const finishResize = (event) => {
-    if (!isResizingLibrarySidebar) return;
-    isResizingLibrarySidebar = false;
-    document.body.classList.remove("resizing-library-sidebar");
-    if (libraryPaneResizer.hasPointerCapture(event.pointerId)) libraryPaneResizer.releasePointerCapture(event.pointerId);
-    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width"));
-    if (Number.isFinite(current)) setLibrarySidebarWidth(current, true);
-  };
-  libraryPaneResizer.addEventListener("pointerup", finishResize);
-  libraryPaneResizer.addEventListener("pointercancel", finishResize);
-  libraryPaneResizer.addEventListener("keydown", (event) => {
-    if (window.matchMedia("(max-width: 900px)").matches) return;
-    const { min, max } = getLibrarySidebarWidthBounds();
-    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width")) || 280;
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-      event.preventDefault();
-      setLibrarySidebarWidth(current + (event.key === "ArrowRight" ? 16 : -16));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setLibrarySidebarWidth(min);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setLibrarySidebarWidth(max);
-    }
-  });
-  window.addEventListener("resize", () => {
-    const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--library-category-width"));
-    if (Number.isFinite(current)) setLibrarySidebarWidth(current, false);
   });
 }
 
@@ -277,25 +328,66 @@ async function uploadPdfToLibrary(file, title, category) {
   }
 }
 
-async function uploadArxivPaper(arxivId) {
-  setLibraryStatus("Downloading arXiv PDF...");
+async function uploadRemotePdf(source) {
+  setLibraryStatus("Downloading PDF...");
+  showArxivDownloadOverlay("Downloading PDF...", source);
+  arxivUploadButton.disabled = true;
   try {
-    const response = await apiFetch("/api/library/arxiv", {
+    const response = await apiFetch("/api/library/remote-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ arxivId, category: getActiveUploadCategory() }),
+      body: JSON.stringify({ pdfUrl: source, category: getActiveUploadCategory() }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) {
-      setLibraryStatus(data.detail || data.error || "arXiv upload failed.", true);
+      setLibraryStatus(data.detail || data.error || "PDF import failed.", true);
+      showArxivDownloadOverlay(data.detail || data.error || "PDF import failed.", source, true);
       return;
     }
     reportSyncResult(data.sync);
+    showArxivDownloadOverlay("Opening paper...", source);
     openPaperReader(data.paper.id, true);
   } catch (error) {
     console.error(error);
-    setLibraryStatus(error.message || "arXiv upload failed.", true);
+    setLibraryStatus(error.message || "PDF import failed.", true);
+    showArxivDownloadOverlay(error.message || "PDF import failed.", source, true);
+  } finally {
+    arxivUploadButton.disabled = false;
   }
+}
+
+function showArxivDownloadOverlay(message, arxivId = "", isError = false) {
+  window.clearTimeout(arxivDownloadOverlayTimer);
+  let overlay = document.querySelector("#arxivDownloadOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "arxivDownloadOverlay";
+    overlay.className = "arxiv-download-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <section class="arxiv-download-card">
+        <div class="arxiv-download-spinner" aria-hidden="true"></div>
+        <div>
+          <strong class="arxiv-download-title"></strong>
+          <p class="arxiv-download-detail"></p>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+  }
+
+  overlay.classList.toggle("error", isError);
+  overlay.querySelector(".arxiv-download-title").textContent = message;
+  overlay.querySelector(".arxiv-download-detail").textContent = arxivId || "";
+  if (isError) {
+    arxivDownloadOverlayTimer = window.setTimeout(hideArxivDownloadOverlay, 2600);
+  }
+}
+
+function hideArxivDownloadOverlay() {
+  window.clearTimeout(arxivDownloadOverlayTimer);
+  document.querySelector("#arxivDownloadOverlay")?.remove();
 }
 
 function getActiveUploadCategory() {
@@ -327,111 +419,178 @@ async function loadLibrary(focusPaperId = "") {
 }
 
 function renderLibrary() {
-  categoryTree.innerHTML = "";
+  // The search bar is a static child of the tree, so only clear the dynamic
+  // rows — this keeps the search input mounted and focused while typing.
+  categoryTopRows.innerHTML = "";
+  categoryMainRows.innerHTML = "";
   paperList.innerHTML = "";
+  hidePaperInfoPanel();
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
-  categories.forEach((category) => renderCategoryRow(category));
+  renderTodoCategory();
+  renderCategoryNode(libraryTree, 0);
 
   const allPapers = collectPapers(libraryTree);
   renderTagFilters(allPapers);
   let papers = [];
   if (selectedCategoryId === RECENT_CATEGORY_ID) {
-    currentCategoryName.textContent = "Recent Papers";
+    currentCategoryName.textContent = "最近";
     papers = getRecentPapers(allPapers);
+  } else if (selectedCategoryId === TODO_CATEGORY_ID) {
+    currentCategoryName.textContent = "待办";
+    papers = allPapers.filter((paper) => paper.todo);
   } else {
     const selected = categories.find((category) => category.id === selectedCategoryId) || categories[0];
-    currentCategoryName.textContent = selected?.id ? selected.name : "All Papers";
-    papers = selectedCategoryId ? selected?.papers || [] : allPapers;
+    if (selected?.id) {
+      currentCategoryName.textContent = selected.name;
+    } else {
+      currentCategoryName.innerHTML = `${libraryCategoryIconSvg}<span>文献库</span>`;
+    }
+    // Show the papers of the selected category and all of its subcategories.
+    papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
-  renderPaperList(filterPapers(papers, searchQuery, selectedTagNames));
+  const filteredByTags = selectedTagNames.size
+    ? papers.filter((paper) => normalizePaperTags(paper.tags).some((tag) => selectedTagNames.has(tag.name.toLowerCase())))
+    : papers;
+  renderPaperList(filterPapers(filteredByTags, searchQuery));
 }
 
 function renderTagFilters(papers) {
-  const tagMap = new Map();
-  papers.forEach((paper) => {
-    normalizePaperTags(paper.tags).forEach((tag) => {
-      const key = tag.name.toLocaleLowerCase();
-      const current = tagMap.get(key) || { ...tag, count: 0 };
-      current.count += 1;
-      tagMap.set(key, current);
-    });
-  });
-  const available = Array.from(tagMap.entries()).sort(([, left], [, right]) => left.name.localeCompare(right.name, "zh-CN"));
-  selectedTagNames.forEach((key) => {
-    if (!tagMap.has(key)) selectedTagNames.delete(key);
-  });
-  tagFilterList.innerHTML = "";
-  if (!available.length) {
-    const empty = document.createElement("span");
-    empty.className = "tag-filter-empty";
-    empty.textContent = "No tags yet";
-    tagFilterList.appendChild(empty);
-  }
-  available.forEach(([key, tag]) => {
+  if (!tagFilterList) return;
+  const tags = new Map();
+  papers.forEach((paper) => normalizePaperTags(paper.tags).forEach((tag) => {
+    const key = tag.name.toLowerCase();
+    const current = tags.get(key) || { ...tag, count: 0 };
+    current.count += 1;
+    tags.set(key, current);
+  }));
+  tagFilterList.replaceChildren();
+  [...tags.entries()].sort((left, right) => left[1].name.localeCompare(right[1].name)).forEach(([key, tag]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tag-filter-chip";
     button.classList.toggle("active", selectedTagNames.has(key));
-    button.title = `Filter by ${tag.name}`;
-    button.append(createTagColorIndicator([tag]), document.createTextNode(`${tag.name} (${tag.count})`));
+    button.append(createTagColorIndicator(tag.color), document.createTextNode(`${tag.name} (${tag.count})`));
     button.addEventListener("click", () => {
-      if (selectedTagNames.has(key)) selectedTagNames.delete(key);
-      else selectedTagNames.add(key);
+      selectedTagNames.has(key) ? selectedTagNames.delete(key) : selectedTagNames.add(key);
       renderLibrary();
     });
     tagFilterList.appendChild(button);
   });
-  clearTagFiltersButton.hidden = selectedTagNames.size === 0;
+  if (clearTagFiltersButton) clearTagFiltersButton.hidden = selectedTagNames.size === 0;
 }
 
-function renderCategoryRow(category) {
+function normalizePaperTags(tags) {
+  return Array.isArray(tags)
+    ? tags.map((tag) => typeof tag === "string" ? { name: tag, color: "#2f7f98" } : tag)
+      .filter((tag) => tag && String(tag.name || "").trim())
+      .map((tag) => ({ name: String(tag.name).trim(), color: String(tag.color || "#2f7f98") }))
+    : [];
+}
+
+function createTagColorIndicator(color) {
+  const indicator = document.createElement("span");
+  indicator.className = "tag-color-indicator";
+  indicator.style.backgroundColor = color || "#2f7f98";
+  indicator.setAttribute("aria-hidden", "true");
+  return indicator;
+}
+
+function renderCategoryNode(node, depth = 0) {
+  renderCategoryRow(node, depth);
+  const folders = node.folders || [];
+  if (folders.length && !isCategoryCollapsed(node.id)) {
+    folders.forEach((folder) => renderCategoryNode(folder, depth + 1));
+  }
+}
+
+function renderCategoryRow(node, depth = 0) {
   const row = document.createElement("div");
   row.className = "category-row";
-  row.style.paddingLeft = `${category.depth * 18}px`;
-  row.dataset.categoryId = category.id;
-  row.dataset.parentId = category.parentId || "";
-  row.draggable = Boolean(category.id);
+  row.style.paddingLeft = `${depth * 18}px`;
+  const parentId = node.id ? node.id.split("/").slice(0, -1).join("/") : "";
+  row.dataset.categoryId = node.id || "";
+  row.dataset.parentId = parentId;
+  row.draggable = Boolean(node.id);
 
+  const hasChildren = Boolean(node.folders && node.folders.length);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "category-item";
-  button.classList.toggle("active", category.id === selectedCategoryId);
-  button.textContent = `${category.name} (${category.paperCount})`;
+  button.classList.toggle("active", node.id === selectedCategoryId);
+  button.classList.toggle("category-has-children", hasChildren);
+
+  const icon = document.createElement("span");
+  icon.className = "category-folder-icon";
+  icon.innerHTML = node.id ? folderCategoryIconSvg : libraryCategoryIconSvg;
+  button.appendChild(icon);
+
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCategoryCollapsed(node.id);
+      renderLibrary();
+    });
+    button.appendChild(toggle);
+  }
+
+  const paperCount = collectPapers(node).length;
+  button.appendChild(document.createTextNode(`${node.name} (${paperCount})`));
   button.addEventListener("click", () => {
-    selectedCategoryId = category.id;
+    selectedCategoryId = node.id;
     renderLibrary();
   });
 
-  const menuButton = document.createElement("button");
-  menuButton.type = "button";
-  menuButton.className = "category-menu-button menu-button";
-  menuButton.setAttribute("aria-label", `${category.name} category actions`);
-  menuButton.textContent = "...";
-  menuButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    showCategoryMenu(category, menuButton);
-  });
+  if (!node.id) {
+    // 文献库: a circle-plus directly creates a new top-level category.
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "category-menu-button menu-button category-add-button";
+    addButton.setAttribute("aria-label", "新建分类");
+    addButton.title = "新建分类";
+    addButton.innerHTML = plusCircleSvg;
+    addButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      startInlineCategoryCreate(node, addButton);
+    });
+    row.append(button, addButton);
+  } else {
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.className = "category-menu-button menu-button";
+    menuButton.setAttribute("aria-label", `${node.name} category actions`);
+    menuButton.textContent = "...";
+    menuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showCategoryMenu(node, menuButton);
+    });
+    row.append(button, menuButton);
+  }
 
   row.addEventListener("dragstart", (event) => {
-    if (!category.id || event.target.closest(".category-menu-button")) {
+    if (!node.id || event.target.closest("button")) {
       event.preventDefault();
       return;
     }
-    draggedCategory = { id: category.id, parentId: category.parentId || "" };
+    draggedCategory = { id: node.id, parentId };
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", category.id);
+    event.dataTransfer.setData("text/plain", node.id);
     row.classList.add("dragging");
   });
   row.addEventListener("dragend", clearLibraryDragState);
   row.addEventListener("dragover", (event) => {
     if (isFileDrag(event)) {
       event.preventDefault();
+      event.stopPropagation();
       event.dataTransfer.dropEffect = "copy";
       row.classList.add("file-drag-over");
       return;
     }
-    if (!draggedCategory || draggedCategory.id === category.id || draggedCategory.parentId !== (category.parentId || "")) return;
+    if (!draggedCategory || draggedCategory.id === node.id || draggedCategory.parentId !== parentId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     row.classList.add("drag-over-reorder");
@@ -443,42 +602,70 @@ function renderCategoryRow(category) {
       event.preventDefault();
       event.stopPropagation();
       clearLibraryDragState();
-      await handlePdfUpload(file, category.id || UNCATEGORIZED_LABEL);
+      await handlePdfUpload(file, node.id || UNCATEGORIZED_LABEL);
       return;
     }
-    if (!draggedCategory || draggedCategory.id === category.id || draggedCategory.parentId !== (category.parentId || "")) return;
+    if (!draggedCategory || draggedCategory.id === node.id || draggedCategory.parentId !== parentId) return;
     event.preventDefault();
     event.stopPropagation();
-    const placeAfter = event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
-    const siblings = Array.from(categoryTree.querySelectorAll(`.category-row[data-parent-id="${CSS.escape(draggedCategory.parentId)}"]`));
+    const after = event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+    const siblings = Array.from(categoryMainRows.querySelectorAll(`.category-row[data-parent-id="${CSS.escape(parentId)}"]`));
     const orderedIds = siblings.map((item) => item.dataset.categoryId).filter(Boolean).filter((id) => id !== draggedCategory.id);
-    const targetIndex = orderedIds.indexOf(category.id);
-    orderedIds.splice(Math.max(0, targetIndex + (placeAfter ? 1 : 0)), 0, draggedCategory.id);
-    const parentId = draggedCategory.parentId;
+    const targetIndex = orderedIds.indexOf(node.id);
+    orderedIds.splice(Math.max(0, targetIndex + (after ? 1 : 0)), 0, draggedCategory.id);
     clearLibraryDragState();
     await updateCategory({ action: "reorder", parentId, orderedIds });
   });
+  categoryMainRows.appendChild(row);
+}
 
-  row.append(button, menuButton);
-  categoryTree.appendChild(row);
+function isCategoryCollapsed(categoryId) {
+  return localStorage.getItem(`paperLanternCollapsed:${categoryId || "__root"}`) === "true";
+}
+
+function toggleCategoryCollapsed(categoryId) {
+  const key = `paperLanternCollapsed:${categoryId || "__root"}`;
+  const next = localStorage.getItem(key) !== "true";
+  localStorage.setItem(key, String(next));
+  return next;
 }
 
 function renderRecentCategory() {
   const row = document.createElement("div");
-  row.className = "category-row category-row-special";
+  // No bottom border here so "最近" and "待办" sit together without a divider.
+  row.className = "category-row category-row-special category-row-special-flat";
 
   const button = document.createElement("button");
   button.type = "button";
   button.className = "category-item recent-category-item";
   button.classList.toggle("active", selectedCategoryId === RECENT_CATEGORY_ID);
-  button.textContent = `Recent Papers (${getRecentPaperRecords().length})`;
+  button.innerHTML = `${recentCategoryIconSvg}<span>最近 (${getRecentPaperRecords().length})</span>`;
   button.addEventListener("click", () => {
     selectedCategoryId = RECENT_CATEGORY_ID;
     renderLibrary();
   });
 
   row.appendChild(button);
-  categoryTree.appendChild(row);
+  categoryTopRows.appendChild(row);
+}
+
+function renderTodoCategory() {
+  const row = document.createElement("div");
+  row.className = "category-row category-row-special";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "category-item recent-category-item";
+  button.classList.toggle("active", selectedCategoryId === TODO_CATEGORY_ID);
+  const count = (collectPapers(libraryTree) || []).filter((paper) => paper.todo).length;
+  button.innerHTML = `${todoCategoryIconSvg}<span>待办 (${count})</span>`;
+  button.addEventListener("click", () => {
+    selectedCategoryId = TODO_CATEGORY_ID;
+    renderLibrary();
+  });
+
+  row.appendChild(button);
+  categoryTopRows.appendChild(row);
 }
 
 function renderPaperList(papers) {
@@ -488,41 +675,158 @@ function renderPaperList(papers) {
     empty.textContent = searchQuery
       ? "No matching papers."
       : selectedCategoryId === RECENT_CATEGORY_ID
-        ? "No recent reading history yet."
-        : "No papers in this category yet.";
+        ? "暂无最近阅读记录。"
+        : selectedCategoryId === TODO_CATEGORY_ID
+          ? "暂无待办论文。"
+          : "No papers in this category yet.";
     paperList.appendChild(empty);
     return;
   }
 
-  const canReorder = Boolean(selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID && !searchQuery && !selectedTagNames.size);
-  papers.forEach((paper) => {
+  const wrap = document.createElement("div");
+  wrap.className = "paper-table-wrap";
+  const table = document.createElement("table");
+  table.className = "paper-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const sortableHeaders = { "论文标题": "title", "上传时间": "uploadedAt", "上次阅读": "lastRead" };
+  ["论文标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
+    const th = document.createElement("th");
+    const sortKey = sortableHeaders[label];
+    if (sortKey) {
+      th.classList.add("paper-sortable");
+      const button = document.createElement("span");
+      button.className = "paper-sort-button";
+      button.textContent = paperSort.key === sortKey ? `${label} ${paperSort.dir === "asc" ? "↑" : "↓"}` : label;
+      th.appendChild(button);
+      // The whole header cell is clickable.
+      th.addEventListener("click", () => {
+        if (paperSort.key === sortKey) {
+          paperSort.dir = paperSort.dir === "asc" ? "desc" : "asc";
+        } else {
+          paperSort.key = sortKey;
+          paperSort.dir = sortKey === "title" ? "asc" : "desc";
+        }
+        renderLibrary();
+      });
+    } else {
+      th.textContent = label;
+    }
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  const canReorder = Boolean(
+    selectedCategoryId
+    && ![RECENT_CATEGORY_ID, TODO_CATEGORY_ID].includes(selectedCategoryId)
+    && !searchQuery
+    && !selectedTagNames.size
+    && papers.every((paper) => paper.category === selectedCategoryId),
+  );
+  sortPapers(papers).forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
-    const card = document.createElement("article");
-    card.className = "paper-card";
-    card.tabIndex = 0;
-    card.dataset.paperId = paper.id;
-    card.draggable = canReorder;
-    card.addEventListener("click", () => {
+    const tr = document.createElement("tr");
+    tr.className = "paper-table-row";
+    tr.tabIndex = 0;
+    tr.dataset.paperId = paper.id;
+    tr.draggable = canReorder;
+    tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
+    tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") openPaperReader(paper.id);
+    });
+    tr.addEventListener("dragstart", (event) => {
+      if (!canReorder || event.target.closest("button, a")) {
+        event.preventDefault();
+        return;
+      }
+      draggedPaperId = paper.id;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", paper.id);
+      tr.classList.add("dragging");
+    });
+    tr.addEventListener("dragend", () => {
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+    });
+    tr.addEventListener("dragover", (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      tr.classList.add("drag-over-reorder");
+    });
+    tr.addEventListener("dragleave", () => tr.classList.remove("drag-over-reorder"));
+    tr.addEventListener("drop", async (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      const after = event.clientY > tr.getBoundingClientRect().top + tr.getBoundingClientRect().height / 2;
+      const orderedIds = Array.from(tbody.querySelectorAll("tr[data-paper-id]"))
+        .map((item) => item.dataset.paperId)
+        .filter((id) => id !== draggedPaperId);
+      const targetIndex = orderedIds.indexOf(paper.id);
+      orderedIds.splice(Math.max(0, targetIndex + (after ? 1 : 0)), 0, draggedPaperId);
+      paperSort = { key: "manual", dir: "asc" };
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+      await updatePaper({ action: "reorder", category: selectedCategoryId, orderedIds });
+    });
+
+    const titleTd = document.createElement("td");
+    titleTd.className = "paper-title-cell";
+    const titleButton = document.createElement("span");
+    titleButton.className = "paper-title-button";
+    const indicators = document.createElement("span");
+    indicators.className = "paper-tag-indicators";
+    normalizePaperTags(paper.tags).forEach((tag) => indicators.appendChild(createTagColorIndicator(tag.color)));
+    titleButton.append(indicators, document.createTextNode(paper.title));
+    titleButton.title = paper.title;
+    titleTd.appendChild(titleButton);
+    // The whole title cell is clickable.
+    titleTd.addEventListener("click", () => {
       if (Date.now() < suppressPaperOpenUntil) return;
       openPaperReader(paper.id);
     });
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") openPaperReader(paper.id);
-    });
 
-    const title = document.createElement("h3");
-    title.append(createTagColorIndicator(paper.tags), document.createTextNode(paper.title));
+    const uploadTd = document.createElement("td");
+    uploadTd.className = "paper-date-cell";
+    uploadTd.textContent = formatUploadDate(paper.uploadedAt);
 
-    const meta = document.createElement("p");
-    meta.textContent = `Uploaded: ${formatUploadDate(paper.uploadedAt)} · Last read: ${formatViewedDate(viewedAt)}`;
+    const viewedTd = document.createElement("td");
+    viewedTd.className = "paper-date-cell";
+    viewedTd.textContent = formatViewedDate(viewedAt);
 
-    const text = document.createElement("div");
-    text.className = "paper-card-text";
-    text.append(title, meta);
+    const readTd = document.createElement("td");
+    readTd.className = "paper-read-cell";
+    const readToggle = document.createElement("button");
+    readToggle.type = "button";
+    readToggle.className = "paper-read-toggle";
+    readToggle.classList.toggle("checked", Boolean(paper.read));
+    readToggle.setAttribute("aria-label", "已读");
+    readToggle.title = "已读";
+    readToggle.innerHTML = paper.read ? paperReadCheckedSvg : paperReadUncheckedSvg;
+    readToggle.addEventListener("click", () => updatePaperRead(paper, readToggle, !paper.read));
+    readTd.appendChild(readToggle);
 
-    const summary = createPaperHoverSummary(paper);
-    if (summary) text.appendChild(summary);
+    const cells = [titleTd, uploadTd, viewedTd, readTd];
 
+    const todoTd = document.createElement("td");
+    todoTd.className = "paper-todo-cell";
+    const todoToggle = document.createElement("button");
+    todoToggle.type = "button";
+    todoToggle.className = "paper-todo-toggle";
+    todoToggle.classList.toggle("checked", Boolean(paper.todo));
+    todoToggle.setAttribute("aria-label", "待办");
+    todoToggle.title = "待办";
+    todoToggle.innerHTML = paper.todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
+    todoToggle.addEventListener("click", () => updatePaperTodo(paper, todoToggle, !paper.todo));
+    todoTd.appendChild(todoToggle);
+    cells.push(todoTd);
+
+    const optionsTd = document.createElement("td");
+    optionsTd.className = "paper-options-cell";
     const actions = document.createElement("button");
     actions.type = "button";
     actions.className = "paper-menu-button menu-button";
@@ -532,96 +836,399 @@ function renderPaperList(papers) {
       event.stopPropagation();
       showPaperMenu(paper, actions);
     });
+    optionsTd.appendChild(actions);
+    cells.push(optionsTd);
 
-    card.addEventListener("dragstart", (event) => {
-      if (!canReorder || event.target.closest("button, a")) {
-        event.preventDefault();
-        return;
-      }
-      draggedPaperId = paper.id;
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", paper.id);
-      card.classList.add("dragging");
-    });
-    card.addEventListener("dragend", () => {
-      suppressPaperOpenUntil = Date.now() + 180;
-      clearLibraryDragState();
-    });
-    card.addEventListener("dragover", (event) => {
-      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      card.classList.add("drag-over-reorder");
-    });
-    card.addEventListener("dragleave", () => card.classList.remove("drag-over-reorder"));
-    card.addEventListener("drop", async (event) => {
-      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
-      event.preventDefault();
-      const placeAfter = event.clientY > card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2;
-      const orderedIds = Array.from(paperList.querySelectorAll(".paper-card[data-paper-id]"))
-        .map((item) => item.dataset.paperId)
-        .filter((id) => id !== draggedPaperId);
-      const targetIndex = orderedIds.indexOf(paper.id);
-      orderedIds.splice(Math.max(0, targetIndex + (placeAfter ? 1 : 0)), 0, draggedPaperId);
-      suppressPaperOpenUntil = Date.now() + 180;
-      clearLibraryDragState();
-      await updatePaper({ action: "reorder", category: selectedCategoryId, orderedIds });
-    });
+    tr.append(...cells);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  paperList.appendChild(wrap);
+  initPaperTableResize(table);
+}
 
-    card.append(text, actions);
-    paperList.appendChild(card);
+async function updatePaperRead(paper, toggle, read) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, read }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新已读状态失败。");
+    paper.read = read;
+    if (toggle) {
+      toggle.classList.toggle("checked", read);
+      toggle.innerHTML = read ? paperReadCheckedSvg : paperReadUncheckedSvg;
+    }
+  } catch (error) {
+    console.error("Failed to update read marker.", error);
+    renderLibrary();
+  }
+}
+
+async function updatePaperTodo(paper, toggle, todo) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, todo }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新待办状态失败。");
+    paper.todo = todo;
+    // In the Todo view, unchecking removes the paper from the list, so refresh
+    // the view to reflect that immediately.
+    if (selectedCategoryId === TODO_CATEGORY_ID) {
+      renderLibrary();
+      return;
+    }
+    if (toggle) {
+      toggle.classList.toggle("checked", todo);
+      toggle.innerHTML = todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
+    }
+  } catch (error) {
+    console.error("Failed to update todo marker.", error);
+    renderLibrary();
+  }
+}
+
+let paperColumnWidths = [];
+
+function initPaperTableResize(table) {
+  const ths = Array.from(table.querySelectorAll("thead th"));
+  const resizableCount = ths.length - 1;
+  if (paperColumnWidths.length !== resizableCount) paperColumnWidths = [];
+  // Columns before the last are resizable; the last (选项) is width:auto and
+  // absorbs the delta so the table always fills 100%.
+  const defaults = [36, 15, 17, 7, 12];
+  ths.forEach((th, index) => {
+    if (index === ths.length - 1) return;
+    th.style.width = `${paperColumnWidths[index] || defaults[index]}%`;
+    const handle = document.createElement("div");
+    handle.className = "paper-col-resize-handle";
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = th.getBoundingClientRect().width;
+      const onMove = (moveEvent) => {
+        const nextPx = Math.max(startWidth + (moveEvent.clientX - startX), 56);
+        const tableWidth = table.getBoundingClientRect().width;
+        const pct = Math.min((nextPx / tableWidth) * 100, 70);
+        th.style.width = `${pct}%`;
+        paperColumnWidths[index] = pct;
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.body.classList.remove("resizing-columns");
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.body.classList.add("resizing-columns");
+    });
+    th.appendChild(handle);
   });
 }
 
-function createPaperHoverSummary(paper) {
+function renderPaperInfoPanel(paper) {
+  if (!paperInfoPanel || !paper) return;
+  paperInfoPanel.hidden = false;
+  paperInfoPanel.classList.add("open");
+  paperInfoPanel.innerHTML = "";
+
+  const header = document.createElement("header");
+  header.className = "paper-info-header";
+  const title = document.createElement("h2");
+  title.textContent = paper.title || "Untitled paper";
+  const meta = document.createElement("p");
+  meta.textContent = paper.categoryName || paper.category || "Uncategorized";
+  header.append(title, meta);
+
+  const basicInfo = paper.basicInfo || {};
+  const basicSection = createPaperInfoSection("Basic Info", [
+    ["Authors", formatPaperInfoValue(basicInfo.authors)],
+    ["Venue", formatPaperInfoValue(basicInfo.venue)],
+    ["Date", formatPaperInfoValue(basicInfo.publishedDate)],
+    ["Institutions", formatPaperInfoValue(basicInfo.institutions)],
+  ]);
+
   const lines = paper.threeLineSummary || {};
-  const values = [
-    ["Challenges", lines.challenges],
-    ["Method", lines.method],
-    ["Conclusion", lines.conclusion],
-  ].filter(([, value]) => String(value || "").trim());
-  if (!values.length) return null;
+  const summarySection = createPaperInfoSection("Three-Line Summary", [
+    ["Challenges", formatPaperInfoValue(lines.challenges)],
+    ["Method", formatPaperInfoValue(lines.method)],
+    ["Conclusion", formatPaperInfoValue(lines.conclusion)],
+  ]);
 
-  const box = document.createElement("div");
-  box.className = "paper-hover-summary";
-  values.forEach(([label, value]) => {
-    const line = document.createElement("p");
-    const labelNode = document.createElement("strong");
-    labelNode.textContent = `${label}: `;
-    line.append(labelNode, document.createTextNode(String(value)));
-    box.appendChild(line);
-  });
-  return box;
+  const citationFormats = buildPaperCitationFormats(paper);
+  const citationCard = document.createElement("button");
+  citationCard.type = "button";
+  citationCard.className = "paper-info-citation-card";
+  const citationHeading = document.createElement("h3");
+  citationHeading.textContent = "Citation";
+  const citationPreview = document.createElement("p");
+  citationPreview.className = "paper-info-citation-preview";
+  citationPreview.textContent = citationFormats.gbt7714 || "暂无引用信息";
+  const citationHint = document.createElement("span");
+  citationHint.className = "paper-info-citation-hint";
+  citationHint.textContent = "点击选择引用格式并复制";
+  citationCard.append(citationHeading, citationPreview, citationHint);
+  citationCard.addEventListener("click", () => openLibraryCitationOverlay(paper, citationFormats));
+
+  paperInfoPanel.append(header, basicSection, summarySection, citationCard);
 }
 
-function normalizePaperTags(tags) {
-  if (!Array.isArray(tags)) return [];
-  const seen = new Set();
-  return tags
-    .map((tag) => ({
-      name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
-      color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
-    }))
-    .filter((tag) => {
-      const key = tag.name.toLocaleLowerCase();
-      if (!tag.name || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 16);
+function buildPaperCitationFormats(paper) {
+  const candidate = buildPaperCitationCandidate(paper);
+  return {
+    gbt7714: formatLibraryGbt(candidate),
+    bibtex: formatLibraryBibtex(candidate),
+    ris: formatLibraryRis(candidate),
+    apa: formatLibraryApa(candidate),
+    mla: formatLibraryMla(candidate),
+    ieee: formatLibraryIeee(candidate),
+  };
 }
 
-function createTagColorIndicator(tags) {
-  const indicator = document.createElement("span");
-  indicator.className = "tag-color-indicators";
-  normalizePaperTags(tags).forEach((tag) => {
-    const dot = document.createElement("span");
-    dot.className = "tag-color-dot";
-    dot.style.backgroundColor = tag.color;
-    dot.title = tag.name;
-    indicator.appendChild(dot);
+function buildPaperCitationCandidate(paper) {
+  const basicInfo = paper.basicInfo || {};
+  const authors = (Array.isArray(basicInfo.authors) ? basicInfo.authors : [])
+    .map(normalizeLibraryAuthor)
+    .filter(Boolean);
+  const year = String(basicInfo.publishedDate || "").match(/(?:19|20)\d{2}/)?.[0] || "";
+  return {
+    doi: String(paper.doi || "").trim(),
+    title: String(paper.title || "").trim(),
+    venue: String(basicInfo.venue || "").trim(),
+    authors,
+    authorNames: authors.map((author) => author.name),
+    volume: "",
+    issue: "",
+    page: "",
+    year,
+    publisher: "",
+    type: basicInfo.venue ? "proceedings-article" : "misc",
+  };
+}
+
+function normalizeLibraryAuthor(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  if (!name) return null;
+  if (name.includes(",")) {
+    const [family, ...givenParts] = name.split(",");
+    return { name, family: family.trim(), given: givenParts.join(",").trim() };
+  }
+  const parts = name.split(" ");
+  if (parts.length >= 2) {
+    return { name, given: parts.slice(0, -1).join(" "), family: parts[parts.length - 1] };
+  }
+  return { name, given: "", family: name };
+}
+
+function libraryGbtAuthor(author) {
+  const initials = author.given ? author.given.split(/\s+/).map((part) => part[0]?.toUpperCase()).filter(Boolean).join(" ") : "";
+  return [author.family, initials].filter(Boolean).join(" ") || author.name;
+}
+
+function libraryBibAuthor(author) {
+  return author.family && author.given ? `${author.family}, ${author.given}` : author.name || author.family || author.given;
+}
+
+function libraryApaAuthor(author) {
+  if (!author.family) return author.name || author.given;
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return [author.family, initials].filter(Boolean).join(", ");
+}
+
+function libraryMlaAuthor(author) {
+  return author.family && author.given ? `${author.given} ${author.family}` : author.name || author.family || author.given;
+}
+
+function libraryIeeeAuthor(author) {
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return author.family ? [initials, author.family].filter(Boolean).join(" ") : author.name || author.given;
+}
+
+function formatLibraryGbt(candidate) {
+  const authorNames = candidate.authors.map(libraryGbtAuthor).filter(Boolean);
+  const authorPart = authorNames.length
+    ? authorNames.slice(0, 3).join(", ") + (authorNames.length > 3 ? ", 等" : "")
+    : "";
+  const marker = candidate.type === "proceedings-article" || candidate.venue ? "[J]" : "[EB/OL]";
+  const head = authorPart ? `${authorPart}. ${candidate.title}${marker}` : `${candidate.title}${marker}`;
+  const tail = [candidate.venue, candidate.year, candidate.doi ? `https://doi.org/${candidate.doi}` : ""].filter(Boolean).join(", ");
+  return tail ? `${head}. ${tail}.` : `${head}.`;
+}
+
+function formatLibraryBibtex(candidate) {
+  const entryType = candidate.type === "proceedings-article" || candidate.venue ? "article" : "misc";
+  const authorJoined = candidate.authors.map(libraryBibAuthor).filter(Boolean).join(" and ");
+  const firstWord = candidate.title.match(/[A-Za-z0-9]+/)?.[0]?.toLowerCase() || "";
+  const key = `${candidate.authors[0]?.family || ""}${candidate.year}${firstWord}`.replace(/[^A-Za-z0-9]/g, "") || "reference";
+  const lines = [`@${entryType}{${key},`];
+  if (authorJoined) lines.push(`  author = {${authorJoined}},`);
+  if (candidate.title) lines.push(`  title = {${candidate.title}},`);
+  if (candidate.venue) lines.push(`  journal = {${candidate.venue}},`);
+  if (candidate.year) lines.push(`  year = {${candidate.year}},`);
+  if (candidate.doi) lines.push(`  doi = {${candidate.doi}},`);
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function formatLibraryRis(candidate) {
+  const lines = ["TY  - JOUR"];
+  candidate.authors.forEach((author) => {
+    const name = libraryBibAuthor(author);
+    if (name) lines.push(`AU  - ${name}`);
   });
-  return indicator;
+  if (candidate.title) lines.push(`TI  - ${candidate.title}`);
+  if (candidate.venue) lines.push(`JO  - ${candidate.venue}`);
+  if (candidate.year) lines.push(`PY  - ${candidate.year}`);
+  if (candidate.doi) lines.push(`DO  - ${candidate.doi}`);
+  lines.push("ER  - ");
+  return lines.join("\n");
+}
+
+function formatLibraryApa(candidate) {
+  const apa = candidate.authors.map(libraryApaAuthor).filter(Boolean);
+  let authorStr = "";
+  if (apa.length === 1) authorStr = apa[0];
+  else if (apa.length === 2) authorStr = `${apa[0]}, & ${apa[1]}`;
+  else if (apa.length > 2) authorStr = `${apa.slice(0, -1).join(", ")}, & ${apa[apa.length - 1]}`;
+  const yearPart = candidate.year ? `(${candidate.year}).` : "";
+  const source = candidate.venue ? `. ${candidate.venue}` : "";
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return [authorStr, yearPart, `${candidate.title}.${source}.${doiPart}`].filter(Boolean).join(" ").trim();
+}
+
+function formatLibraryMla(candidate) {
+  const authors = candidate.authors;
+  const first = authors.length ? libraryBibAuthor(authors[0]) : "";
+  const rest = authors.slice(1).map(libraryMlaAuthor).filter(Boolean);
+  let authorStr = first;
+  if (rest.length === 1) authorStr = `${first}, and ${rest[0]}`;
+  else if (rest.length > 1) authorStr = `${first}, et al.`;
+  const parts = [authorStr, `"${candidate.title}."`].filter(Boolean);
+  if (candidate.venue) parts.push(candidate.venue);
+  if (candidate.year) parts.push(candidate.year);
+  return `${parts.join(", ")}.`;
+}
+
+function formatLibraryIeee(candidate) {
+  const authors = candidate.authors.map(libraryIeeeAuthor).filter(Boolean);
+  let authorStr = "";
+  if (authors.length === 1) authorStr = authors[0];
+  else if (authors.length === 2) authorStr = `${authors[0]} and ${authors[1]}`;
+  else if (authors.length > 2) authorStr = `${authors.slice(0, -1).join(", ")}, and ${authors[authors.length - 1]}`;
+  const parts = [authorStr, `"${candidate.title},"`, candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function openLibraryCitationOverlay(paper, formats) {
+  libCitationFormats = formats;
+  const basicInfo = paper.basicInfo || {};
+  const metaParts = [
+    Array.isArray(basicInfo.authors) ? basicInfo.authors.slice(0, 3).join("；") : "",
+    basicInfo.venue,
+    String(basicInfo.publishedDate || "").match(/(?:19|20)\d{2}/)?.[0] || "",
+  ].filter(Boolean);
+  libCitationOverlayTitle.textContent = paper.title || "引用信息";
+  libCitationOverlayMeta.textContent = metaParts.join(" · ") || paper.doi || "";
+  libCitationFormatSelect.value = libCitationFormat;
+  updateLibraryCitationOutput();
+  libCitationOverlay.hidden = false;
+}
+
+function closeLibraryCitationOverlay() {
+  if (libCitationOverlay) libCitationOverlay.hidden = true;
+}
+
+function updateLibraryCitationOutput() {
+  if (libCitationOutput) {
+    libCitationOutput.value = (libCitationFormats && libCitationFormats[libCitationFormat]) || "";
+  }
+}
+
+function initLibraryCitationOverlay() {
+  libCitationOverlayCloseButton?.addEventListener("click", closeLibraryCitationOverlay);
+  libCitationOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === libCitationOverlay) closeLibraryCitationOverlay();
+  });
+  libCitationFormatSelect?.addEventListener("change", () => {
+    libCitationFormat = libCitationFormatSelect.value;
+    updateLibraryCitationOutput();
+  });
+  libCitationCopyButton?.addEventListener("click", async () => {
+    const text = libCitationOutput?.value || "";
+    if (!text) return;
+    try {
+      await copyTextToClipboardLibrary(text);
+      libCitationCopyButton.classList.add("copied");
+      libCitationCopyButton.title = "已复制";
+      libCitationCopyButton.setAttribute("aria-label", "已复制");
+      window.setTimeout(() => {
+        libCitationCopyButton.classList.remove("copied");
+        libCitationCopyButton.title = "复制引用";
+        libCitationCopyButton.setAttribute("aria-label", "复制引用");
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy citation.", error);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && libCitationOverlay && !libCitationOverlay.hidden) {
+      closeLibraryCitationOverlay();
+    }
+  });
+}
+
+async function copyTextToClipboardLibrary(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function hidePaperInfoPanel() {
+  if (!paperInfoPanel) return;
+  paperInfoPanel.hidden = true;
+  paperInfoPanel.classList.remove("open");
+  paperInfoPanel.innerHTML = "";
+}
+
+function createPaperInfoSection(title, rows) {
+  const section = document.createElement("section");
+  section.className = "paper-info-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  const list = document.createElement("dl");
+  list.className = "paper-info-list";
+  rows.forEach(([label, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value || "Not available";
+    list.append(dt, dd);
+  });
+  section.append(heading, list);
+  return section;
+}
+
+function formatPaperInfoValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join("; ");
+  return String(value || "").trim();
 }
 
 function showCategoryMenu(category, anchor) {
@@ -631,28 +1238,28 @@ function showCategoryMenu(category, anchor) {
 
   const addButton = document.createElement("button");
   addButton.type = "button";
-  addButton.textContent = "Add subcategory";
+  addButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>新建子分类';
   addButton.addEventListener("click", () => {
     menu.remove();
-    beginInlineSubcategoryCreate(category);
+    startInlineCategoryCreate(category, anchor);
   });
 
   const renameButton = document.createElement("button");
   renameButton.type = "button";
-  renameButton.textContent = "Rename";
+  renameButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>重命名';
   renameButton.disabled = category.locked || !category.id;
   renameButton.addEventListener("click", () => {
     menu.remove();
-    beginInlineCategoryRename(category);
+    startInlineCategoryRename(category, anchor);
   });
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete category";
+  deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
   deleteButton.disabled = category.locked || !category.id;
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`Delete category "${category.name}"? Papers in it will move to Uncategorized.`)) return;
+    if (!window.confirm(`确定删除分类"${category.name}"？其中论文将移入未分类。`)) return;
     await updateCategory({ action: "delete", id: category.id });
   });
 
@@ -661,51 +1268,39 @@ function showCategoryMenu(category, anchor) {
   positionMenu(menu, anchor, 190);
 }
 
-function getCategoryRow(categoryId) {
-  return Array.from(categoryTree.querySelectorAll(".category-row[data-category-id]")).find((row) => row.dataset.categoryId === categoryId) || null;
-}
-
-function createCategoryInlineInput(value, label) {
-  const input = document.createElement("input");
-  input.className = "category-inline-input";
-  input.type = "text";
-  input.value = value;
-  input.maxLength = 80;
-  input.placeholder = label;
-  input.setAttribute("aria-label", label);
-  return input;
-}
-
-function normalizedCategoryName(value) {
-  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
-function beginInlineCategoryRename(category) {
-  const row = getCategoryRow(category.id);
-  const button = row?.querySelector(".category-item");
+function startInlineCategoryRename(category, anchor) {
+  const row = anchor.closest(".category-row");
+  const button = row ? row.querySelector(".category-item") : null;
   if (!row || !button) return;
+  const menuButton = row.querySelector(".category-menu-button");
+  if (menuButton) menuButton.hidden = true;
 
-  document.querySelector(".category-create-row")?.remove();
-  const input = createCategoryInlineInput(category.name, "分类名称");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "category-inline-input";
+  input.value = category.name;
+  input.setAttribute("aria-label", "分类名称");
+  input.setAttribute("maxlength", "120");
   button.replaceWith(input);
   input.focus();
   input.select();
 
-  let finished = false;
-  const finish = async (save) => {
-    if (finished) return;
-    finished = true;
-    const name = normalizedCategoryName(input.value);
-    if (save && name && name !== category.name) {
-      const updated = await updateCategory({ action: "rename", id: category.id, name });
-      if (!updated) renderLibrary();
-      return;
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name && name !== category.name) {
+      updateCategory({ action: "rename", id: category.id, name }).catch((error) => {
+        console.error(error);
+        setLibraryStatus("重命名失败。", true);
+        renderLibrary();
+      });
+    } else {
+      renderLibrary();
     }
-    renderLibrary();
   };
-
   input.addEventListener("keydown", (event) => {
-    event.stopPropagation();
     if (event.key === "Enter") {
       event.preventDefault();
       finish(true);
@@ -717,39 +1312,40 @@ function beginInlineCategoryRename(category) {
   input.addEventListener("blur", () => finish(true));
 }
 
-function beginInlineSubcategoryCreate(category) {
-  document.querySelector(".category-create-row")?.remove();
-  const parentRow = getCategoryRow(category.id);
-  if (!parentRow) return;
+function startInlineCategoryCreate(parentCategory, anchor) {
+  const row = anchor.closest(".category-row");
+  const newRow = document.createElement("div");
+  newRow.className = "category-row category-create-row";
+  newRow.style.paddingLeft = `${(Number(parentCategory.depth || 0) + 1) * 18}px`;
 
-  const editorRow = document.createElement("div");
-  editorRow.className = "category-row category-create-row";
-  editorRow.style.paddingLeft = `${(category.depth + 1) * 18}px`;
-  const input = createCategoryInlineInput("", "新建子分类名称");
-  const cancelButton = document.createElement("button");
-  cancelButton.type = "button";
-  cancelButton.className = "category-inline-cancel";
-  cancelButton.textContent = "×";
-  cancelButton.setAttribute("aria-label", "取消新建分类");
-  editorRow.append(input, cancelButton);
-  parentRow.after(editorRow);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "category-inline-input";
+  input.placeholder = "新分类名称";
+  input.setAttribute("aria-label", "新分类名称");
+  input.setAttribute("maxlength", "120");
+  newRow.appendChild(input);
+
+  if (row) row.after(newRow);
+  else categoryMainRows.appendChild(newRow);
   input.focus();
 
-  let finished = false;
-  const finish = async (save) => {
-    if (finished) return;
-    finished = true;
-    const name = normalizedCategoryName(input.value);
-    if (save && name) {
-      const created = await updateCategory({ action: "create", parentId: category.id, name });
-      if (!created) renderLibrary();
-      return;
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name) {
+      updateCategory({ action: "create", parentId: parentCategory.id || "", name }).catch((error) => {
+        console.error(error);
+        setLibraryStatus("Create category failed.", true);
+        newRow.remove();
+      });
+    } else {
+      newRow.remove();
     }
-    editorRow.remove();
   };
-
   input.addEventListener("keydown", (event) => {
-    event.stopPropagation();
     if (event.key === "Enter") {
       event.preventDefault();
       finish(true);
@@ -759,8 +1355,6 @@ function beginInlineSubcategoryCreate(category) {
     }
   });
   input.addEventListener("blur", () => finish(true));
-  cancelButton.addEventListener("mousedown", (event) => event.preventDefault());
-  cancelButton.addEventListener("click", () => finish(false));
 }
 
 function showPaperMenu(paper, anchor) {
@@ -768,17 +1362,9 @@ function showPaperMenu(paper, anchor) {
   const menu = document.createElement("div");
   menu.className = "paper-menu library-menu";
 
-  const tagsButton = document.createElement("button");
-  tagsButton.type = "button";
-  tagsButton.textContent = "Manage tags";
-  tagsButton.addEventListener("click", () => {
-    menu.remove();
-    showPaperTagEditor(paper, anchor);
-  });
-
   const moveButton = document.createElement("button");
   moveButton.type = "button";
-  moveButton.textContent = "Move category";
+  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 13v4"></path><path d="m9.5 14.5 2.5-2.5 2.5 2.5"></path></svg>移动';
   moveButton.addEventListener("click", () => {
     menu.remove();
     showMovePaperMenu(paper, anchor);
@@ -787,7 +1373,7 @@ function showPaperMenu(paper, anchor) {
   const exportLink = document.createElement("a");
   exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
   exportLink.download = `${paper.title || "paper"}-export.pdf`;
-  exportLink.textContent = "Export";
+  exportLink.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>导出';
   exportLink.addEventListener("click", async (event) => {
     event.preventDefault();
     menu.remove();
@@ -798,9 +1384,17 @@ function showPaperMenu(paper, anchor) {
     link.click();
   });
 
+  const tagButton = document.createElement("button");
+  tagButton.type = "button";
+  tagButton.textContent = "编辑标签";
+  tagButton.addEventListener("click", () => {
+    menu.remove();
+    showPaperTagEditor(paper, anchor);
+  });
+
   const revealButton = document.createElement("button");
   revealButton.type = "button";
-  revealButton.textContent = "Show in folder";
+  revealButton.textContent = "在文件夹中显示";
   revealButton.addEventListener("click", async () => {
     menu.remove();
     await revealPaperInFolder(paper.id);
@@ -808,14 +1402,14 @@ function showPaperMenu(paper, anchor) {
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete paper";
+  deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`Delete paper "${paper.title}"?`)) return;
+    if (!window.confirm(`确定删除论文"${paper.title}"？`)) return;
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(tagsButton, moveButton, exportLink, revealButton, deleteButton);
+  menu.append(moveButton, tagButton, revealButton, exportLink, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
 }
@@ -831,13 +1425,10 @@ function showPaperTagEditor(paper, anchor) {
 
 function renderPaperTagEditor(menu, paper) {
   const tags = normalizePaperTags(paper.tags);
-  menu.innerHTML = "";
-
+  menu.replaceChildren();
   const heading = document.createElement("div");
   heading.className = "move-menu-heading";
   heading.textContent = "Tags";
-  menu.appendChild(heading);
-
   const list = document.createElement("div");
   list.className = "tag-editor-list";
   if (!tags.length) {
@@ -853,45 +1444,35 @@ function renderPaperTagEditor(menu, paper) {
     color.type = "color";
     color.value = tag.color;
     color.setAttribute("aria-label", `${tag.name} color`);
-    color.addEventListener("change", async () => {
-      await savePaperTagsFromEditor(menu, paper, tags.map((item) => (item.name === tag.name ? { ...item, color: color.value } : item)));
-    });
+    color.addEventListener("change", () => savePaperTagsFromEditor(menu, paper, tags.map((item) => item.name === tag.name ? { ...item, color: color.value } : item)));
     const name = document.createElement("span");
     name.textContent = tag.name;
-    name.title = tag.name;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "tag-remove-button";
     remove.textContent = "×";
     remove.setAttribute("aria-label", `Remove ${tag.name}`);
-    remove.addEventListener("click", async () => {
-      await savePaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name));
-    });
+    remove.addEventListener("click", () => savePaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name)));
     row.append(color, name, remove);
     list.appendChild(row);
   });
-
   const addRow = document.createElement("div");
   addRow.className = "tag-editor-add-row";
   const input = document.createElement("input");
   input.type = "text";
   input.maxLength = 48;
   input.placeholder = "New tag";
-  input.setAttribute("aria-label", "New tag name");
   const color = document.createElement("input");
   color.type = "color";
   color.value = "#2c758c";
-  color.setAttribute("aria-label", "New tag color");
   const add = document.createElement("button");
   add.type = "button";
   add.textContent = "Add";
   const submit = async () => {
     const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
     if (!name) return;
-    const existing = tags.find((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const next = existing
-      ? tags.map((tag) => (tag === existing ? { ...tag, color: color.value } : tag))
-      : [...tags, { name, color: color.value }];
+    const existing = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+    const next = existing ? tags.map((tag) => tag === existing ? { ...tag, color: color.value } : tag) : [...tags, { name, color: color.value }];
     await savePaperTagsFromEditor(menu, paper, next);
   };
   add.addEventListener("click", submit);
@@ -902,7 +1483,7 @@ function renderPaperTagEditor(menu, paper) {
     }
   });
   addRow.append(input, color, add);
-  menu.append(list, addRow);
+  menu.append(heading, list, addRow);
 }
 
 async function savePaperTagsFromEditor(menu, paper, tags) {
@@ -923,7 +1504,6 @@ async function savePaperTags(paperId, tags) {
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "Failed to save tags.");
     if (data.tree) libraryTree = data.tree;
-    setLibraryStatus("Tags saved.");
     reportSyncResult(data.sync);
     return data.paper;
   } catch (error) {
@@ -956,39 +1536,70 @@ function showMovePaperMenu(paper, anchor) {
 
   const heading = document.createElement("div");
   heading.className = "move-menu-heading";
-  heading.textContent = "Move to category";
+  heading.textContent = "移动到分类";
   menu.appendChild(heading);
 
-  flattenCategories(libraryTree)
-    .filter((category) => category.id !== RECENT_CATEGORY_ID)
-    .forEach((category) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "move-category-option";
-      button.style.paddingLeft = `${14 + category.depth * 14}px`;
-      button.disabled = category.id === paper.category;
-      button.textContent = category.id ? category.name : UNCATEGORIZED_LABEL;
-      button.addEventListener("click", async () => {
-        menu.remove();
-        await updatePaper({ action: "move", id: paper.id, category: category.id || UNCATEGORIZED_LABEL });
-      });
-      menu.appendChild(button);
-    });
+  const list = document.createElement("div");
+  list.className = "move-category-list";
+  menu.appendChild(list);
 
-  const customButton = document.createElement("button");
-  customButton.type = "button";
-  customButton.className = "move-category-custom";
-  customButton.textContent = "Enter new category...";
-  customButton.addEventListener("click", async () => {
-    menu.remove();
-    const category = window.prompt("Target category / subfolder", paper.categoryName || paper.category || UNCATEGORIZED_LABEL);
-    if (!category?.trim()) return;
-    await updatePaper({ action: "move", id: paper.id, category: category.trim() });
-  });
-  menu.appendChild(customButton);
+  const rerender = () => showMovePaperMenu(paper, anchor);
+  renderMoveCategoryNode(libraryTree, 0, paper, list, rerender);
 
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 260);
+}
+
+function renderMoveCategoryNode(node, depth, paper, container, rerender) {
+  (node.folders || []).forEach((folder) => {
+    renderMoveCategoryRow(folder, depth, paper, container, rerender);
+    if (folder.folders && folder.folders.length && !isCategoryCollapsed(folder.id)) {
+      renderMoveCategoryNode(folder, depth + 1, paper, container, rerender);
+    }
+  });
+}
+
+function renderMoveCategoryRow(node, depth, paper, container, rerender) {
+  const row = document.createElement("div");
+  row.className = "move-category-row";
+  row.style.paddingLeft = `${14 + depth * 14}px`;
+
+  const hasChildren = Boolean(node.folders && node.folders.length);
+  const paperCategory = String(paper.category || "");
+  const isExact = node.id === paperCategory;
+  const isAncestor = Boolean(paperCategory) && paperCategory.startsWith(`${node.id}/`);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "move-category-option";
+  if (depth >= 1) button.classList.add("move-category-sub");
+  button.classList.toggle("move-category-has-children", hasChildren);
+  if (isExact || isAncestor) button.classList.add("move-category-current");
+  button.disabled = isExact;
+
+  const icon = document.createElement("span");
+  icon.className = "move-category-folder-icon";
+  icon.innerHTML = folderCategoryIconSvg;
+  button.appendChild(icon);
+
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "move-category-toggle";
+    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCategoryCollapsed(node.id);
+      rerender();
+    });
+    button.appendChild(toggle);
+  }
+
+  button.appendChild(document.createTextNode(node.name));
+  button.addEventListener("click", async () => {
+    document.querySelector(".library-menu")?.remove();
+    await updatePaper({ action: "move", id: paper.id, category: node.id });
+  });
+  row.appendChild(button);
+  container.appendChild(row);
 }
 
 function positionMenu(menu, anchor, width) {
@@ -1007,7 +1618,7 @@ async function updateCategory(payload) {
     const data = await readJsonResponse(response);
     if (!response.ok) {
       setLibraryStatus(data.error || "Category operation failed.", true);
-      return false;
+      return;
     }
     libraryTree = data.tree;
     if (payload.action === "rename" && selectedCategoryId === payload.id) {
@@ -1019,11 +1630,9 @@ async function updateCategory(payload) {
     renderLibrary();
     setLibraryStatus("");
     reportSyncResult(data.sync);
-    return true;
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Category operation failed.", true);
-    return false;
   }
 }
 
@@ -1072,18 +1681,17 @@ function formatViewedDate(value) {
   return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function flattenCategories(node, depth = 0, parentId = "") {
+function flattenCategories(node, depth = 0) {
   if (!node) return [];
   const current = {
     id: node.id || "",
     name: node.name || "Library",
     depth,
-    parentId,
     locked: Boolean(node.locked),
     paperCount: collectPapers(node).length,
     papers: node.papers || [],
   };
-  return [current, ...(node.folders || []).flatMap((folder) => flattenCategories(folder, depth + 1, current.id))];
+  return [current, ...(node.folders || []).flatMap((folder) => flattenCategories(folder, depth + 1))];
 }
 
 function collectPapers(node) {
@@ -1091,13 +1699,20 @@ function collectPapers(node) {
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectPapers)];
 }
 
-function filterPapers(papers, query, tagNames = new Set()) {
+function findCategoryNode(node, id) {
+  if (!node) return null;
+  if ((node.id || "") === id) return node;
+  for (const folder of node.folders || []) {
+    const found = findCategoryNode(folder, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function filterPapers(papers, query) {
+  if (!query) return papers;
   return papers.filter((paper) => {
-    const tags = normalizePaperTags(paper.tags);
-    const matchesTags = !tagNames.size || Array.from(tagNames).every((tagName) => tags.some((tag) => tag.name.toLocaleLowerCase() === tagName));
-    if (!matchesTags) return false;
-    if (!query) return true;
-    const haystack = [paper.title, paper.category, paper.categoryName, ...tags.map((tag) => tag.name), ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
+    const haystack = [paper.title, paper.category, paper.categoryName, ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -1173,6 +1788,23 @@ async function loadCloudSyncStatus() {
   }
 }
 
+let cloudSettingsSaveTimer = null;
+
+function wireCloudSettingsAutoSave() {
+  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, aiExtraParamsInput, discussionWebUrlInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  aiTaskConfigSections.forEach((section) => fields.push(...section.querySelectorAll("input, textarea")));
+  fields.forEach((field) => {
+    if (!field) return;
+    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
+    field.addEventListener(eventName, () => {
+      window.clearTimeout(cloudSettingsSaveTimer);
+      cloudSettingsSaveTimer = window.setTimeout(() => {
+        saveCloudSyncConfig().catch((error) => console.error("Failed to auto-save settings.", error));
+      }, 600);
+    });
+  });
+}
+
 function openCloudConfig() {
   cloudConfigOverlay.hidden = false;
   aiBaseUrlInput.focus();
@@ -1196,6 +1828,7 @@ async function loadSettings() {
 async function saveCloudSyncConfig() {
   setCloudSyncBusy(true);
   try {
+    const extraParams = parseApiExtraParams(aiExtraParamsInput?.value || "", "Unified API extra parameters");
     const response = await apiFetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1204,12 +1837,10 @@ async function saveCloudSyncConfig() {
           baseUrl: aiBaseUrlInput.value.trim(),
           model: aiModelInput.value.trim(),
           apiKey: aiApiKeyInput.value,
-          extraParams: parseApiExtraParams(aiExtraParamsInput.value, "Unified API extra parameters"),
+          extraParams,
           tasks: collectAiTaskSettings(),
         },
-        web: {
-          discussionUrl: discussionWebUrlInput.value.trim(),
-        },
+        web: { discussionUrl: discussionWebUrlInput?.value.trim() || "https://chatgpt.com/" },
         sync: {
           provider: cloudProviderSelect.value,
           localDir: cloudLocalDirInput.value.trim(),
@@ -1227,24 +1858,66 @@ async function saveCloudSyncConfig() {
     }
     renderSettings(data.settings);
     renderCloudSyncStatus(data.sync);
-    aiApiKeyInput.value = "";
-    aiTaskConfigSections.forEach((section) => {
-      section.querySelector("[data-ai-task-api-key]").value = "";
-    });
-    cloudPasswordInput.value = "";
-    closeCloudConfig();
-    setLibraryStatus("Settings saved.");
+    setLibraryStatus("设置已自动保存");
   } catch (error) {
     console.error(error);
-    setLibraryStatus(error.message || "Settings save failed.", true);
+    setLibraryStatus(error.message || "设置保存失败。", true);
   } finally {
     setCloudSyncBusy(false);
   }
 }
 
+async function testAiApi() {
+  setAiApiTestStatus("Testing...", false);
+  setAiApiTestBusy(true);
+  try {
+    const response = await apiFetch("/api/settings/test-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput.value.trim(),
+          model: aiModelInput.value.trim(),
+          apiKey: aiApiKeyInput.value,
+          extraParams: parseApiExtraParams(aiExtraParamsInput?.value || "", "Unified API extra parameters"),
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      setAiApiTestStatus(formatAiApiTestError(data), true);
+      return;
+    }
+    const message = data.message ? ` · ${data.message}` : "";
+    setAiApiTestStatus(`Connected: ${data.model || aiModelInput.value.trim() || "model"}${message}`, false);
+  } catch (error) {
+    console.error(error);
+    setAiApiTestStatus(error.message || "AI API test failed.", true);
+  } finally {
+    setAiApiTestBusy(false);
+  }
+}
+
+function setAiApiTestBusy(isBusy) {
+  aiApiTestButton.disabled = isBusy;
+  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
+}
+
+function setAiApiTestStatus(message, isError) {
+  aiApiTestStatus.textContent = message;
+  aiApiTestStatus.classList.toggle("error", Boolean(isError));
+}
+
+function formatAiApiTestError(data) {
+  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
+  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
+}
+
 async function runCloudSync() {
   setCloudSyncBusy(true);
+  startCloudSyncProgress();
   try {
+    updateCloudSyncProgress("Connecting to sync target...", "Checking the remote library index.", 28);
     const response = await apiFetch("/api/cloud-sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1254,6 +1927,12 @@ async function runCloudSync() {
     if (!response.ok) {
       renderCloudSyncStatus(data);
       setLibraryStatus(data.error || "Cloud sync failed.", true);
+      await pollCloudSyncProgress();
+      if (data.cancelled) {
+        settleCloudSyncProgress();
+      } else {
+        finishCloudSyncProgress("Sync failed", data.error || "Cloud sync failed.", true);
+      }
       return;
     }
     renderCloudSyncStatus(data);
@@ -1265,12 +1944,187 @@ async function runCloudSync() {
     setLibraryStatus(
       `Cloud synced. Downloaded ${data.downloaded || 0}, uploaded ${data.uploaded || 0}, merged highlights ${data.highlightsMerged || 0}.`,
     );
+    finishCloudSyncProgress(
+      "Sync complete",
+      formatCloudSyncTransferSummary(data),
+      false,
+    );
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Cloud sync failed.", true);
+    await pollCloudSyncProgress();
+    finishCloudSyncProgress("Sync failed", error.message || "Cloud sync failed.", true);
   } finally {
     setCloudSyncBusy(false);
   }
+}
+
+function startCloudSyncProgress() {
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  window.clearInterval(cloudSyncProgressPollTimer);
+  cloudSyncCancelRequested = false;
+  cloudSyncProgressValue = 8;
+  updateCloudSyncProgress("Preparing sync...", "Scanning local library files.", cloudSyncProgressValue);
+  cloudSyncProgressPollTimer = window.setInterval(pollCloudSyncProgress, 700);
+}
+
+function updateCloudSyncProgress(title, detail, progress, isError = false) {
+  cloudSyncProgressValue = Math.max(cloudSyncProgressValue, progress);
+  let overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "cloudSyncProgressOverlay";
+    overlay.className = "cloud-sync-progress-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <section class="cloud-sync-progress-card">
+        <div class="cloud-sync-progress-icon" aria-hidden="true"></div>
+        <div class="cloud-sync-progress-content">
+          <div class="cloud-sync-progress-top">
+            <strong class="cloud-sync-progress-title"></strong>
+            <button class="cloud-sync-cancel-button" type="button" aria-label="Stop sync" title="Stop sync">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+              </svg>
+            </button>
+          </div>
+          <p class="cloud-sync-progress-detail"></p>
+          <div class="cloud-sync-progress-meter">
+            <span class="cloud-sync-progress-label">0/1</span>
+            <div class="cloud-sync-progress-track" aria-hidden="true">
+              <div class="cloud-sync-progress-bar"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector(".cloud-sync-cancel-button").addEventListener("click", cancelCloudSync);
+  }
+  overlay.classList.toggle("error", Boolean(isError));
+  overlay.classList.toggle("complete", !isError && cloudSyncProgressValue >= 100);
+  overlay.querySelector(".cloud-sync-progress-title").textContent = title;
+  overlay.querySelector(".cloud-sync-progress-detail").textContent = detail || "";
+  updateCloudSyncProgressBar(overlay, progress, 100, isError ? "error" : "running");
+}
+
+async function pollCloudSyncProgress() {
+  try {
+    const response = await apiFetch("/api/cloud-sync/progress", { cache: "no-store" });
+    const progress = await readJsonResponse(response);
+    if (response.ok && progress?.step) updateCloudSyncProgressFromServer(progress);
+  } catch (error) {
+    console.error("Failed to read sync progress.", error);
+  }
+}
+
+function updateCloudSyncProgressFromServer(progress) {
+  const title =
+    progress.status === "error"
+      ? "Sync failed"
+      : progress.status === "cancelled"
+        ? "Sync stopped"
+        : progress.status === "canceling"
+          ? "Stopping sync..."
+          : progress.status === "complete"
+            ? "Sync complete"
+            : cloudSyncProgressTitle(progress.step);
+  const detail = progress.currentFile ? `${progress.detail || ""} (${progress.currentFile})` : progress.detail || "";
+  updateCloudSyncProgress(title, detail, overallCloudSyncProgress(progress), progress.status === "error");
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (overlay) {
+    overlay.classList.toggle("cancelled", progress.status === "cancelled" || progress.status === "canceling");
+    const cancelButton = overlay.querySelector(".cloud-sync-cancel-button");
+    if (cancelButton) {
+      cancelButton.disabled = cloudSyncCancelRequested || ["canceling", "cancelled", "complete", "error"].includes(progress.status);
+      cancelButton.hidden = ["cancelled", "complete", "error"].includes(progress.status);
+    }
+    updateCloudSyncProgressBar(overlay, progress.current, progress.total, progress.status);
+  }
+}
+
+function updateCloudSyncProgressBar(overlay, currentValue, totalValue, status = "running") {
+  const total = Math.max(0, Number(totalValue || 0));
+  const current = Math.max(0, Number(currentValue || 0));
+  const percent = total > 0 ? Math.round((Math.min(current, total) / total) * 100) : 100;
+  const label =
+    status === "error"
+      ? "Error"
+      : status === "cancelled"
+        ? "Stopped"
+        : status === "complete"
+          ? "Done"
+          : `${Math.min(current, total)}/${total || 0}`;
+  overlay.querySelector(".cloud-sync-progress-label").textContent = label;
+  overlay.querySelector(".cloud-sync-progress-bar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
+function cloudSyncProgressTitle(step) {
+  if (step === "compare") return "Checking differences...";
+  if (step === "download") return "Downloading files...";
+  if (step === "upload") return "Uploading files...";
+  if (step === "finalize") return "Finalizing sync...";
+  return "Preparing sync...";
+}
+
+function overallCloudSyncProgress(progress) {
+  const total = Number(progress.total || 0);
+  const current = Number(progress.current || 0);
+  return total > 0 ? Math.round((current / total) * 100) : 100;
+}
+
+function finishCloudSyncProgress(title, detail, isError) {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  updateCloudSyncProgress(title, detail, isError ? cloudSyncProgressValue : 100, isError);
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  if (overlay) {
+    const cancelButton = overlay.querySelector(".cloud-sync-cancel-button");
+    if (cancelButton) cancelButton.hidden = true;
+    if (!isError) updateCloudSyncProgressBar(overlay, 1, 1, "complete");
+  }
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  cloudSyncProgressHideTimer = window.setTimeout(hideCloudSyncProgress, isError ? 4200 : 1800);
+}
+
+function settleCloudSyncProgress(delay = 2600) {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  cloudSyncProgressHideTimer = window.setTimeout(hideCloudSyncProgress, delay);
+}
+
+function hideCloudSyncProgress() {
+  window.clearInterval(cloudSyncProgressPollTimer);
+  window.clearTimeout(cloudSyncProgressHideTimer);
+  document.querySelector("#cloudSyncProgressOverlay")?.remove();
+}
+
+async function cancelCloudSync() {
+  if (cloudSyncCancelRequested) return;
+  cloudSyncCancelRequested = true;
+  const overlay = document.querySelector("#cloudSyncProgressOverlay");
+  const cancelButton = overlay?.querySelector(".cloud-sync-cancel-button");
+  if (cancelButton) cancelButton.disabled = true;
+  updateCloudSyncProgress("Stopping sync...", "Waiting for the current file to finish.", cloudSyncProgressValue);
+  try {
+    const response = await apiFetch("/api/cloud-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    await readJsonResponse(response);
+    await pollCloudSyncProgress();
+  } catch (error) {
+    console.error(error);
+    updateCloudSyncProgress("Stop request failed", error.message || "Unable to stop sync.", cloudSyncProgressValue, true);
+  }
+}
+
+function formatCloudSyncTransferSummary(data) {
+  const filesDownloaded = Number(data?.filesDownloaded || 0);
+  const filesUploaded = Number(data?.filesUploaded || 0);
+  const totalFiles = filesDownloaded + filesUploaded;
+  return `Transferred ${totalFiles} files: downloaded ${filesDownloaded}, uploaded ${filesUploaded}.`;
 }
 
 function renderCloudSyncStatus(status) {
@@ -1305,9 +2159,9 @@ function renderSettings(settings) {
   aiBaseUrlInput.value = ai.baseUrl || "";
   aiModelInput.value = ai.model || "";
   aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
-  aiExtraParamsInput.value = formatApiExtraParams(ai.extraParams);
+  if (aiExtraParamsInput) aiExtraParamsInput.value = formatApiExtraParams(ai.extraParams);
   renderAiTaskSettings(ai.tasks || {});
-  discussionWebUrlInput.value = web.discussionUrl || "https://chatgpt.com/";
+  if (discussionWebUrlInput) discussionWebUrlInput.value = web.discussionUrl || "https://chatgpt.com/";
   cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
   cloudLocalDirInput.value = sync.localDir || "";
   cloudWebdavUrlInput.value = sync.webdavUrl || "";
@@ -1317,21 +2171,16 @@ function renderSettings(settings) {
 }
 
 function collectAiTaskSettings() {
-  return Object.fromEntries(
-    aiTaskConfigSections.map((section) => [
-      section.dataset.aiTask,
-      {
-        useDefault: section.querySelector("[data-ai-task-default]").checked,
-        baseUrl: section.querySelector("[data-ai-task-base-url]").value.trim(),
-        model: section.querySelector("[data-ai-task-model]").value.trim(),
-        apiKey: section.querySelector("[data-ai-task-api-key]").value,
-        extraParams: parseApiExtraParams(
-          section.querySelector("[data-ai-task-extra-params]").value,
-          `${section.querySelector("strong").textContent} API extra parameters`,
-        ),
-      },
-    ]),
-  );
+  return Object.fromEntries(aiTaskConfigSections.map((section) => [
+    section.dataset.aiTask,
+    {
+      useDefault: section.querySelector("[data-ai-task-default]").checked,
+      baseUrl: section.querySelector("[data-ai-task-base-url]").value.trim(),
+      model: section.querySelector("[data-ai-task-model]").value.trim(),
+      apiKey: section.querySelector("[data-ai-task-api-key]").value,
+      extraParams: parseApiExtraParams(section.querySelector("[data-ai-task-extra-params]").value, `${section.querySelector("strong").textContent} API extra parameters`),
+    },
+  ]));
 }
 
 function renderAiTaskSettings(tasks) {
@@ -1356,7 +2205,7 @@ function updateAiTaskSection(section) {
 }
 
 function parseApiExtraParams(value, label) {
-  const text = value.trim();
+  const text = String(value || "").trim();
   if (!text) return {};
   let parsed;
   try {
@@ -1364,20 +2213,14 @@ function parseApiExtraParams(value, label) {
   } catch {
     throw new Error(`${label} must be valid JSON.`);
   }
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new Error(`${label} must be a JSON object.`);
-  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(`${label} must be a JSON object.`);
   const reserved = ["model", "messages", "stream", "response_format"].filter((key) => key in parsed);
-  if (reserved.length) {
-    throw new Error(`${label} cannot override: ${reserved.join(", ")}.`);
-  }
+  if (reserved.length) throw new Error(`${label} cannot override: ${reserved.join(", ")}.`);
   return parsed;
 }
 
 function formatApiExtraParams(params) {
-  return params && typeof params === "object" && !Array.isArray(params) && Object.keys(params).length
-    ? JSON.stringify(params, null, 2)
-    : "";
+  return params && typeof params === "object" && !Array.isArray(params) && Object.keys(params).length ? JSON.stringify(params, null, 2) : "";
 }
 
 function maskSecretTail(tail) {
@@ -1423,8 +2266,8 @@ async function apiFetch(path, options = {}) {
       lastError = error;
     }
   }
-  if (url === "/api/library/arxiv") {
-    throw new Error("arXiv upload API is not available. Restart python server.py so the new backend route is loaded.");
+  if (url === "/api/library/remote-pdf") {
+    throw new Error("Remote PDF import API is not available. Restart python server.py so the new backend route is loaded.");
   }
   throw new Error(`${lastError?.message || "Failed to fetch"} Tried: ${tried.join(", ")}. Please start the Python server and open http://127.0.0.1:8000/ or http://localhost:8000/.`);
 }

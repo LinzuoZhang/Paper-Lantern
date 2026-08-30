@@ -4,54 +4,75 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
+    <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
+    <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
     <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script defer src="./vendor/katex/katex.min.js"></script>
+    <script defer src="./vendor/markdown-it-texmath/texmath.min.js"></script>
   </head>
   <body>
-    <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
-      <div class="reader-library-header">
-        <button id="backToLibraryButton" class="ghost" type="button">Back to Library</button>
-        <button id="closeLibraryDrawerButton" class="icon-button drawer-close-button" type="button" aria-label="Close library"></button>
-      </div>
-      <section class="reader-library-section">
-        <h2>Library</h2>
-        <div id="readerCategoryList" class="reader-category-list"></div>
-      </section>
-      <section class="reader-library-section reader-paper-section">
-        <h2 id="readerLibraryTitle">Papers</h2>
-        <div id="readerPaperList" class="reader-paper-list"></div>
-      </section>
-    </aside>
-    <button id="openLibraryDrawerButton" class="reader-drawer-tab" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">Library</button>
     <main class="app-shell">
+      <nav id="readerLeftRail" class="reader-left-rail" aria-label="Reader library controls">
+        <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
+          <img class="site-logo reader-rail-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
+          <span>Paper Lantern</span>
+        </button>
+        <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
+          <section class="reader-library-section reader-category-section">
+            <div id="readerCategoryList" class="reader-category-list"></div>
+          </section>
+          <div id="readerLibraryDivider" class="reader-library-divider" role="separator" aria-label="调整列表比例"></div>
+          <section class="reader-library-section reader-paper-section">
+            <h2 id="readerLibraryTitle">文献库</h2>
+            <div id="readerPaperList" class="reader-paper-list"></div>
+          </section>
+        </aside>
+      </nav>
       <section class="reader-pane" aria-label="Paper reader">
-        <header class="toolbar">
-          <div class="reader-paper-title-wrap">
-            <span id="readerPaperTagIndicators" aria-label="Paper tags"></span>
-            <h1 id="fileName" class="paper-title">Loading paper...</h1>
-          </div>
-          <button id="readerPaperMenuButton" class="paper-menu-button menu-button" type="button" aria-label="Paper actions" aria-haspopup="menu" disabled>...</button>
-        </header>
-        <div class="pdf-controls" role="toolbar" aria-label="PDF controls">
-          <div class="pdf-control-group">
-            <button id="pdfZoomOutButton" class="pdf-control-button" type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">−</button>
-            <output id="pdfZoomLabel" class="pdf-zoom-label" aria-live="polite">100%</output>
-            <button id="pdfZoomInButton" class="pdf-control-button" type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)">+</button>
-          </div>
-          <div class="pdf-control-group">
-            <button id="pdfFitWidthButton" class="pdf-control-button" type="button" title="Fit width">Fit width</button>
-            <button id="pdfFitPageButton" class="pdf-control-button" type="button" title="Fit page">Fit page</button>
-          </div>
-          <div class="pdf-control-group pdf-page-jump">
-            <label for="pdfPageInput">Page</label>
-            <input id="pdfPageInput" type="number" min="1" value="1" inputmode="numeric" aria-label="Go to page" />
-            <span id="pdfPageTotal">/ 0</span>
-          </div>
-          <button id="pdfShortcutsButton" class="pdf-control-button" type="button">查看快捷键</button>
-        </div>
         <div class="paper-frame">
-          <div id="pageIndicator" class="page-indicator" hidden>0 / 0</div>
+          <div id="pdfToolbar" class="pdf-toolbar">
+            <div class="pdf-toolbar-cluster">
+              <button id="zoomOutButton" class="pdf-toolbar-button" type="button" title="缩小" aria-label="缩小">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M8 11h6"></path></svg>
+              </button>
+              <button id="zoomInButton" class="pdf-toolbar-button" type="button" title="放大" aria-label="放大">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M11 8v6"></path><path d="M8 11h6"></path></svg>
+              </button>
+              <button id="fitPageButton" class="pdf-toolbar-button" type="button" title="适合页面" aria-label="适合页面">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+              </button>
+              <button id="pdfZoomLabel" class="pdf-zoom-label" type="button" title="缩放">100%</button>
+            </div>
+            <div class="pdf-toolbar-right">
+              <span class="pdf-toolbar-divider"></span>
+              <input id="pdfSearchInput" class="pdf-search-input" type="text" placeholder="全文搜索" aria-label="全文搜索" autocomplete="off" />
+              <button id="pdfSearchPrevButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="上一个匹配" aria-label="上一个匹配" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <button id="pdfSearchNextButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="下一个匹配" aria-label="下一个匹配" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>
+              </button>
+              <span id="pdfSearchCount" class="pdf-search-count"></span>
+              <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+              <button id="pdfShortcutsButton" class="pdf-toolbar-text-button" type="button">查看快捷键</button>
+              <button id="readerSettingsButton" class="reader-settings-button pdf-toolbar-button" type="button" aria-label="Settings" title="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+                  <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+                </svg>
+              </button>
+              <button id="exportPdfButton" class="reader-export-button pdf-toolbar-button" type="button" aria-label="Export PDF" title="Export PDF">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 3v11"></path>
+                  <path d="m7 9 5 5 5-5"></path>
+                  <path d="M5 19h14"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
           <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
           <div id="selectionMenu" class="selection-menu" hidden>
             <button id="highlightButton" type="button">高亮</button>
@@ -75,9 +96,8 @@
           </div>
           <dl class="pdf-shortcuts-list">
             <dt>Ctrl/Cmd + / −</dt><dd>缩放 PDF</dd>
-            <dt>Ctrl/Cmd 0</dt><dd>适应宽度</dd>
+            <dt>Ctrl/Cmd 0</dt><dd>适合页面</dd>
             <dt>中键拖拽</dt><dd>平移 PDF</dd>
-            <dt>输入页码后回车</dt><dd>跳转到指定页面</dd>
           </dl>
         </section>
       </div>
@@ -85,7 +105,13 @@
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="summary-pane" aria-label="Paper side panel">
-        <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs">
+        <header class="summary-titlebar">
+          <span id="readerPaperTagIndicators" aria-label="Paper tags"></span>
+          <h1 id="fileName" class="paper-title">Loading paper...</h1>
+          <button id="readerPaperMenuButton" class="paper-menu-button menu-button" type="button" aria-label="Paper actions" aria-haspopup="menu" disabled>...</button>
+        </header>
+        <div class="summary-content-shell">
+          <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs" aria-orientation="vertical">
           <button id="withAiTab" class="reader-tab active" type="button" role="tab" aria-selected="true" aria-controls="withAiPanel" aria-label="With AI" title="With AI">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"></path>
@@ -100,15 +126,26 @@
               <path d="M8 16h5"></path>
             </svg>
           </button>
-        </div>
+          <button id="notesTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" aria-label="Notes" title="Notes">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+          </button>
+          <button id="commentsTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="commentsPanel" aria-label="评论" title="评论">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+            </svg>
+          </button>
+          </div>
 
-        <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
+          <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
           <div class="summary-scroll">
-            <section class="summary-card summary-group collapsible-card" data-collapsible-card>
+            <section class="summary-card summary-group ai-summary-panel collapsible-card" data-collapsible-card>
               <div class="summary-group-header">
                 <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="aiSummaryContent">
-                  <span>AI Summary</span>
                   <span class="collapse-icon" aria-hidden="true"></span>
+                  <span>AI Summary</span>
                 </button>
                 <button id="summarizeButton" class="icon-button refresh-button" type="button" aria-label="Regenerate summary" title="Regenerate summary">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -123,17 +160,25 @@
 
                 <section class="summary-card collapsible-card" data-collapsible-card>
                   <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
-                    <span>Keywords</span>
                     <span class="collapse-icon" aria-hidden="true"></span>
+                    <span>Keywords</span>
                   </button>
                   <div id="keywords" class="keywords"></div>
                 </section>
 
                 <section class="summary-card collapsible-card" data-collapsible-card>
-                  <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
-                    <span>Three-Line Summary</span>
-                    <span class="collapse-icon" aria-hidden="true"></span>
-                  </button>
+                  <div class="summary-card-header">
+                    <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
+                      <span class="collapse-icon" aria-hidden="true"></span>
+                      <span>Three-Line Summary</span>
+                    </button>
+                    <button id="copyThreeLineButton" class="icon-button copy-section-button" type="button" aria-label="Copy three-line summary" title="Copy three-line summary">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <dl id="threeLineSummary" class="three-lines">
                     <dt>Challenges</dt>
                     <dd id="challenges">Waiting</dd>
@@ -145,10 +190,18 @@
                 </section>
 
                 <section class="summary-card method-card collapsible-card" data-collapsible-card>
-                  <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
-                    <span>Method Breakdown</span>
-                    <span class="collapse-icon" aria-hidden="true"></span>
-                  </button>
+                  <div class="summary-card-header">
+                    <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
+                      <span class="collapse-icon" aria-hidden="true"></span>
+                      <span>Method Breakdown</span>
+                    </button>
+                    <button id="copyMethodButton" class="icon-button copy-section-button" type="button" aria-label="Copy method breakdown" title="Copy method breakdown">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <div id="methodSections" class="method-sections"></div>
                 </section>
               </div>
@@ -159,12 +212,6 @@
                 <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="discussionContent">
                   <span>Discussion</span>
                   <span class="collapse-icon" aria-hidden="true"></span>
-                </button>
-                <button id="clearDiscussionButton" class="icon-button refresh-button" type="button" aria-label="Clear discussion" title="Clear discussion">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M20 6v5h-5"></path>
-                    <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
-                  </svg>
                 </button>
               </div>
               <div id="discussionContent" class="discussion-content">
@@ -197,12 +244,14 @@
             </div>
             <div class="discussion-form-actions">
               <button id="continueInWebButton" class="discussion-web-button" type="button">在 ChatGPT 网页中继续</button>
-              <button id="sendDiscussionButton" type="submit">Send</button>
+              <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="Send" title="Send">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>
+              </button>
             </div>
           </form>
-        </div>
+          </div>
 
-        <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
+          <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
           <section class="summary-card basic-info-card">
             <div class="summary-group-header">
               <h2>基本信息</h2>
@@ -223,14 +272,159 @@
               <dd id="basicInfoDate">Waiting</dd>
               <dt>机构</dt>
               <dd id="basicInfoInstitutions">Waiting</dd>
+              <dt>DOI</dt>
+              <dd id="basicInfoDoi">未识别</dd>
             </dl>
           </section>
+
+          <section class="summary-card citation-card">
+            <div class="summary-group-header">
+              <h2>引用信息</h2>
+              <button id="generateCitationButton" class="citation-search-button" type="button" aria-label="搜索" title="搜索">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.35-4.35"></path>
+                </svg>
+                <span>搜索</span>
+              </button>
+            </div>
+            <p id="citationStatus" class="status" role="status">引用信息尚未生成，点击「搜索」通过 Crossref 检索。</p>
+            <div id="citationResults" class="citation-results" hidden></div>
+          </section>
+          </div>
+
+          <div id="notesPanel" class="reader-tab-panel notes-panel" role="tabpanel" aria-labelledby="notesTab" hidden>
+          <section class="notes-card">
+            <div class="summary-group-header notes-header">
+              <h2>Notes</h2>
+              <div class="notes-toolbar" aria-label="Notes tools">
+                <button id="toggleNotesModeButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Preview notes" title="Preview notes">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+                    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+                  </svg>
+                </button>
+                <button id="copyNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Copy notes" title="Copy notes">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+                <button id="exportNotesPdfButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Export notes PDF" title="Export notes PDF">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 3v11"></path>
+                    <path d="m7 9 5 5 5-5"></path>
+                    <path d="M5 19h14"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p id="notesStatus" class="status" role="status"></p>
+            <div id="notesWorkspace" class="notes-workspace" data-mode="edit">
+              <textarea id="notesEditor" class="notes-editor" spellcheck="true" placeholder="# Notes" aria-label="Markdown notes"></textarea>
+              <div id="notesPreview" class="notes-preview markdown-body" aria-label="Notes preview" hidden></div>
+            </div>
+          </section>
+          </div>
+
+          <div id="commentsPanel" class="reader-tab-panel comments-panel" role="tabpanel" aria-labelledby="commentsTab" hidden>
+            <section class="summary-card comments-nav-card" data-comments-nav>
+              <div class="summary-group-header">
+                <h2>评论</h2>
+              </div>
+              <div class="comments-nav-list"></div>
+            </section>
+          </div>
         </div>
       </aside>
-      <button id="toggleSummaryPaneButton" class="summary-pane-tab" type="button" aria-label="Collapse summary pane" aria-expanded="true">
-        <span class="summary-pane-tab-icon" aria-hidden="true"></span>
-      </button>
+      <nav id="readerSideRail" class="reader-side-rail" aria-label="Reader side controls"></nav>
     </main>
+    <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
+      <form id="cloudConfigForm" class="cloud-config-card">
+        <div class="cloud-config-header">
+          <h2>Settings</h2>
+          <button id="cloudConfigCloseButton" class="drawer-close-button" type="button" aria-label="Close"></button>
+        </div>
+        <div class="settings-section-title">AI API</div>
+        <label>
+          <span>API Base URL</span>
+          <input id="aiBaseUrlInput" type="url" placeholder="https://api.openai.com/v1" />
+        </label>
+        <label>
+          <span>Model</span>
+          <input id="aiModelInput" type="text" placeholder="gpt-4o-mini" />
+        </label>
+        <label>
+          <span>API Key</span>
+          <input id="aiApiKeyInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" />
+        </label>
+        <div class="ai-api-test-row">
+          <button id="aiApiTestButton" class="secondary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5h8" />
+              <path d="M12 5v5" />
+              <path d="M9 10h6l4 8a2 2 0 0 1-1.8 3H6.8A2 2 0 0 1 5 18l4-8z" />
+            </svg>
+            <span>Test API</span>
+          </button>
+          <p id="aiApiTestStatus" class="ai-api-test-status" role="status"></p>
+        </div>
+        <div class="settings-section-title">Cloud Sync</div>
+        <label>
+          <span>Sync Provider</span>
+          <select id="cloudProviderSelect">
+            <option value="local">Google Drive / local sync folder</option>
+            <option value="webdav">Jianguoyun / WebDAV</option>
+          </select>
+        </label>
+        <label>
+          <span>Local Sync Folder</span>
+          <input id="cloudLocalDirInput" type="text" placeholder="C:\Users\you\Google Drive\PaperLantern" />
+        </label>
+        <label>
+          <span>WebDAV URL</span>
+          <input id="cloudWebdavUrlInput" type="url" placeholder="https://dav.jianguoyun.com/dav/PaperLantern" />
+        </label>
+        <label>
+          <span>Account</span>
+          <input id="cloudUsernameInput" type="text" autocomplete="username" />
+        </label>
+        <label>
+          <span>Password / App Password</span>
+          <input id="cloudPasswordInput" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing password" />
+        </label>
+        <label class="cloud-auto-sync-row">
+          <input id="cloudAutoPushInput" type="checkbox" />
+          <span>Auto sync after library changes</span>
+        </label>
+      </form>
+    </div>
+    <div id="citationOverlay" class="citation-overlay" hidden>
+      <div class="citation-overlay-card">
+        <div class="citation-overlay-header">
+          <h2 id="citationOverlayTitle">引用信息</h2>
+          <button id="citationOverlayCloseButton" class="drawer-close-button" type="button" aria-label="关闭"></button>
+        </div>
+        <p id="citationOverlayMeta" class="citation-overlay-meta"></p>
+        <div class="citation-overlay-toolbar">
+          <select id="citationFormatSelect" class="citation-format-select" aria-label="引用格式">
+            <option value="gbt7714">GB/T 7714</option>
+            <option value="bibtex">BibTeX</option>
+            <option value="ris">RIS</option>
+            <option value="apa">APA</option>
+            <option value="mla">MLA</option>
+            <option value="ieee">IEEE</option>
+          </select>
+          <button id="citationCopyButton" class="icon-button copy-section-button" type="button" aria-label="复制引用" title="复制引用">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <textarea id="citationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
+      </div>
+    </div>
     <script src="./reader.js" type="module"></script>
   </body>
 </html>

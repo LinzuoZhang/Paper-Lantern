@@ -2,17 +2,32 @@
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
-const backToLibraryButton = document.querySelector("#backToLibraryButton");
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
-const closeLibraryDrawerButton = document.querySelector("#closeLibraryDrawerButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const readerPaperList = document.querySelector("#readerPaperList");
 const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
+const readerLeftRail = document.querySelector("#readerLeftRail");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
-const toggleSummaryPaneButton = document.querySelector("#toggleSummaryPaneButton");
+const readerSideRail = document.querySelector("#readerSideRail");
+const readerSettingsButton = document.querySelector("#readerSettingsButton");
+const exportPdfButton = document.querySelector("#exportPdfButton");
+const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
+const cloudConfigForm = document.querySelector("#cloudConfigForm");
+const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
+const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
+const aiModelInput = document.querySelector("#aiModelInput");
+const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiApiTestButton = document.querySelector("#aiApiTestButton");
+const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
+const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
+const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
+const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
+const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
+const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
+const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
@@ -24,16 +39,6 @@ const fileName = document.querySelector("#fileName");
 const readerPaperTagIndicators = document.querySelector("#readerPaperTagIndicators");
 const readerPaperMenuButton = document.querySelector("#readerPaperMenuButton");
 const pageIndicator = document.querySelector("#pageIndicator");
-const pdfZoomOutButton = document.querySelector("#pdfZoomOutButton");
-const pdfZoomInButton = document.querySelector("#pdfZoomInButton");
-const pdfZoomLabel = document.querySelector("#pdfZoomLabel");
-const pdfFitWidthButton = document.querySelector("#pdfFitWidthButton");
-const pdfFitPageButton = document.querySelector("#pdfFitPageButton");
-const pdfPageInput = document.querySelector("#pdfPageInput");
-const pdfPageTotal = document.querySelector("#pdfPageTotal");
-const pdfShortcutsButton = document.querySelector("#pdfShortcutsButton");
-const pdfShortcutsOverlay = document.querySelector("#pdfShortcutsOverlay");
-const pdfShortcutsCloseButton = document.querySelector("#pdfShortcutsCloseButton");
 const summarizeButton = document.querySelector("#summarizeButton");
 const statusText = document.querySelector("#status");
 const challenges = document.querySelector("#challenges");
@@ -46,15 +51,12 @@ const discussionThreadView = document.querySelector("#discussionThreadView");
 const discussionThreadList = document.querySelector("#discussionThreadList");
 const backToDiscussionsButton = document.querySelector("#backToDiscussionsButton");
 const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
-const discussionThreadMenuButton = document.querySelector("#discussionThreadMenuButton");
 const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
 const discussionInput = document.querySelector("#discussionInput");
-const discussionInputTarget = document.querySelector("#discussionInputTarget");
-const discussionResizeHandle = document.querySelector("#discussionResizeHandle");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
-const continueInWebButton = document.querySelector("#continueInWebButton");
-const clearDiscussionButton = document.querySelector("#clearDiscussionButton");
+const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
+const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
 const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
 const basicInfoButton = document.querySelector("#basicInfoButton");
@@ -63,37 +65,114 @@ const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
 const basicInfoVenue = document.querySelector("#basicInfoVenue");
 const basicInfoDate = document.querySelector("#basicInfoDate");
 const basicInfoInstitutions = document.querySelector("#basicInfoInstitutions");
+const basicInfoDoi = document.querySelector("#basicInfoDoi");
+const generateCitationButton = document.querySelector("#generateCitationButton");
+const citationStatus = document.querySelector("#citationStatus");
+const citationResults = document.querySelector("#citationResults");
+const citationOverlay = document.querySelector("#citationOverlay");
+const citationOverlayTitle = document.querySelector("#citationOverlayTitle");
+const citationOverlayMeta = document.querySelector("#citationOverlayMeta");
+const citationOverlayCloseButton = document.querySelector("#citationOverlayCloseButton");
+const citationFormatSelect = document.querySelector("#citationFormatSelect");
+const citationCopyButton = document.querySelector("#citationCopyButton");
+const citationOutput = document.querySelector("#citationOutput");
+const notesEditor = document.querySelector("#notesEditor");
+const notesWorkspace = document.querySelector("#notesWorkspace");
+const notesPreview = document.querySelector("#notesPreview");
+const notesStatus = document.querySelector("#notesStatus");
+const toggleNotesModeButton = document.querySelector("#toggleNotesModeButton");
+const copyNotesButton = document.querySelector("#copyNotesButton");
+const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
+const zoomOutButton = document.querySelector("#zoomOutButton");
+const zoomInButton = document.querySelector("#zoomInButton");
+const fitPageButton = document.querySelector("#fitPageButton");
+const pdfZoomLabel = document.querySelector("#pdfZoomLabel");
+const pdfSearchInput = document.querySelector("#pdfSearchInput");
+const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
+const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
+const pdfSearchCount = document.querySelector("#pdfSearchCount");
+const pdfShortcutsButton = document.querySelector("#pdfShortcutsButton");
+const pdfShortcutsOverlay = document.querySelector("#pdfShortcutsOverlay");
+const pdfShortcutsCloseButton = document.querySelector("#pdfShortcutsCloseButton");
+const discussionThreadMenuButton = document.querySelector("#discussionThreadMenuButton");
+const discussionInputTarget = document.querySelector("#discussionInputTarget");
+const discussionResizeHandle = document.querySelector("#discussionResizeHandle");
+const continueInWebButton = document.querySelector("#continueInWebButton");
+
+const READER_LIBRARY_ALL_ID = "__library";
+const READER_RECENT_ID = "__recent";
+const READER_TODO_ID = "__todo";
+
+const readerLibraryIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
+const readerFolderIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+const readerRecentIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
+const readerTodoIconSvg =
+  '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
+const readerPlusCircleSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const readerBookmarkPlusSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 8v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 11h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const readerBookmarkCheckedSvg =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 11 2 2 4-5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+
+let readerLibraryHoverTimer = null;
+let readerCategoryInlineEditorActive = false;
+let pdfSearchMatches = [];
+let pdfSearchIndex = -1;
 
 let lastExtractedText = "";
 let currentPdfTask = null;
 let currentPdfDocument = null;
+let pdfPageMetrics = [];
+let pdfRenderedPages = new Map();
+let pdfRenderingPages = new Map();
+let pdfPageTextCache = new Map();
+let pdfVirtualRenderTimer = null;
+let pdfSearchTask = null;
 let pdfZoom = 1;
-let pdfFitMode = "width";
+let renderedPdfZoom = 1;
 let zoomRenderTimer = null;
 let paneRenderTimer = null;
-let pdfPageObserver = null;
-let pdfPanState = null;
 let savedHighlights = [];
 let selectedPdfText = "";
 let selectedPdfRange = null;
 let lastSelectionRect = null;
+let isPdfTextSelecting = false;
+let pdfSelectionPointerId = null;
+let pendingPdfSelectionRect = null;
+let pdfSelectionStartPageNumber = null;
 let isResizingPanes = false;
 let currentPaper = null;
 let currentVisiblePage = 0;
 let apiBaseUrl = "";
 let translationDragState = null;
-let commentDraftHighlights = [];
 let activeHighlightGroupId = null;
 let readerLibraryTree = null;
 let readerSelectedCategoryId = "";
 let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
+let discussionMarkdownRenderer = null;
 let discussionInputResizeState = null;
 let discussionThreadMenu = null;
-let commentAutoSaveTimer = null;
-let annotationAutoSaveTimer = null;
 let discussionWebUrl = "https://chatgpt.com/";
+let annotationAutoSaveTimer = null;
+let notesAutoSaveTimer = null;
+let copiedToastTimer = null;
+let notesLastSavedValue = "";
+let notesIsSaving = false;
+let notesMode = "edit";
+let referenceEntries = new Map();
+let citationCandidates = [];
+let selectedCitationIndex = -1;
+let citationFormat = "gbt7714";
+let citationSelectedCandidate = null;
+let appliedCitationDoi = "";
+let commentsNavIndex = 0;
+let citationSearchSummaryVisible = false;
 let citationPreviewNode = null;
 let citationPreviewHideTimer = null;
 let citationPreviewToken = 0;
@@ -110,12 +189,25 @@ const highlightColors = {
   pink: "rgba(239, 147, 171, 0.32)",
 };
 
+const commentSwatchColors = {
+  yellow: "#ffdd40",
+  green: "#78c4a2",
+  blue: "#6fb2d6",
+  pink: "#ef93ab",
+};
+
 initPaneResizer();
+initReaderSideRail();
 initSummaryPaneToggle();
-initPdfControls();
 initReaderTabs();
+initReaderSettings();
+initCitationOverlay();
+initBasicInfoEditing();
+initPdfToolbar();
+initPdfShortcuts();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
+initNotesPanel();
 initDiscussionInputResizer();
 loadDiscussionWebSettings().catch((error) => console.error("Failed to load discussion web settings.", error));
 openReaderFromUrl();
@@ -125,30 +217,84 @@ readerPaperMenuButton?.addEventListener("click", (event) => {
   if (currentPaper) showReaderPaperMenu(currentPaper, readerPaperMenuButton);
 });
 
-backToLibraryButton?.addEventListener("click", () => {
-  window.location.href = "./index.html";
-});
-
 function initReaderLibraryDrawer() {
-  openLibraryDrawerButton?.addEventListener("click", () => openReaderLibraryDrawer());
-  closeLibraryDrawerButton?.addEventListener("click", () => closeReaderLibraryDrawer());
+  openLibraryDrawerButton?.addEventListener("click", () => {
+    // Clicking the brand while the drawer is open goes back to the library.
+    if (readerLibraryDrawer.classList.contains("open")) {
+      window.location.href = "./index.html";
+      return;
+    }
+    openReaderLibraryDrawer();
+  });
+  // Hover the left rail to expand, leave to auto-collapse.
+  readerLeftRail?.addEventListener("pointerenter", () => {
+    window.clearTimeout(readerLibraryHoverTimer);
+    openReaderLibraryDrawer();
+  });
+  readerLeftRail?.addEventListener("pointerleave", () => {
+    window.clearTimeout(readerLibraryHoverTimer);
+    readerLibraryHoverTimer = window.setTimeout(() => {
+      if (document.querySelector(".library-menu")) return;
+      if (readerCategoryInlineEditorActive) return;
+      closeReaderLibraryDrawer();
+    }, 220);
+  });
   document.addEventListener("keydown", (event) => {
+    if (readerCategoryInlineEditorActive) return;
     if (event.key === "Escape") closeReaderLibraryDrawer();
   });
+  initReaderLibraryResize();
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
+}
+
+function initReaderLibraryResize() {
+  const divider = document.querySelector("#readerLibraryDivider");
+  const categorySection = document.querySelector(".reader-category-section");
+  const drawer = document.querySelector("#readerLibraryDrawer");
+  if (!divider || !categorySection || !drawer) return;
+  const saved = Number(localStorage.getItem("paperLanternReaderCategoryHeight"));
+  if (saved > 60) categorySection.style.height = `${saved}px`;
+
+  divider.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startH = categorySection.getBoundingClientRect().height;
+    const onMove = (moveEvent) => {
+      const delta = moveEvent.clientY - startY;
+      const next = Math.max(Math.min(startH + delta, drawer.clientHeight - 60), 60);
+      categorySection.style.height = `${next}px`;
+      localStorage.setItem("paperLanternReaderCategoryHeight", String(next));
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizing-categories");
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.classList.add("resizing-categories");
+  });
 }
 
 async function openReaderLibraryDrawer() {
   readerLibraryDrawer.classList.add("open");
+  readerLeftRail?.classList.add("library-open");
+  appShell?.classList.add("library-open");
   readerLibraryDrawer.setAttribute("aria-hidden", "false");
+  openLibraryDrawerButton.classList.add("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "true");
+  openLibraryDrawerButton.setAttribute("aria-label", "Back to library");
   await loadReaderLibrary();
 }
 
 function closeReaderLibraryDrawer() {
   readerLibraryDrawer.classList.remove("open");
+  readerLeftRail?.classList.remove("library-open");
+  appShell?.classList.remove("library-open");
   readerLibraryDrawer.setAttribute("aria-hidden", "true");
+  openLibraryDrawerButton.classList.remove("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "false");
+  openLibraryDrawerButton.setAttribute("aria-label", "Open library");
 }
 
 async function loadReaderLibrary() {
@@ -162,25 +308,61 @@ async function loadReaderLibrary() {
 
 function renderReaderLibrary() {
   if (!readerLibraryTree) return;
+  if (readerCategoryInlineEditorActive) return;
   const categories = flattenReaderCategories(readerLibraryTree);
   readerCategoryList.innerHTML = "";
-  categories.forEach((category) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "reader-category-item";
-    button.classList.toggle("active", category.id === readerSelectedCategoryId);
-    button.style.paddingLeft = `${10 + category.depth * 14}px`;
-    button.textContent = `${category.name} (${category.paperCount})`;
-    button.addEventListener("click", () => {
-      readerSelectedCategoryId = category.id;
-      renderReaderLibrary();
-    });
-    readerCategoryList.appendChild(button);
-  });
 
-  const selected = categories.find((category) => category.id === readerSelectedCategoryId) || categories[0];
-  const papers = readerSelectedCategoryId ? selected?.papers || [] : collectReaderPapers(readerLibraryTree);
-  readerLibraryTitle.textContent = selected?.id ? selected.name : "All Papers";
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(READER_RECENT_ID, "最近", readerRecentIconSvg, String(getReaderRecentPapers().length)),
+  );
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(
+      READER_TODO_ID,
+      "待办",
+      readerTodoIconSvg,
+      String(collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo).length),
+      () => toggleCurrentPaperTodo(),
+      false,
+      isCurrentPaperTodo() ? readerBookmarkCheckedSvg : readerBookmarkPlusSvg,
+      isCurrentPaperTodo() ? "移除待办" : "加入待办",
+      isCurrentPaperTodo(),
+    ),
+  );
+
+  // 文献库: all papers, with the existing categories as its sub-list.
+  const shouldShowCurrentCategoryPath = readerCategoryContainsId(readerLibraryTree, currentPaper?.category);
+  readerCategoryList.appendChild(
+    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false, shouldShowCurrentCategoryPath),
+  );
+  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID) || shouldShowCurrentCategoryPath) {
+    renderReaderCategoryNode(readerLibraryTree, 0);
+  }
+
+  let papers;
+  if (readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId) {
+    papers = collectReaderPapers(readerLibraryTree);
+  } else if (readerSelectedCategoryId === READER_RECENT_ID) {
+    papers = getReaderRecentPapers();
+  } else if (readerSelectedCategoryId === READER_TODO_ID) {
+    papers = collectReaderPapers(readerLibraryTree).filter((paper) => paper.todo);
+  } else {
+    const selected = categories.find((category) => category.id === readerSelectedCategoryId);
+    // Include papers from the selected category and all of its subcategories.
+    papers = collectReaderPapers(findReaderCategoryNode(readerLibraryTree, readerSelectedCategoryId) || selected);
+  }
+
+  const titleNode = document.querySelector("#readerLibraryTitle");
+  if (titleNode) {
+    const selectedCategory = categories.find((category) => category.id === readerSelectedCategoryId);
+    titleNode.textContent =
+      readerSelectedCategoryId === READER_RECENT_ID
+        ? "最近"
+        : readerSelectedCategoryId === READER_TODO_ID
+          ? "待办"
+          : readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId
+            ? "文献库"
+            : selectedCategory?.name || "文献库";
+  }
   readerPaperList.innerHTML = "";
   if (!papers.length) {
     const empty = document.createElement("div");
@@ -203,16 +385,400 @@ function renderReaderLibrary() {
   });
 }
 
-function flattenReaderCategories(node, depth = 0) {
-  if (!node) return [];
-  const current = {
-    id: node.id || "",
-    name: node.name || "Library",
-    depth,
-    paperCount: collectReaderPapers(node).length,
-    papers: node.papers || [],
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
+  const row = document.createElement("div");
+  row.className = "reader-category-row reader-special-row";
+  const collapsed = isReaderCategoryCollapsed(id) && !forceExpanded;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reader-category-item reader-special-item";
+  button.classList.toggle("active", readerSelectedCategoryId === id);
+  button.classList.toggle("reader-category-has-children", collapsible);
+  button.style.paddingLeft = "8px";
+  const icon = document.createElement("span");
+  icon.className = "reader-category-folder-icon";
+  icon.innerHTML = iconSvg;
+  button.appendChild(icon);
+  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
+  if (collapsible) {
+    const toggle = document.createElement("span");
+    toggle.className = "reader-category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = collapsed ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReaderCategoryCollapsed(id);
+      renderReaderLibrary();
+    });
+    button.appendChild(toggle);
+  }
+  button.addEventListener("click", () => {
+    readerSelectedCategoryId = id;
+    renderReaderLibrary();
+  });
+  row.appendChild(button);
+  if (addHandler) {
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "reader-category-menu-button menu-button reader-add-category-button";
+    addButton.classList.toggle("reader-add-category-button-active", addActive);
+    addButton.setAttribute("aria-label", addTitle);
+    addButton.title = addTitle;
+    addButton.innerHTML = addIconSvg;
+    addButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      addHandler(addButton);
+    });
+    row.appendChild(addButton);
+  }
+  return row;
+}
+
+function renderReaderCategoryNode(node, depth) {
+  (node.folders || []).forEach((folder) => {
+    renderReaderCategoryRow(folder, depth);
+    if (folder.folders && folder.folders.length && (!isReaderCategoryCollapsed(folder.id) || readerCategoryContainsId(folder, currentPaper?.category))) {
+      renderReaderCategoryNode(folder, depth + 1);
+    }
+  });
+}
+
+function renderReaderCategoryRow(node, depth) {
+  const row = document.createElement("div");
+  row.className = "reader-category-row";
+  const hasChildren = Boolean(node.folders && node.folders.length);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reader-category-item";
+  button.classList.toggle("active", node.id === readerSelectedCategoryId);
+  button.classList.toggle("reader-current-category-path", readerCategoryContainsId(node, currentPaper?.category));
+  button.classList.toggle("reader-category-has-children", hasChildren);
+  button.style.paddingLeft = `${8 + (depth + 1) * 12}px`;
+  const icon = document.createElement("span");
+  icon.className = "reader-category-folder-icon";
+  icon.innerHTML = readerFolderIconSvg;
+  button.appendChild(icon);
+  if (hasChildren) {
+    const collapsed = isReaderCategoryCollapsed(node.id) && !readerCategoryContainsId(node, currentPaper?.category);
+    const toggle = document.createElement("span");
+    toggle.className = "reader-category-collapse-toggle";
+    toggle.setAttribute("aria-label", "展开/收起");
+    toggle.textContent = collapsed ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReaderCategoryCollapsed(node.id);
+      renderReaderLibrary();
+    });
+    button.appendChild(toggle);
+  }
+  button.appendChild(document.createTextNode(`${node.name} (${collectReaderPapers(node).length})`));
+  button.addEventListener("click", () => {
+    readerSelectedCategoryId = node.id;
+    renderReaderLibrary();
+  });
+  const menuButton = document.createElement("button");
+  menuButton.type = "button";
+  menuButton.className = "reader-category-menu-button menu-button";
+  menuButton.textContent = "...";
+  menuButton.setAttribute("aria-label", `${node.name} category actions`);
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showReaderCategoryMenu(node, menuButton);
+  });
+  row.appendChild(button);
+  row.appendChild(menuButton);
+  readerCategoryList.appendChild(row);
+}
+
+function isReaderCategoryCollapsed(categoryId) {
+  return localStorage.getItem(`paperLanternReaderCollapsed:${categoryId || "__root"}`) === "true";
+}
+
+function toggleReaderCategoryCollapsed(categoryId) {
+  const key = `paperLanternReaderCollapsed:${categoryId || "__root"}`;
+  const next = localStorage.getItem(key) !== "true";
+  localStorage.setItem(key, String(next));
+  return next;
+}
+
+function getReaderRecentPapers() {
+  const all = collectReaderPapers(readerLibraryTree);
+  let records = [];
+  try {
+    records = JSON.parse(localStorage.getItem("paperLanternRecentPapers") || "[]");
+  } catch (error) {
+    records = [];
+  }
+  const ids = new Set((Array.isArray(records) ? records : []).map((record) => record && record.id));
+  return all.filter((paper) => ids.has(paper.id));
+}
+
+function isCurrentPaperTodo() {
+  return Boolean(currentPaper?.todo || collectReaderPapers(readerLibraryTree).find((paper) => paper.id === currentPaper?.id)?.todo);
+}
+
+async function toggleCurrentPaperTodo() {
+  if (!currentPaper?.id) {
+    setStatus("未打开论文。", true);
+    return;
+  }
+  const nextTodo = !isCurrentPaperTodo();
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: currentPaper.id, todo: nextTodo }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新待办失败。");
+    currentPaper.todo = nextTodo;
+    const libraryPaper = collectReaderPapers(readerLibraryTree).find((paper) => paper.id === currentPaper.id);
+    if (libraryPaper) libraryPaper.todo = nextTodo;
+    setStatus(nextTodo ? "已加入待办。" : "已移除待办。");
+    renderReaderLibrary();
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "更新待办失败。", true);
+  }
+}
+
+function isReaderUncategorizedCategory(category) {
+  const id = String(category?.id || "").toLowerCase();
+  const name = String(category?.name || "");
+  return id === "uncategorized" || name === "未分类" || name.toLowerCase() === "uncategorized";
+}
+
+function createReaderUncategorizedIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  icon.classList.add("reader-category-icon");
+  [
+    ["path", { d: "M3 7.5A2.5 2.5 0 0 1 5.5 5h4.2l2 2H18.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z" }],
+    ["path", { d: "M8 12h8" }],
+  ].forEach(([tag, attrs]) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    icon.appendChild(node);
+  });
+  return icon;
+}
+
+async function moveCurrentPaperToCategory(category) {
+  if (!currentPaper?.id || !category) return;
+  const targetCategory = category.id || category.name;
+  if (!targetCategory || currentPaper.category === category.id) return;
+  const previousText = statusText.textContent;
+  setStatus(`Moving to ${category.name}...`);
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move", id: currentPaper.id, category: targetCategory }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Move failed.");
+    currentPaper = data.paper;
+    readerSelectedCategoryId = currentPaper.category || category.id;
+    await loadReaderLibrary();
+    setStatus(`Moved to ${category.name}.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Move failed.", true);
+  } finally {
+    if (!statusText.classList.contains("error")) {
+      window.setTimeout(() => {
+        if (statusText.textContent.startsWith("Moved to ")) setStatus(previousText || "");
+      }, 1600);
+    }
+  }
+}
+
+function showReaderCategoryMenu(category, anchor) {
+  document.querySelector(".library-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "category-menu reader-category-menu library-menu";
+
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M8 13h7"></path><path d="m12 10 3 3-3 3"></path></svg>移动到此处';
+  moveButton.disabled = !currentPaper?.id || currentPaper.category === category.id;
+  moveButton.addEventListener("click", async () => {
+    menu.remove();
+    await moveCurrentPaperToCategory(category);
+  });
+
+  const renameButton = document.createElement("button");
+  renameButton.type = "button";
+  renameButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>重命名';
+  renameButton.disabled = category.locked || !category.id;
+  renameButton.addEventListener("click", () => {
+    menu.remove();
+    startReaderCategoryRename(category, anchor);
+  });
+
+  const createButton = document.createElement("button");
+  createButton.type = "button";
+  createButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>新建子分类';
+  createButton.addEventListener("click", () => {
+    menu.remove();
+    startReaderCategoryCreate(category, anchor);
+  });
+
+  menu.append(moveButton, renameButton, createButton);
+  document.body.appendChild(menu);
+  positionReaderMenu(menu, anchor, 210);
+}
+
+function positionReaderMenu(menu, anchor, width) {
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.min(rect.left, window.innerWidth - width - 8)}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+}
+
+function startReaderCategoryRename(category, anchor) {
+  const row = anchor.closest(".reader-category-row");
+  const button = row ? row.querySelector(".reader-category-item") : null;
+  if (!row || !button) return;
+  const menuButton = row.querySelector(".reader-category-menu-button");
+  if (menuButton) menuButton.hidden = true;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "reader-category-inline-input";
+  input.value = category.name;
+  input.setAttribute("aria-label", "分类名称");
+  input.setAttribute("maxlength", "120");
+  button.replaceWith(input);
+  readerCategoryInlineEditorActive = true;
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    readerCategoryInlineEditorActive = false;
+    const name = input.value.trim();
+    if (commit && name && name !== category.name) {
+      updateReaderCategory({ action: "rename", id: category.id, name }).catch((error) => {
+        console.error(error);
+        renderReaderLibrary();
+      });
+    } else {
+      renderReaderLibrary();
+    }
   };
-  return [current, ...(node.folders || []).flatMap((folder) => flattenReaderCategories(folder, depth + 1))];
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function startReaderCategoryCreate(parentCategory, anchor) {
+  const newRow = document.createElement("div");
+  newRow.className = "reader-category-row reader-category-create-row";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "reader-category-inline-input";
+  input.placeholder = "新分类名称";
+  input.setAttribute("aria-label", "新分类名称");
+  input.setAttribute("maxlength", "120");
+  newRow.appendChild(input);
+
+  if (parentCategory && anchor) {
+    const parentRow = anchor.closest(".reader-category-row");
+    input.style.paddingLeft = `${8 + (Number(parentCategory.depth || 0) + 1) * 12}px`;
+    if (parentRow) parentRow.after(newRow);
+    else readerCategoryList.prepend(newRow);
+  } else if (anchor) {
+    // Creating a top-level category: insert right below the 文献库 row.
+    const anchorRow = anchor.closest(".reader-category-row");
+    if (anchorRow) anchorRow.after(newRow);
+    else readerCategoryList.prepend(newRow);
+  } else {
+    readerCategoryList.prepend(newRow);
+  }
+  input.focus();
+  readerCategoryInlineEditorActive = true;
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    readerCategoryInlineEditorActive = false;
+    const name = input.value.trim();
+    if (commit && name) {
+      updateReaderCategory({ action: "create", parentId: parentCategory ? parentCategory.id : "", name }).catch((error) => {
+        console.error(error);
+        renderReaderLibrary();
+      });
+    } else {
+      newRow.remove();
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+async function updateReaderCategory(payload) {
+  try {
+    const response = await apiFetch("/api/library/category", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Category operation failed.");
+    readerLibraryTree = data.tree;
+    if (payload.action === "create" && data.categoryId) {
+      readerSelectedCategoryId = data.categoryId;
+    } else if (payload.action === "rename" && data.categoryId) {
+      if (readerSelectedCategoryId === payload.id) readerSelectedCategoryId = data.categoryId;
+      if (currentPaper?.category === payload.id) currentPaper.category = data.categoryId;
+    }
+    renderReaderLibrary();
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Category operation failed.", true);
+  }
+}
+
+function flattenReaderCategories(node, depth = 0, includeCurrent = false) {
+  if (!node) return [];
+  const current = includeCurrent
+    ? [
+        {
+          id: node.id || "",
+          name: node.name || "Library",
+          depth,
+          paperCount: collectReaderPapers(node).length,
+          papers: node.papers || [],
+        },
+      ]
+    : [];
+  const childDepth = includeCurrent ? depth + 1 : depth;
+  return [...current, ...(node.folders || []).flatMap((folder) => flattenReaderCategories(folder, childDepth, true))];
 }
 
 function collectReaderPapers(node) {
@@ -220,168 +786,69 @@ function collectReaderPapers(node) {
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectReaderPapers)];
 }
 
-async function openReaderFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const paperId = params.get("id");
-  if (!paperId) {
-    setStatus("缺少论文 ID，请从文献库打开论文。", true);
-    return;
-  }
-  await openLibraryPaper(paperId, params.get("analyze") === "1");
-}
-
-async function openLibraryPaper(paperId, shouldAnalyze = false) {
-  setStatus("正在打开论文...");
-  const response = await apiFetch(`/api/library/paper?id=${encodeURIComponent(paperId)}`);
-  const data = await readJsonResponse(response);
-  if (!response.ok) {
-    setStatus(data.error || "打开论文失败", true);
-    return;
-  }
-
-  currentPaper = data.paper;
-  readerPaperMenuButton.disabled = false;
-  readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
-  savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
-  renderDiscussionHistory(currentPaper.discussion || []);
-  renderSummary(paperToSummary(currentPaper));
-  renderBasicInfo(currentPaper.basicInfo);
-  setReaderPaperTitle(currentPaper.title);
-  renderReaderLibrary();
-
-  const pdfResponse = await apiFetch(currentPaper.pdfUrl);
-  const blob = await pdfResponse.blob();
-  const file = new File([blob], `${currentPaper.title}.pdf`, { type: "application/pdf" });
-  showPdf(file, currentPaper.title);
-  lastExtractedText = "";
-  setBusy(true);
-  clearStatus();
-  if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
-    renderSummaryLoading("解析论文并生成总结中...");
-  }
-
-  try {
-    const cachedText = String(currentPaper.extractedText || "").trim();
-    const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
-    const extractedText = extraction.text;
-    lastExtractedText = extractedText;
-    if (extraction.title) {
-      setReaderPaperTitle(extraction.title);
-    }
-
-    if (extractedText.trim().length < 80) {
-      setStatus("Not enough text was extracted. This PDF may be scanned; paste text manually and retry.", true);
-      return;
-    }
-
-    if (!cachedText) {
-      saveExtractedTextCache(extractedText).catch((error) => console.error("Failed to save extracted text cache.", error));
-    }
-
-    if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
-      await summarizeText(extractedText);
-    }
-  } catch (error) {
-    console.error(error);
-    renderSummary(paperToSummary(currentPaper));
-    setStatus(error.message || "Failed to read PDF.", true);
-  } finally {
-    setBusy(false);
-  }
-}
-
 function normalizePaperTags(tags) {
   if (!Array.isArray(tags)) return [];
   const seen = new Set();
-  return tags
-    .map((tag) => ({
-      name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
-      color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
-    }))
-    .filter((tag) => {
-      const key = tag.name.toLocaleLowerCase();
-      if (!tag.name || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 16);
+  return tags.map((tag) => ({
+    name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
+    color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
+  })).filter((tag) => {
+    const key = tag.name.toLowerCase();
+    if (!tag.name || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 16);
 }
 
-function createTagColorIndicator(tags) {
-  const indicator = document.createElement("span");
-  indicator.className = "tag-color-indicators";
+function renderReaderPaperTags(tags) {
+  if (!readerPaperTagIndicators) return;
+  readerPaperTagIndicators.replaceChildren();
   normalizePaperTags(tags).forEach((tag) => {
     const dot = document.createElement("span");
     dot.className = "tag-color-dot";
     dot.style.backgroundColor = tag.color;
     dot.title = tag.name;
-    indicator.appendChild(dot);
+    readerPaperTagIndicators.appendChild(dot);
   });
-  return indicator;
-}
-
-function setReaderPaperTitle(title) {
-  const displayTitle = String(title || currentPaper?.title || "Loading paper...");
-  fileName.textContent = displayTitle;
-  fileName.title = displayTitle;
-  readerPaperTagIndicators.replaceChildren(createTagColorIndicator(currentPaper?.tags));
 }
 
 function showReaderPaperMenu(paper, anchor) {
   document.querySelector(".reader-paper-menu")?.remove();
   const menu = document.createElement("div");
   menu.className = "paper-menu library-menu reader-paper-menu";
-  menu.setAttribute("role", "menu");
-
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.textContent = "移动";
+  moveButton.addEventListener("click", () => {
+    menu.remove();
+    showReaderMovePaperMenu(paper, anchor);
+  });
   const tagsButton = document.createElement("button");
   tagsButton.type = "button";
-  tagsButton.textContent = "Manage tags";
+  tagsButton.textContent = "编辑标签";
   tagsButton.addEventListener("click", () => {
     menu.remove();
     showReaderPaperTagEditor(paper, anchor);
   });
-
-  const moveButton = document.createElement("button");
-  moveButton.type = "button";
-  moveButton.textContent = "Move category";
-  moveButton.addEventListener("click", () => {
-    menu.remove();
-    showReaderMovePaperMenu(paper, anchor).catch((error) => {
-      console.error(error);
-      setStatus(error.message || "Failed to load categories.", true);
-    });
-  });
-
-  const exportLink = document.createElement("a");
-  exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
-  exportLink.download = `${paper.title || "paper"}-export.pdf`;
-  exportLink.textContent = "Export";
-  exportLink.addEventListener("click", (event) => {
-    event.preventDefault();
-    menu.remove();
-    const link = document.createElement("a");
-    link.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
-    link.download = `${paper.title || "paper"}-export.pdf`;
-    link.click();
-  });
-
   const revealButton = document.createElement("button");
   revealButton.type = "button";
-  revealButton.textContent = "Show in folder";
+  revealButton.textContent = "在文件夹中显示";
   revealButton.addEventListener("click", async () => {
     menu.remove();
     try {
       await updateReaderPaper({ action: "reveal", id: paper.id });
       setStatus("Opened the paper in File Explorer.");
     } catch (error) {
-      console.error(error);
       setStatus(error.message || "Failed to show the paper in its folder.", true);
     }
   });
-
+  const exportLink = document.createElement("a");
+  exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+  exportLink.download = `${paper.title || "paper"}-export.pdf`;
+  exportLink.textContent = "导出 PDF";
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete paper";
+  deleteButton.textContent = "删除论文";
   deleteButton.addEventListener("click", async () => {
     menu.remove();
     if (!window.confirm(`Delete paper "${paper.title}"?`)) return;
@@ -389,14 +856,36 @@ function showReaderPaperMenu(paper, anchor) {
       await updateReaderPaper({ action: "delete", id: paper.id });
       window.location.href = "./index.html";
     } catch (error) {
-      console.error(error);
       setStatus(error.message || "Failed to delete the paper.", true);
     }
   });
-
-  menu.append(tagsButton, moveButton, exportLink, revealButton, deleteButton);
+  menu.append(moveButton, tagsButton, revealButton, exportLink, deleteButton);
   document.body.appendChild(menu);
   positionReaderPaperMenu(menu, anchor, 190);
+}
+
+function showReaderMovePaperMenu(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu move-paper-menu library-menu reader-paper-menu";
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "移动到分类";
+  menu.appendChild(heading);
+  flattenReaderCategories(readerLibraryTree).filter((category) => category.id).forEach((category) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "move-category-option";
+    button.disabled = category.id === paper.category;
+    button.textContent = category.name;
+    button.addEventListener("click", async () => {
+      menu.remove();
+      await moveCurrentPaperToCategory(category);
+    });
+    menu.appendChild(button);
+  });
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 240);
 }
 
 function showReaderPaperTagEditor(paper, anchor) {
@@ -410,13 +899,10 @@ function showReaderPaperTagEditor(paper, anchor) {
 
 function renderReaderPaperTagEditor(menu, paper) {
   const tags = normalizePaperTags(paper.tags);
-  menu.innerHTML = "";
-
+  menu.replaceChildren();
   const heading = document.createElement("div");
   heading.className = "move-menu-heading";
   heading.textContent = "Tags";
-  menu.appendChild(heading);
-
   const list = document.createElement("div");
   list.className = "tag-editor-list";
   if (!tags.length) {
@@ -431,46 +917,34 @@ function renderReaderPaperTagEditor(menu, paper) {
     const color = document.createElement("input");
     color.type = "color";
     color.value = tag.color;
-    color.setAttribute("aria-label", `${tag.name} color`);
-    color.addEventListener("change", async () => {
-      await saveReaderPaperTagsFromEditor(menu, paper, tags.map((item) => (item.name === tag.name ? { ...item, color: color.value } : item)));
-    });
+    color.addEventListener("change", () => saveReaderPaperTagsFromEditor(menu, paper, tags.map((item) => item.name === tag.name ? { ...item, color: color.value } : item)));
     const name = document.createElement("span");
     name.textContent = tag.name;
-    name.title = tag.name;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "tag-remove-button";
     remove.textContent = "×";
-    remove.setAttribute("aria-label", `Remove ${tag.name}`);
-    remove.addEventListener("click", async () => {
-      await saveReaderPaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name));
-    });
+    remove.addEventListener("click", () => saveReaderPaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name)));
     row.append(color, name, remove);
     list.appendChild(row);
   });
-
   const addRow = document.createElement("div");
   addRow.className = "tag-editor-add-row";
   const input = document.createElement("input");
   input.type = "text";
   input.maxLength = 48;
   input.placeholder = "New tag";
-  input.setAttribute("aria-label", "New tag name");
   const color = document.createElement("input");
   color.type = "color";
   color.value = "#2c758c";
-  color.setAttribute("aria-label", "New tag color");
   const add = document.createElement("button");
   add.type = "button";
   add.textContent = "Add";
   const submit = async () => {
     const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
     if (!name) return;
-    const existing = tags.find((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const next = existing
-      ? tags.map((tag) => (tag === existing ? { ...tag, color: color.value } : tag))
-      : [...tags, { name, color: color.value }];
+    const existing = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+    const next = existing ? tags.map((tag) => tag === existing ? { ...tag, color: color.value } : tag) : [...tags, { name, color: color.value }];
     await saveReaderPaperTagsFromEditor(menu, paper, next);
   };
   add.addEventListener("click", submit);
@@ -481,79 +955,14 @@ function renderReaderPaperTagEditor(menu, paper) {
     }
   });
   addRow.append(input, color, add);
-  menu.append(list, addRow);
+  menu.append(heading, list, addRow);
 }
 
 async function saveReaderPaperTagsFromEditor(menu, paper, tags) {
-  try {
-    await saveCurrentPaper({ tags: normalizePaperTags(tags) });
-    paper.tags = normalizePaperTags(currentPaper?.tags);
-    setReaderPaperTitle(currentPaper?.title || paper.title);
-    renderReaderPaperTagEditor(menu, paper);
-    setStatus("Tags saved.");
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || "Failed to save tags.", true);
-  }
-}
-
-async function showReaderMovePaperMenu(paper, anchor) {
-  if (!readerLibraryTree) await loadReaderLibrary();
-  document.querySelector(".reader-paper-menu")?.remove();
-  const menu = document.createElement("div");
-  menu.className = "paper-menu move-paper-menu library-menu reader-paper-menu";
-  menu.setAttribute("role", "menu");
-
-  const heading = document.createElement("div");
-  heading.className = "move-menu-heading";
-  heading.textContent = "Move to category";
-  menu.appendChild(heading);
-
-  flattenReaderCategories(readerLibraryTree)
-    .forEach((category) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "move-category-option";
-      button.style.paddingLeft = `${14 + category.depth * 14}px`;
-      button.disabled = category.id === paper.category;
-      button.textContent = category.id ? category.name : "Uncategorized";
-      button.addEventListener("click", async () => {
-        menu.remove();
-        try {
-          await updateReaderPaper({ action: "move", id: paper.id, category: category.id });
-          readerSelectedCategoryId = category.id;
-          await loadReaderLibrary();
-          setStatus(`Moved to ${category.id ? category.name : "Uncategorized"}.`);
-        } catch (error) {
-          console.error(error);
-          setStatus(error.message || "Failed to move the paper.", true);
-        }
-      });
-      menu.appendChild(button);
-    });
-
-  const customButton = document.createElement("button");
-  customButton.type = "button";
-  customButton.className = "move-category-custom";
-  customButton.textContent = "Enter new category...";
-  customButton.addEventListener("click", async () => {
-    menu.remove();
-    const category = window.prompt("Target category / subfolder", paper.categoryName || paper.category || "Uncategorized");
-    if (!category?.trim()) return;
-    try {
-      await updateReaderPaper({ action: "move", id: paper.id, category: category.trim() });
-      readerSelectedCategoryId = currentPaper?.category || "";
-      await loadReaderLibrary();
-      setStatus("Moved to the new category.");
-    } catch (error) {
-      console.error(error);
-      setStatus(error.message || "Failed to move the paper.", true);
-    }
-  });
-  menu.appendChild(customButton);
-
-  document.body.appendChild(menu);
-  positionReaderPaperMenu(menu, anchor, 260);
+  await saveCurrentPaper({ tags: normalizePaperTags(tags) });
+  paper.tags = normalizePaperTags(currentPaper?.tags);
+  renderReaderPaperTags(paper.tags);
+  renderReaderPaperTagEditor(menu, paper);
 }
 
 function positionReaderPaperMenu(menu, anchor, width) {
@@ -578,33 +987,133 @@ async function updateReaderPaper(payload) {
   return data;
 }
 
+function findReaderCategoryNode(node, id) {
+  if (!node) return null;
+  if ((node.id || "") === id) return node;
+  for (const folder of node.folders || []) {
+    const found = findReaderCategoryNode(folder, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function readerCategoryContainsId(node, categoryId) {
+  if (!node || !categoryId) return false;
+  if (node.id === categoryId) return true;
+  return (node.folders || []).some((folder) => readerCategoryContainsId(folder, categoryId));
+}
+
+async function openReaderFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const paperId = params.get("id");
+  if (!paperId) {
+    setStatus("缺少论文 ID，请从文献库打开论文。", true);
+    return;
+  }
+  await openLibraryPaper(paperId, params.get("analyze") === "1");
+}
+
+async function openLibraryPaper(paperId, shouldAnalyze = false) {
+  setStatus("正在打开论文...");
+  const response = await apiFetch(`/api/library/paper?id=${encodeURIComponent(paperId)}`);
+  const data = await readJsonResponse(response);
+  if (!response.ok) {
+    setStatus(data.error || "打开论文失败", true);
+    return;
+  }
+
+  currentPaper = data.paper;
+  if (readerPaperMenuButton) readerPaperMenuButton.disabled = false;
+  readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
+  savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
+  renderDiscussionHistory(currentPaper.discussion || []);
+  renderNotes(currentPaper.notes || "");
+  renderSummary(paperToSummary(currentPaper));
+  renderBasicInfo(currentPaper.basicInfo);
+  renderDoi(currentPaper.doi);
+  resetCitationSection();
+  loadCurrentCitationInfo().catch((error) => console.error("Failed to load current citation info.", error));
+  setReaderPaperTitle(currentPaper.title);
+  renderReaderPaperTags(currentPaper.tags);
+  renderReaderLibrary();
+
+  const pdfResponse = await apiFetch(currentPaper.pdfUrl);
+  const blob = await pdfResponse.blob();
+  const file = new File([blob], `${currentPaper.title}.pdf`, { type: "application/pdf" });
+  lastExtractedText = "";
+  referenceEntries = new Map();
+  showPdf(file, currentPaper.title);
+  setBusy(true);
+  clearStatus();
+  if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
+    renderSummaryLoading("解析论文并生成总结中...");
+  }
+
+  try {
+    const cachedText = String(currentPaper.extractedText || "").trim();
+    const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
+    const extractedText = extraction.text;
+    lastExtractedText = extractedText;
+    if (extraction.title) {
+      setReaderPaperTitle(extraction.title);
+      currentPaper.title = extraction.title;
+      saveCurrentPaper({ title: extraction.title }).catch((error) => console.error("Failed to save extracted title.", error));
+    }
+
+    if (extractedText.trim().length < 80) {
+      setStatus("Not enough text was extracted. This PDF may be scanned; paste text manually and retry.", true);
+      return;
+    }
+
+    if (!cachedText) {
+      saveExtractedTextCache(extractedText).catch((error) => console.error("Failed to save extracted text cache.", error));
+    }
+
+    if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
+      await summarizeText(extractedText);
+    }
+  } catch (error) {
+    console.error(error);
+    renderSummary(paperToSummary(currentPaper));
+    setStatus(error.message || "Failed to read PDF.", true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
-pdfViewer.addEventListener("scroll", updatePageIndicator);
+pdfViewer.addEventListener("scroll", () => {
+  updatePageIndicator();
+  hideReferencePopover();
+  scheduleVisiblePdfRender();
+});
+pdfViewer.addEventListener("pointerdown", handlePdfSelectionPointerDown);
+pdfViewer.addEventListener("lostpointercapture", resetPdfSelectionPointerState);
 pdfViewer.addEventListener("click", handlePdfClick);
-pdfViewer.addEventListener("pointerdown", startPdfPan);
-pdfViewer.addEventListener("pointermove", movePdfPan);
-pdfViewer.addEventListener("pointerup", finishPdfPan);
-pdfViewer.addEventListener("pointercancel", finishPdfPan);
-document.addEventListener("keydown", handlePdfKeyboardShortcut);
+document.addEventListener("pointerup", handlePdfSelectionPointerFinish);
+document.addEventListener("pointercancel", handlePdfSelectionPointerFinish);
+window.addEventListener("blur", resetPdfSelectionPointerState);
 document.addEventListener("pointerdown", (event) => {
   const translationBubble = document.querySelector("#translationBubble");
-  const commentBubble = document.querySelector("#commentBubble");
   const annotationEditor = document.querySelector("#annotationEditor");
+  const referencePopover = document.querySelector("#referencePopover");
   const clickedFloatingUi =
     selectionMenu.contains(event.target) ||
     translationBubble?.contains(event.target) ||
-    commentBubble?.contains(event.target) ||
-    annotationEditor?.contains(event.target);
-  const clickedDiscussionMenu = event.target.closest(".discussion-thread-menu") || event.target.closest(".discussion-thread-more-button");
+    annotationEditor?.contains(event.target) ||
+    referencePopover?.contains(event.target);
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
     document.querySelector(".library-menu")?.remove();
   }
+  if (!event.target.closest(".discussion-thread-menu") && !event.target.closest(".discussion-thread-more-button, .discussion-thread-delete")) {
+    closeDiscussionThreadMenu();
+  }
   if (!clickedFloatingUi) {
     hideTranslationBubble();
+    hideReferencePopover();
     hideAnnotationEditor();
   }
-  if (!clickedDiscussionMenu) closeDiscussionThreadMenu();
 
   if (!selectionMenu.contains(event.target) && !pdfViewer.contains(event.target)) {
     hideSelectionMenu();
@@ -614,26 +1123,24 @@ document.addEventListener("pointerdown", (event) => {
 highlightButton.addEventListener("mousedown", (event) => event.preventDefault());
 commentButton.addEventListener("mousedown", (event) => event.preventDefault());
 translateButton.addEventListener("mousedown", (event) => event.preventDefault());
-translateWithContextButton.addEventListener("mousedown", (event) => event.preventDefault());
+translateWithContextButton?.addEventListener("mousedown", (event) => event.preventDefault());
 explainButton.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
-translateWithContextButton.addEventListener("click", () => translateSelection(true));
+translateWithContextButton?.addEventListener("click", () => translateSelection(true));
 explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
-continueInWebButton?.addEventListener("click", continueDiscussionOnWeb);
-clearDiscussionButton?.addEventListener("click", () => {
-  clearActiveDiscussion();
-});
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
 discussionThreadMenuButton?.addEventListener("click", (event) => {
-  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
-  if (!thread) return;
   event.stopPropagation();
-  toggleDiscussionThreadMenu(thread, discussionThreadTitle, discussionThreadMenuButton);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (thread) showDiscussionThreadMenu(thread, discussionThreadMenuButton);
 });
+continueInWebButton?.addEventListener("click", continueDiscussionOnWeb);
+copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
+copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
 
 summarizeButton.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -664,6 +1171,7 @@ basicInfoButton?.addEventListener("click", async () => {
   }
 
   setBusy(true);
+  basicInfoButton.classList.add("spinning");
   setBasicInfoStatus("正在整理基本信息...");
   renderBasicInfoLoading();
   try {
@@ -674,14 +1182,220 @@ basicInfoButton?.addEventListener("click", async () => {
     renderBasicInfo(currentPaper?.basicInfo);
     setBasicInfoStatus(error.message || "基本信息整理失败。", true);
   } finally {
+    basicInfoButton.classList.remove("spinning");
     setBusy(false);
   }
 });
 
+generateCitationButton?.addEventListener("click", () => {
+  generateCitation();
+});
+
 function initReaderTabs() {
   readerTabs.forEach((tab) => {
-    tab.addEventListener("click", () => setActiveReaderTab(tab.id));
+    tab.addEventListener("click", () => {
+      const isCollapsed = appShell.classList.contains("summary-pane-collapsed");
+      const isActive = tab.classList.contains("active");
+      if (isActive && !isCollapsed) {
+        setSummaryPaneCollapsed(true);
+        return;
+      }
+      if (!isActive) setActiveReaderTab(tab.id);
+      if (isCollapsed) {
+        setSummaryPaneCollapsed(false);
+      }
+    });
   });
+}
+
+function initReaderSideRail() {
+  const tabs = document.querySelector(".reader-tabs");
+  if (readerSideRail && tabs) readerSideRail.append(tabs);
+}
+
+exportPdfButton?.addEventListener("click", exportCurrentPaperPdf);
+
+async function exportCurrentPaperPdf() {
+  if (!currentPaper?.id) {
+    setStatus("No paper is open to export.", true);
+    return;
+  }
+
+  exportPdfButton.disabled = true;
+  try {
+    // Download straight from the server URL instead of fetching into a blob:
+    // the browser streams the file natively (honouring Content-Length), which
+    // avoids the object-URL/revoke class of issues that can leave a download
+    // sitting at 100% without finalizing.
+    const origin = window.location.origin && window.location.origin !== "null" ? window.location.origin : "http://127.0.0.1:8000";
+    const base = apiBaseUrl || origin;
+    const exportUrl = `${base}/api/library/export?id=${encodeURIComponent(currentPaper.id)}`;
+    setStatus("正在导出...");
+    const link = document.createElement("a");
+    link.href = exportUrl;
+    link.download = `${cleanExportFilename(currentPaper.title)}-export.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => {
+      if (statusText.textContent === "正在导出...") setStatus("");
+    }, 4000);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Export failed.", true);
+  } finally {
+    exportPdfButton.disabled = false;
+  }
+}
+
+function initNotesPanel() {
+  notesEditor?.addEventListener("input", () => {
+    renderNotesPreview(notesEditor.value);
+    setNotesStatus("Unsaved");
+    window.clearTimeout(notesAutoSaveTimer);
+    notesAutoSaveTimer = window.setTimeout(() => {
+      saveNotes().catch((error) => console.error("Failed to auto-save notes.", error));
+    }, 700);
+  });
+  toggleNotesModeButton?.addEventListener("click", toggleNotesMode);
+  copyNotesButton?.addEventListener("click", copyNotes);
+  exportNotesPdfButton?.addEventListener("click", exportNotesPdf);
+  renderNotes("");
+}
+
+function renderNotes(value) {
+  const notes = String(value || "");
+  if (notesEditor) notesEditor.value = notes;
+  notesLastSavedValue = notes;
+  renderNotesPreview(notes);
+  setNotesMode("edit");
+  setNotesStatus(notes ? "Saved" : "");
+}
+
+function renderNotesPreview(value) {
+  if (!notesPreview) return;
+  const source = String(value || "").trim();
+  notesPreview.innerHTML = source ? renderDiscussionMarkdown(source) : "<p>Notes preview</p>";
+}
+
+function setNotesMode(mode) {
+  notesMode = mode === "preview" ? "preview" : "edit";
+  if (notesWorkspace) notesWorkspace.dataset.mode = notesMode;
+  if (notesEditor) notesEditor.hidden = notesMode !== "edit";
+  if (notesPreview) notesPreview.hidden = notesMode !== "preview";
+  if (!toggleNotesModeButton) return;
+  const isPreview = notesMode === "preview";
+  toggleNotesModeButton.setAttribute("aria-label", isPreview ? "Edit notes" : "Preview notes");
+  toggleNotesModeButton.title = isPreview ? "Edit notes" : "Preview notes";
+  toggleNotesModeButton.innerHTML = isPreview
+    ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+      </svg>`
+    : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+      </svg>`;
+}
+
+function toggleNotesMode() {
+  if (notesMode === "edit") renderNotesPreview(notesEditor?.value || "");
+  setNotesMode(notesMode === "edit" ? "preview" : "edit");
+}
+
+async function copyNotes() {
+  const value = notesEditor?.value || "";
+  if (!value) return;
+  try {
+    await copyTextToClipboard(value);
+    showCopiedFeedback(copyNotesButton);
+  } catch (error) {
+    console.error("Failed to copy notes.", error);
+    setNotesStatus("复制失败。", true);
+  }
+}
+
+function setNotesStatus(message, isError = false) {
+  if (!notesStatus) return;
+  notesStatus.textContent = message || "";
+  notesStatus.classList.toggle("error", Boolean(isError));
+}
+
+async function saveNotes() {
+  if (!currentPaper?.id || !notesEditor || notesIsSaving) return;
+  const notes = notesEditor.value;
+  window.clearTimeout(notesAutoSaveTimer);
+  if (notes === notesLastSavedValue) {
+    setNotesStatus(notes ? "Saved" : "");
+    return;
+  }
+  notesIsSaving = true;
+  setNotesStatus("Saving...");
+  try {
+    await saveCurrentPaper({ notes });
+    notesLastSavedValue = String(currentPaper?.notes || notes);
+    setNotesStatus("Saved");
+  } catch (error) {
+    console.error(error);
+    setNotesStatus(error.message || "Notes save failed.", true);
+  } finally {
+    notesIsSaving = false;
+  }
+}
+
+async function exportNotesPdf() {
+  if (!currentPaper?.id) {
+    setNotesStatus("No paper is open.", true);
+    return;
+  }
+  await saveNotes();
+  if (exportNotesPdfButton) exportNotesPdfButton.disabled = true;
+  setNotesStatus("Downloading...");
+  try {
+    const notes = notesEditor?.value || "";
+    renderNotesPreview(notes);
+    const response = await apiFetch("/api/library/notes/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: currentPaper.id, notes }),
+    });
+    const blob = await response.blob();
+    if (!response.ok) {
+      const detail = await blob.text();
+      throw new Error(detail || "Notes export failed.");
+    }
+    triggerBlobDownload(blob, `${currentPaper.title || "paper"}-notes.pdf`);
+    setNotesStatus("Exported");
+  } catch (error) {
+    console.error(error);
+    setNotesStatus(error.message || "Notes export failed.", true);
+  } finally {
+    if (exportNotesPdfButton) exportNotesPdfButton.disabled = false;
+  }
+}
+
+function cleanExportFilename(value) {
+  return String(value || "")
+    .replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function triggerBlobDownload(blob, filename) {
+  const link = document.createElement("a");
+  const objectUrl = URL.createObjectURL(blob);
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  // Revoking too early can interrupt a large download mid-write (the browser
+  // may sit at 100% without finalizing the file). Keep the URL alive long
+  // enough for the save to finish; it is cleaned up on page unload anyway.
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, 10000);
 }
 
 function setActiveReaderTab(activeTabId) {
@@ -735,101 +1449,6 @@ function paperToSummary(paper) {
   };
 }
 
-async function loadDiscussionWebSettings() {
-  const response = await apiFetch("/api/settings");
-  const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
-  discussionWebUrl = normalizeDiscussionWebUrl(data.settings?.web?.discussionUrl);
-}
-
-function normalizeDiscussionWebUrl(value) {
-  const url = String(value || "").trim() || "https://chatgpt.com/";
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
-  } catch {
-    // Fall back to the default site if a saved URL is invalid.
-  }
-  return "https://chatgpt.com/";
-}
-
-async function continueDiscussionOnWeb() {
-  if (!currentPaper) {
-    setStatus("请先打开一篇论文。", true);
-    return;
-  }
-
-  const targetUrl = normalizeDiscussionWebUrl(discussionWebUrl);
-  const targetWindow = window.open(targetUrl, "_blank");
-  if (targetWindow) targetWindow.opener = null;
-
-  const [copied, revealed] = await Promise.all([
-    copyTextToClipboard(buildDiscussionWebHandoff()),
-    updateReaderPaper({ action: "reveal", id: currentPaper.id }).then(() => true).catch((error) => {
-      console.warn("Failed to show the paper in its folder.", error);
-      return false;
-    }),
-  ]);
-  if (!targetWindow) {
-    setStatus(copied ? "已复制讨论上下文，但浏览器阻止了新窗口。" : "浏览器阻止了新窗口，且无法复制讨论上下文。", true);
-    return;
-  }
-  if (copied && revealed) setStatus("已复制讨论上下文、打开网页，并在文件夹中显示论文。");
-  else if (copied) setStatus("已复制讨论上下文并打开网页，但未能显示论文所在文件夹。", true);
-  else setStatus("已打开网页，但复制讨论上下文失败。", true);
-}
-
-function buildDiscussionWebHandoff() {
-  const summary = paperToSummary(currentPaper) || {};
-  const threeLine = summary.threeLineSummary || {};
-  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
-  const history = normalizeDiscussionHistory(thread?.messages || []);
-  const recentHistory = history.slice(-16).map((message) => `${message.role === "user" ? "我" : "Paper Lantern AI"}：${message.content}`);
-  const draft = discussionInput.value.trim();
-  const sections = [
-    "请基于以下论文与讨论上下文继续交流。若信息不足，请明确指出缺少什么。",
-    `论文标题：${currentPaper.title || "未命名论文"}`,
-  ];
-
-  const summaryLines = [
-    ["挑战", threeLine.challenges],
-    ["核心方法", threeLine.method],
-    ["结论", threeLine.conclusion],
-    ["方法概览", summary.methodOverview],
-  ]
-    .filter(([, value]) => String(value || "").trim())
-    .map(([label, value]) => `${label}：${String(value).trim()}`);
-  if (summaryLines.length) sections.push(`论文摘要：\n${summaryLines.join("\n")}`);
-  if (Array.isArray(summary.keywords) && summary.keywords.length) sections.push(`关键词：${summary.keywords.join("、")}`);
-  sections.push(`当前 Discussion：${thread?.title || "新建 Discussion"}`);
-  if (recentHistory.length) sections.push(`最近讨论记录：\n${recentHistory.join("\n\n")}`);
-  if (draft) sections.push(`我现在想问：\n${draft}`);
-  else sections.push("我接下来想继续讨论这篇论文，请结合以上内容回答。");
-  return sections.join("\n\n");
-}
-
-async function copyTextToClipboard(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (error) {
-    console.warn("Clipboard API failed.", error);
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand("copy");
-  textarea.remove();
-  return copied;
-}
-
 function handleDiscussionInputKeydown(event) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
@@ -857,25 +1476,24 @@ async function handleDiscussionSubmit(event) {
   pending.classList.add("pending");
 
   try {
-    const response = await apiFetch("/api/discuss", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paperText,
-        question,
-        summary: paperToSummary(currentPaper),
-        history: thread.messages,
-      }),
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question,
+      summary: paperToSummary(currentPaper),
+      history: thread.messages,
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
+      },
     });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.detail || data.error || "Discussion failed.");
 
     pending.classList.remove("pending");
-    setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), data.answer || "No response", "assistant");
-    thread.messages.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    thread.messages.push({ role: "user", content: question }, { role: "assistant", content: answer || "" });
     thread.updatedAt = new Date().toISOString();
     if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
     thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionMessages(thread.messages);
     renderDiscussionThreadList();
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
@@ -923,43 +1541,91 @@ function showDiscussionList() {
   updateDiscussionInputTarget();
 }
 
+async function loadDiscussionWebSettings() {
+  const response = await apiFetch("/api/settings");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+  discussionWebUrl = normalizeDiscussionWebUrl(data.settings?.web?.discussionUrl);
+}
+
+function normalizeDiscussionWebUrl(value) {
+  const url = String(value || "").trim() || "https://chatgpt.com/";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+  } catch {
+    // Fall back to ChatGPT when a saved URL is invalid.
+  }
+  return "https://chatgpt.com/";
+}
+
+async function continueDiscussionOnWeb() {
+  if (!currentPaper) return setStatus("请先打开一篇论文。", true);
+  const targetWindow = window.open(normalizeDiscussionWebUrl(discussionWebUrl), "_blank");
+  if (targetWindow) targetWindow.opener = null;
+  let copied = false;
+  try {
+    await copyTextToClipboard(buildDiscussionWebHandoff());
+    copied = true;
+  } catch (error) {
+    console.warn("Failed to copy discussion handoff.", error);
+  }
+  const revealed = await updateReaderPaper({ action: "reveal", id: currentPaper.id }).then(() => true).catch(() => false);
+  if (!targetWindow) return setStatus(copied ? "已复制讨论上下文，但浏览器阻止了新窗口。" : "浏览器阻止了新窗口。", true);
+  if (copied && revealed) setStatus("已复制讨论上下文、打开网页，并在文件夹中显示论文。");
+  else if (copied) setStatus("已复制讨论上下文并打开网页，但未能显示论文所在文件夹。", true);
+  else setStatus("已打开网页，但复制讨论上下文失败。", true);
+}
+
+function buildDiscussionWebHandoff() {
+  const summary = paperToSummary(currentPaper) || {};
+  const threeLine = summary.threeLineSummary || {};
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  const recentHistory = normalizeDiscussionHistory(thread?.messages || []).slice(-16)
+    .map((message) => `${message.role === "user" ? "我" : "Paper Lantern AI"}：${message.content}`);
+  const sections = [
+    "请基于以下论文与讨论上下文继续交流。若信息不足，请明确指出缺少什么。",
+    `论文标题：${currentPaper.title || "未命名论文"}`,
+  ];
+  const summaryLines = [
+    ["挑战", threeLine.challenges],
+    ["核心方法", threeLine.method],
+    ["结论", threeLine.conclusion],
+    ["方法概览", summary.methodOverview],
+  ].filter(([, value]) => String(value || "").trim()).map(([label, value]) => `${label}：${String(value).trim()}`);
+  if (summaryLines.length) sections.push(`论文摘要：\n${summaryLines.join("\n")}`);
+  if (summary.keywords?.length) sections.push(`关键词：${summary.keywords.join("、")}`);
+  sections.push(`当前 Discussion：${thread?.title || "新建 Discussion"}`);
+  if (recentHistory.length) sections.push(`最近讨论记录：\n${recentHistory.join("\n\n")}`);
+  const draft = discussionInput?.value.trim();
+  sections.push(draft ? `我现在想问：\n${draft}` : "我接下来想继续讨论这篇论文，请结合以上内容回答。");
+  return sections.join("\n\n");
+}
+
 function initDiscussionInputResizer() {
   if (!discussionResizeHandle || !discussionInput) return;
   const savedHeight = Number(localStorage.getItem("discussionInputHeight"));
   setDiscussionInputHeight(Number.isFinite(savedHeight) ? savedHeight : 74, false);
-
   discussionResizeHandle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    discussionInputResizeState = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      startHeight: discussionInput.getBoundingClientRect().height,
-    };
+    discussionInputResizeState = { pointerId: event.pointerId, startY: event.clientY, startHeight: discussionInput.getBoundingClientRect().height };
     discussionResizeHandle.setPointerCapture(event.pointerId);
     document.body.classList.add("resizing-discussion-input");
   });
-
   discussionResizeHandle.addEventListener("pointermove", (event) => {
     if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
     setDiscussionInputHeight(discussionInputResizeState.startHeight - (event.clientY - discussionInputResizeState.startY), false);
   });
-
-  const finishResize = (event) => {
+  const finish = (event) => {
     if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
     if (discussionResizeHandle.hasPointerCapture(event.pointerId)) discussionResizeHandle.releasePointerCapture(event.pointerId);
     localStorage.setItem("discussionInputHeight", String(Math.round(discussionInput.getBoundingClientRect().height)));
     discussionInputResizeState = null;
     document.body.classList.remove("resizing-discussion-input");
   };
-  discussionResizeHandle.addEventListener("pointerup", finishResize);
-  discussionResizeHandle.addEventListener("pointercancel", finishResize);
-  discussionResizeHandle.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    const direction = event.key === "ArrowUp" ? 1 : -1;
-    setDiscussionInputHeight(discussionInput.getBoundingClientRect().height + direction * 16);
-  });
+  discussionResizeHandle.addEventListener("pointerup", finish);
+  discussionResizeHandle.addEventListener("pointercancel", finish);
 }
 
 function setDiscussionInputHeight(value, save = true) {
@@ -968,6 +1634,19 @@ function setDiscussionInputHeight(value, save = true) {
   discussionInput.style.height = `${height}px`;
   discussionResizeHandle.setAttribute("aria-valuenow", String(height));
   if (save) localStorage.setItem("discussionInputHeight", String(height));
+}
+
+function updateDiscussionInputTarget() {
+  if (!discussionInputTarget || !discussionInput) return;
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) {
+    discussionInputTarget.textContent = "新建 Discussion";
+    discussionInput.placeholder = "输入问题后将新建一个 Discussion...";
+    return;
+  }
+  const title = thread.title || "未命名 Discussion";
+  discussionInputTarget.textContent = `继续：${title}`;
+  discussionInput.placeholder = `继续“${title}”...`;
 }
 
 function showDiscussionThread(threadId) {
@@ -985,23 +1664,6 @@ function renderDiscussionThreadHeader(thread) {
   if (!discussionThreadTitle) return;
   discussionThreadTitle.textContent = thread?.title || "New discussion";
   discussionThreadTitle.title = thread?.title || "New discussion";
-  updateDiscussionInputTarget();
-}
-
-function updateDiscussionInputTarget() {
-  if (!discussionInputTarget || !discussionInput) return;
-  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
-  if (!thread) {
-    discussionInputTarget.textContent = "新建 Discussion";
-    discussionInputTarget.title = "发送后将新建一个 Discussion 会话";
-    discussionInput.placeholder = "输入问题后将新建一个 Discussion...";
-    return;
-  }
-
-  const title = thread.title || "未命名 Discussion";
-  discussionInputTarget.textContent = `继续：${title}`;
-  discussionInputTarget.title = `将继续当前会话：${title}`;
-  discussionInput.placeholder = `继续“${title}”...`;
 }
 
 function renderDiscussionThreadList() {
@@ -1017,12 +1679,11 @@ function renderDiscussionThreadList() {
   discussionThreads.forEach((thread) => {
     const item = document.createElement("div");
     item.className = "discussion-thread-item";
-    const openButton = document.createElement("div");
-    openButton.className = "discussion-thread-open-button";
-    openButton.dataset.threadId = thread.id;
-    openButton.tabIndex = 0;
-    openButton.setAttribute("role", "button");
-    openButton.setAttribute("aria-label", `打开 Discussion：${thread.title || "未命名 Discussion"}`);
+    item.dataset.threadId = thread.id;
+
+    const button = document.createElement("button");
+    button.className = "discussion-thread-open";
+    button.type = "button";
     const title = document.createElement("span");
     title.className = "discussion-thread-item-title";
     title.textContent = thread.title || "New discussion";
@@ -1030,151 +1691,60 @@ function renderDiscussionThreadList() {
     meta.className = "discussion-thread-item-meta";
     const turnCount = Math.ceil((thread.messages || []).length / 2);
     meta.textContent = `${turnCount || 0} turns`;
-    openButton.append(title, meta);
-    openButton.addEventListener("click", () => showDiscussionThread(thread.id));
-    openButton.addEventListener("keydown", (event) => {
-      if (event.target !== openButton) return;
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        showDiscussionThread(thread.id);
-      }
+    button.append(title, meta);
+    button.addEventListener("click", () => showDiscussionThread(thread.id));
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "discussion-thread-delete menu-button";
+    deleteButton.textContent = "•••";
+    deleteButton.setAttribute("aria-label", `${thread.title || "Discussion"} options`);
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showDiscussionThreadMenu(thread, deleteButton);
     });
 
-    const moreButton = document.createElement("button");
-    moreButton.className = "discussion-thread-more-button";
-    moreButton.type = "button";
-    moreButton.textContent = "•••";
-    moreButton.setAttribute("aria-label", "会话选项");
-    moreButton.title = "会话选项";
-    moreButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleDiscussionThreadMenu(thread, title, moreButton);
-    });
-    item.append(openButton, moreButton);
+    item.append(button, deleteButton);
     discussionThreadList.appendChild(item);
   });
 }
 
-function toggleDiscussionThreadMenu(thread, titleNode, anchor) {
-  if (discussionThreadMenu?.dataset.threadId === thread.id) {
-    closeDiscussionThreadMenu();
-    return;
-  }
-  closeDiscussionThreadMenu();
-  const menu = document.createElement("div");
-  menu.className = "discussion-thread-menu";
-  menu.dataset.threadId = thread.id;
-
-  const renameButton = document.createElement("button");
-  renameButton.type = "button";
-  renameButton.textContent = "重命名";
-  renameButton.addEventListener("click", () => {
-    closeDiscussionThreadMenu();
-    beginDiscussionRename(thread, titleNode);
-  });
-
-  const deleteButton = document.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.className = "danger";
-  deleteButton.textContent = "删除会话";
-  deleteButton.addEventListener("click", () => showDiscussionDeleteConfirmation(thread));
-  menu.append(renameButton, deleteButton);
-  document.body.appendChild(menu);
-  discussionThreadMenu = menu;
-
-  const rect = anchor.getBoundingClientRect();
-  const width = 154;
-  menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
-  menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 92)}px`;
-}
-
-function showDiscussionDeleteConfirmation(thread) {
-  if (!discussionThreadMenu) return;
-  discussionThreadMenu.replaceChildren();
-  const message = document.createElement("p");
-  message.textContent = "删除这个会话？";
-  const actions = document.createElement("div");
-  actions.className = "discussion-thread-menu-actions";
-  const cancelButton = document.createElement("button");
-  cancelButton.type = "button";
-  cancelButton.textContent = "取消";
-  cancelButton.addEventListener("click", closeDiscussionThreadMenu);
-  const confirmButton = document.createElement("button");
-  confirmButton.type = "button";
-  confirmButton.className = "danger";
-  confirmButton.textContent = "确认删除";
-  confirmButton.addEventListener("click", async () => {
-    discussionThreads = discussionThreads.filter((item) => item.id !== thread.id);
-    const wasActive = activeDiscussionId === thread.id;
-    closeDiscussionThreadMenu();
-    if (wasActive) showDiscussionList();
-    else renderDiscussionThreadList();
-    await saveDiscussionThreads();
-  });
-  actions.append(cancelButton, confirmButton);
-  discussionThreadMenu.append(message, actions);
-}
-
-function closeDiscussionThreadMenu() {
-  discussionThreadMenu?.remove();
-  discussionThreadMenu = null;
-}
-
-function beginDiscussionRename(thread, titleNode) {
-  const input = document.createElement("input");
-  input.className = "discussion-thread-title-input";
-  input.type = "text";
-  input.value = thread.title || "";
-  input.maxLength = 80;
-  input.setAttribute("aria-label", "Discussion 名称");
-  titleNode.replaceWith(input);
-  input.focus();
-  input.select();
-
-  let finished = false;
-  const finish = async (save) => {
-    if (finished) return;
-    finished = true;
-    const title = String(input.value).replace(/\s+/g, " ").trim().slice(0, 80);
-    if (save && title && title !== thread.title) {
-      thread.title = title;
-      thread.updatedAt = new Date().toISOString();
-      thread.hash = await makeDiscussionThreadHash(thread);
-      if (thread.id === activeDiscussionId) renderDiscussionThreadHeader(thread);
-      await saveDiscussionThreads();
-    }
-    renderDiscussionThreadList();
-  };
-
-  input.addEventListener("click", (event) => event.stopPropagation());
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      finish(true);
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      finish(false);
-    }
-  });
-  input.addEventListener("blur", () => finish(true));
-}
-
-function appendDiscussionMessage(role, content) {
+function appendDiscussionMessage(role, content, index = -1) {
   discussionMessages.querySelector(".discussion-empty")?.remove();
 
   const message = document.createElement("div");
   message.className = `discussion-message ${role === "user" ? "user" : "assistant"}`;
+  if (index >= 0) message.dataset.messageIndex = String(index);
 
   const label = document.createElement("div");
   label.className = "discussion-message-label";
   label.textContent = role === "user" ? "You" : "AI";
 
+  const header = document.createElement("div");
+  header.className = "discussion-message-header";
+  header.append(label);
+
   const body = document.createElement("div");
   body.className = "discussion-message-body";
   setDiscussionMessageContent(body, content, role);
 
-  message.append(label, body);
+  const actions = document.createElement("div");
+  actions.className = "discussion-message-actions";
+  const copyButton = createMessageActionButton("copy", `Copy ${role === "user" ? "question" : "answer"}`);
+  copyButton.addEventListener("click", () => copyTextWithFeedback(getDiscussionMessageContent(message, content), copyButton));
+  actions.appendChild(copyButton);
+
+  if (role === "user") {
+    const editButton = createMessageActionButton("edit", "Edit question");
+    editButton.addEventListener("click", () => editDiscussionMessage(message));
+    actions.appendChild(editButton);
+  } else {
+    const regenerateButton = createMessageActionButton("refresh", "Regenerate answer");
+    regenerateButton.addEventListener("click", () => regenerateDiscussionAnswer(message));
+    actions.appendChild(regenerateButton);
+  }
+
+  message.append(header, body, actions);
   discussionMessages.appendChild(message);
   message.scrollIntoView({ block: "nearest" });
   return message;
@@ -1191,211 +1761,286 @@ function setDiscussionMessageContent(body, content, role) {
   }
 }
 
-function renderDiscussionMarkdown(content) {
-  const lines = String(content || "").split(/\r?\n/);
-  const blocks = [];
-  let paragraph = [];
-  let list = [];
-  let inCodeBlock = false;
-  let codeLines = [];
-  let inMathBlock = false;
-  let mathDelimiter = "";
-  let mathLines = [];
+function getDiscussionMessageContent(messageNode, fallback = "") {
+  const index = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (thread && Number.isInteger(index) && thread.messages[index]) return thread.messages[index].content;
+  return String(fallback || "");
+}
 
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push(`<p>${formatDiscussionInline(paragraph.join(" "))}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list.length) return;
-    blocks.push(`<ul>${list.map((item) => `<li>${formatDiscussionInline(item)}</li>`).join("")}</ul>`);
-    list = [];
-  };
-  const flushCode = () => {
-    blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-    codeLines = [];
-  };
-  const flushMath = () => {
-    blocks.push(renderDiscussionMath(mathLines.join("\n"), true));
-    mathLines = [];
-    mathDelimiter = "";
-  };
+async function deleteDiscussionThread(threadId, { skipConfirm = false } = {}) {
+  if (discussionIsBusy) return;
+  const index = discussionThreads.findIndex((thread) => thread.id === threadId);
+  if (index < 0) return;
+  if (!skipConfirm && !window.confirm("Delete this discussion?")) return;
+  discussionThreads.splice(index, 1);
+  if (activeDiscussionId === threadId) activeDiscussionId = null;
+  renderDiscussionThreadList();
+  showDiscussionList();
+  await saveDiscussionThreads();
+}
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (/^\s*```/.test(line)) {
-      if (inCodeBlock) {
-        flushCode();
-        inCodeBlock = false;
-      } else {
-        flushParagraph();
-        flushList();
-        inCodeBlock = true;
-      }
-      continue;
-    }
+function editDiscussionMessage(messageNode) {
+  if (discussionIsBusy) return;
+  const index = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread || !Number.isInteger(index) || thread.messages[index]?.role !== "user") return;
+  if (messageNode.querySelector(".discussion-edit-form")) return;
 
-    if (inCodeBlock) {
-      codeLines.push(line);
-      continue;
-    }
+  const body = messageNode.querySelector(".discussion-message-body");
+  const actions = messageNode.querySelector(".discussion-message-actions");
+  const original = thread.messages[index].content || "";
+  body.hidden = true;
+  if (actions) actions.hidden = true;
 
-    if (inMathBlock) {
-      if ((mathDelimiter === "$$" && /^\s*\$\$\s*$/.test(line)) || (mathDelimiter === "\\[" && /^\s*\\\]\s*$/.test(line))) {
-        flushMath();
-        inMathBlock = false;
-      } else {
-        mathLines.push(line);
-      }
-      continue;
-    }
+  const form = document.createElement("form");
+  form.className = "discussion-edit-form";
+  form.innerHTML = `
+    <textarea class="discussion-edit-input" rows="3" aria-label="Edit question"></textarea>
+    <div class="discussion-edit-actions">
+      <button class="discussion-edit-cancel" type="button">Cancel</button>
+      <button class="discussion-edit-save" type="submit">Save</button>
+    </div>
+  `;
+  const input = form.querySelector(".discussion-edit-input");
+  input.value = original;
+  form.querySelector(".discussion-edit-cancel").addEventListener("click", () => {
+    form.remove();
+    body.hidden = false;
+    if (actions) actions.hidden = false;
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const next = input.value.trim();
+    if (!next) return;
+    await restartDiscussionAfterEdit(thread, index, next);
+  });
+  body.after(form);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
 
-    const singleLineMath = line.match(/^\s*\$\$\s*(.*?)\s*\$\$\s*$/) || line.match(/^\s*\\\[\s*(.*?)\s*\\\]\s*$/);
-    if (singleLineMath) {
-      flushParagraph();
-      flushList();
-      blocks.push(renderDiscussionMath(singleLineMath[1], true));
-      continue;
-    }
+async function restartDiscussionAfterEdit(thread, index, next) {
+  // Truncate to the messages before the edited one, then the edited question.
+  const history = thread.messages.slice(0, index);
+  thread.messages = history.concat([{ role: "user", content: next }]);
+  thread.updatedAt = new Date().toISOString();
+  const firstQuestion = history.find((message) => message.role === "user")?.content || next;
+  thread.title = makeDiscussionTitle(firstQuestion);
+  thread.hash = await makeDiscussionThreadHash(thread);
+  await saveDiscussionThreads();
+  renderDiscussionThreadList();
+  renderDiscussionThreadHeader(thread);
+  renderDiscussionMessages(thread.messages);
 
-    const mathStart = line.match(/^\s*(\$\$|\\\[)\s*$/);
-    if (mathStart) {
-      flushParagraph();
-      flushList();
-      inMathBlock = true;
-      mathDelimiter = mathStart[1];
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      const level = heading[1].length + 3;
-      blocks.push(`<h${level}>${formatDiscussionInline(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      list.push(bullet[1]);
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    if (isMarkdownTableHeader(line, lines[index + 1])) {
-      flushParagraph();
-      flushList();
-      const headers = splitMarkdownTableRow(line);
-      const alignments = getMarkdownTableAlignments(lines[index + 1]);
-      const rows = [];
-      index += 2;
-      while (index < lines.length && isMarkdownTableRow(lines[index])) {
-        rows.push(splitMarkdownTableRow(lines[index]));
-        index += 1;
-      }
-      index -= 1;
-      blocks.push(renderDiscussionTable(headers, alignments, rows));
-      continue;
-    }
-
-    flushList();
-    paragraph.push(line.trim());
+  const paperText = lastExtractedText.trim();
+  if (paperText.length < 80) {
+    appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再重新开始讨论。");
+    return;
   }
 
-  if (inCodeBlock) flushCode();
-  if (inMathBlock) flushMath();
-  flushParagraph();
-  flushList();
-  return blocks.join("") || "<p>No response</p>";
-}
-
-function splitMarkdownTableRow(line) {
-  const trimmed = String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((cell) => cell.trim());
-}
-
-function isMarkdownTableRow(line) {
-  return String(line || "").includes("|") && splitMarkdownTableRow(line).length >= 2;
-}
-
-function isMarkdownTableHeader(headerLine, dividerLine) {
-  if (!isMarkdownTableRow(headerLine) || !dividerLine) return false;
-  const columns = splitMarkdownTableRow(dividerLine);
-  return columns.length >= 2 && columns.every((column) => /^:?-+:?$/.test(column));
-}
-
-function getMarkdownTableAlignments(dividerLine) {
-  return splitMarkdownTableRow(dividerLine).map((column) => {
-    const starts = column.startsWith(":");
-    const ends = column.endsWith(":");
-    if (starts && ends) return "center";
-    if (ends) return "right";
-    return "left";
-  });
-}
-
-function renderDiscussionTable(headers, alignments, rows) {
-  const cells = (items, tagName) =>
-    headers
-      .map((_, index) => {
-        const alignment = alignments[index] || "left";
-        const value = items[index] || "";
-        return `<${tagName} style="text-align:${alignment}">${formatDiscussionInline(value)}</${tagName}>`;
-      })
-      .join("");
-  const body = rows.map((row) => `<tr>${cells(row, "td")}</tr>`).join("");
-  return `<div class="markdown-table-wrap"><table><thead><tr>${cells(headers, "th")}</tr></thead><tbody>${body}</tbody></table></div>`;
-}
-
-function formatDiscussionInline(text) {
-  const tokens = [];
-  const addToken = (html) => {
-    const token = `@@PAPER_LANTERN_TOKEN_${tokens.length}@@`;
-    tokens.push({ token, html });
-    return token;
-  };
-
-  let value = String(text || "")
-    .replace(/`([^`]+)`/g, (_, code) => addToken(`<code>${escapeHtml(code)}</code>`))
-    .replace(/\\\((.+?)\\\)/g, (_, formula) => addToken(renderDiscussionMath(formula, false)))
-    .replace(/(^|[^\\$])\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_, prefix, formula) => `${prefix}${addToken(renderDiscussionMath(formula, false))}`);
-
-  value = escapeHtml(value)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
-  tokens.forEach(({ token, html }) => {
-    value = value.split(token).join(html);
-  });
-  return value;
-}
-
-function renderDiscussionMath(source, displayMode) {
-  const formula = normalizeFormulaSource(source);
-  if (!formula) return "";
-  if (!window.katex) {
-    return `<code class="discussion-math-fallback">${escapeHtml(formula)}</code>`;
-  }
+  setDiscussionBusy(true);
+  const pending = appendDiscussionMessage("assistant", "Thinking...");
+  pending.classList.add("pending");
   try {
-    return window.katex.renderToString(formula, {
-      displayMode,
-      throwOnError: false,
-      strict: "ignore",
-      trust: false,
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question: next,
+      summary: paperToSummary(currentPaper),
+      history,
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
+      },
     });
+    pending.classList.remove("pending");
+    thread.messages.push({ role: "assistant", content: answer || "" });
+    thread.updatedAt = new Date().toISOString();
+    thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionMessages(thread.messages);
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
   } catch (error) {
-    console.warn("Failed to render discussion formula.", error);
-    return `<code class="discussion-math-fallback">${escapeHtml(formula)}</code>`;
+    console.error(error);
+    pending.classList.remove("pending");
+    pending.classList.add("error");
+    setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), error.message || "重新开始讨论失败，请稍后重试。", "assistant");
+  } finally {
+    setDiscussionBusy(false);
   }
+}
+
+async function regenerateDiscussionAnswer(messageNode) {
+  if (discussionIsBusy) return;
+  const assistantIndex = Number(messageNode?.dataset.messageIndex);
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread || !Number.isInteger(assistantIndex) || thread.messages[assistantIndex]?.role !== "assistant") return;
+
+  let userIndex = assistantIndex - 1;
+  while (userIndex >= 0 && thread.messages[userIndex]?.role !== "user") userIndex -= 1;
+  if (userIndex < 0) return;
+
+  const paperText = lastExtractedText.trim();
+  if (paperText.length < 80) {
+    setDiscussionMessageContent(messageNode.querySelector(".discussion-message-body"), "请先打开并解析一篇论文，再重新生成回答。", "assistant");
+    return;
+  }
+
+  const question = thread.messages[userIndex].content || "";
+  const body = messageNode.querySelector(".discussion-message-body");
+  setDiscussionBusy(true);
+  messageNode.classList.add("pending");
+  setDiscussionMessageContent(body, "Thinking...", "assistant");
+
+  try {
+    let answer = "";
+    await requestDiscussionAnswer({
+      paperText,
+      question,
+      summary: paperToSummary(currentPaper),
+      history: thread.messages.slice(0, userIndex),
+      onDelta: (delta) => {
+        answer += delta;
+        setDiscussionMessageContent(body, answer || "Thinking...", "assistant");
+      },
+    });
+
+    thread.messages[assistantIndex].content = answer || "";
+    thread.updatedAt = new Date().toISOString();
+    thread.hash = await makeDiscussionThreadHash(thread);
+    messageNode.classList.remove("pending", "error");
+    setDiscussionMessageContent(body, answer || "No response", "assistant");
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
+  } catch (error) {
+    console.error(error);
+    messageNode.classList.remove("pending");
+    messageNode.classList.add("error");
+    setDiscussionMessageContent(body, error.message || "重新生成失败，请稍后重试。", "assistant");
+  } finally {
+    setDiscussionBusy(false);
+  }
+}
+
+async function requestDiscussionAnswer({ paperText, question, summary, history, onDelta }) {
+  const response = await apiFetch("/api/discuss", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paperText,
+      question,
+      summary,
+      history,
+      stream: true,
+    }),
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok) {
+    const data = await readJsonResponse(response);
+    throw new Error(data.detail || data.error || "Discussion failed.");
+  }
+
+  if (contentType.includes("text/event-stream") && response.body) {
+    return readDiscussionEventStream(response, onDelta);
+  }
+
+  const data = await readJsonResponse(response);
+  const answer = data.answer || "";
+  if (answer) onDelta?.(answer);
+  return answer;
+}
+
+async function readDiscussionEventStream(response, onDelta) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+    events.forEach((eventText) => {
+      const delta = parseDiscussionStreamEvent(eventText);
+      if (!delta) return;
+      answer += delta;
+      onDelta?.(delta);
+    });
+  }
+
+  buffer += decoder.decode();
+  const finalDelta = parseDiscussionStreamEvent(buffer);
+  if (finalDelta) {
+    answer += finalDelta;
+    onDelta?.(finalDelta);
+  }
+  return answer;
+}
+
+function parseDiscussionStreamEvent(eventText) {
+  const dataLines = String(eventText || "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim());
+  if (!dataLines.length) return "";
+  const data = dataLines.join("\n");
+  if (data === "[DONE]") return "";
+  try {
+    return JSON.parse(data).delta || "";
+  } catch (error) {
+    console.warn("Failed to parse discussion stream event.", error);
+    return "";
+  }
+}
+
+function renderDiscussionMarkdown(content) {
+  const renderer = getDiscussionMarkdownRenderer();
+  if (!renderer) return '<p class="error">Markdown renderer failed to load.</p>';
+  return renderer.render(String(content || "")) || "<p>No response</p>";
+}
+
+function getDiscussionMarkdownRenderer() {
+  if (discussionMarkdownRenderer) return discussionMarkdownRenderer;
+  if (!window.markdownit) return null;
+
+  discussionMarkdownRenderer = window.markdownit({
+    html: false,
+    linkify: true,
+    breaks: false,
+    typographer: false,
+  });
+
+  if (window.texmath && window.katex) {
+    discussionMarkdownRenderer.use(window.texmath, {
+      engine: window.katex,
+      delimiters: ["dollars", "brackets", "beg_end"],
+      katexOptions: {
+        throwOnError: false,
+        strict: "ignore",
+      },
+    });
+  }
+
+  const defaultTableOpen =
+    discussionMarkdownRenderer.renderer.rules.table_open ||
+    ((tokens, index, options, env, self) => self.renderToken(tokens, index, options));
+  const defaultTableClose =
+    discussionMarkdownRenderer.renderer.rules.table_close ||
+    ((tokens, index, options, env, self) => self.renderToken(tokens, index, options));
+  discussionMarkdownRenderer.renderer.rules.table_open = (tokens, index, options, env, self) => {
+    return `<div class="markdown-table-wrap">${defaultTableOpen(tokens, index, options, env, self)}`;
+  };
+  discussionMarkdownRenderer.renderer.rules.table_close = (tokens, index, options, env, self) => {
+    return `${defaultTableClose(tokens, index, options, env, self)}</div>`;
+  };
+
+  return discussionMarkdownRenderer;
 }
 
 function escapeHtml(value) {
@@ -1415,18 +2060,6 @@ function clearDiscussionMessages() {
   discussionMessages.appendChild(empty);
 }
 
-async function clearActiveDiscussion() {
-  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
-  if (!thread) return false;
-  thread.messages = [];
-  thread.updatedAt = new Date().toISOString();
-  thread.hash = await makeDiscussionThreadHash(thread);
-  renderDiscussionMessages(thread.messages);
-  renderDiscussionThreadList();
-  await saveDiscussionThreads();
-  return true;
-}
-
 function renderDiscussionHistory(discussion) {
   discussionThreads = normalizeDiscussionThreads(discussion);
   activeDiscussionId = null;
@@ -1436,7 +2069,7 @@ function renderDiscussionHistory(discussion) {
 
 function renderDiscussionMessages(history) {
   clearDiscussionMessages();
-  normalizeDiscussionHistory(history).forEach((message) => appendDiscussionMessage(message.role, message.content));
+  normalizeDiscussionHistory(history).forEach((message, index) => appendDiscussionMessage(message.role, message.content, index));
 }
 
 function normalizeDiscussionHistory(history) {
@@ -1528,22 +2161,188 @@ function setDiscussionBusy(isBusy) {
   discussionInput.disabled = isBusy;
 }
 
+function createMessageActionButton(icon, label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "icon-button message-action-button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = getActionIconSvg(icon);
+  return button;
+}
+
+function getActionIconSvg(icon) {
+  if (icon === "refresh") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M20 6v5h-5"></path>
+        <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+      </svg>
+    `;
+  }
+  if (icon === "edit") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+      </svg>
+    `;
+  }
+  if (icon === "delete") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4h8v2"></path>
+        <path d="M6 6l1 15h10l1-15"></path>
+        <path d="M10 11v6"></path>
+        <path d="M14 11v6"></path>
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  `;
+}
+
+async function copyReaderSection(section, button) {
+  await copyTextWithFeedback(getReaderSectionText(section), button);
+}
+
+function getReaderSectionText(section) {
+  if (section === "threeLine") return getThreeLineSummaryText();
+  if (section === "method") return getMethodBreakdownText();
+  return "";
+}
+
+function getThreeLineSummaryText() {
+  const summary = paperToSummary(currentPaper);
+  const lines = summary?.threeLineSummary || {};
+  return [
+    ["Challenges", lines.challenges],
+    ["Core Method And Technical Details", lines.method],
+    ["Conclusion", lines.conclusion],
+  ]
+    .map(([label, value]) => ({ label, value: cleanCopiedText(value) }))
+    .filter(({ value }) => value)
+    .map(({ label, value }) => `**${label}:** ${value}`)
+    .join("\n\n");
+}
+
+function getMethodBreakdownText() {
+  const summary = paperToSummary(currentPaper);
+  if (!summary) return "";
+
+  const sections = Array.isArray(summary.methodSections) ? summary.methodSections : [];
+  const blocks = [];
+
+  if (cleanCopiedText(summary.methodOverview)) {
+    blocks.push(`## 概括\n\n${cleanCopiedText(summary.methodOverview)}`);
+  }
+
+  if (sections.length) {
+    const sectionBlocks = sections.map((section, index) => {
+      const lines = [];
+      lines.push(`### ${index + 1}. ${cleanCopiedText(section.title || `Method point ${index + 1}`)}`);
+      if (cleanCopiedText(section.motivation)) {
+        lines.push(`**动机：** ${cleanCopiedText(section.motivation)}`);
+      }
+      if (cleanCopiedText(section.summary)) {
+        lines.push(cleanCopiedText(section.summary));
+      }
+      const bullets = (Array.isArray(section.bullets) ? section.bullets : [])
+        .map((bullet) => cleanCopiedText(bullet))
+        .filter(Boolean);
+      if (bullets.length) {
+        lines.push(bullets.map((bullet) => `- ${bullet}`).join("\n"));
+      }
+      const formulas = (Array.isArray(section.formulas) ? section.formulas : [])
+        .map((formula) => cleanCopiedText(formula))
+        .filter(Boolean);
+      if (formulas.length) {
+        lines.push(formulas.join("\n\n"));
+      }
+      return lines.join("\n\n");
+    });
+    blocks.push(sectionBlocks.join("\n\n"));
+  }
+
+  if (cleanCopiedText(summary.methodConclusion)) {
+    blocks.push(`## 总结\n\n${cleanCopiedText(summary.methodConclusion)}`);
+  }
+
+  return blocks.join("\n\n") || "No structured method sections returned.";
+}
+
+function cleanCopiedText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function showCopiedFeedback(anchor) {
+  if (!anchor) return;
+  let toast = document.querySelector("#copiedFeedback");
+  if (!toast) {
+    toast = document.createElement("span");
+    toast.id = "copiedFeedback";
+    toast.className = "copied-feedback";
+    toast.textContent = "已复制";
+    document.body.appendChild(toast);
+  }
+  const rect = anchor.getBoundingClientRect();
+  const gap = 8;
+  toast.style.left = `${Math.max(8, rect.left + rect.width / 2 - toast.offsetWidth / 2)}px`;
+  toast.style.top = `${Math.max(8, rect.top - toast.offsetHeight - gap)}px`;
+  toast.classList.add("show");
+  window.clearTimeout(copiedToastTimer);
+  copiedToastTimer = window.setTimeout(() => toast.classList.remove("show"), 1200);
+}
+
+async function copyTextWithFeedback(text, button) {
+  const value = cleanCopiedText(text);
+  if (!value) return;
+
+  const previousTitle = button?.title || "";
+  try {
+    await copyTextToClipboard(value);
+    if (button) {
+      button.classList.add("copied");
+      button.title = "已复制";
+      button.setAttribute("aria-label", "已复制");
+      showCopiedFeedback(button);
+      window.setTimeout(() => {
+        if (!document.body.contains(button)) return;
+        button.classList.remove("copied");
+        button.title = previousTitle || "Copy";
+        button.setAttribute("aria-label", previousTitle || "Copy");
+      }, 1200);
+    }
+  } catch (error) {
+    console.error("Failed to copy text.", error);
+    if (button) {
+      button.title = "Copy failed";
+      button.setAttribute("aria-label", "Copy failed");
+    }
+  }
+}
+
 async function saveCurrentPaper(extra = {}) {
   if (!currentPaper) return;
+  savedHighlights = normalizeHighlights(savedHighlights);
   const response = await apiFetch("/api/library/paper", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: currentPaper.id, ...extra }),
+    body: JSON.stringify({ id: currentPaper.id, highlights: savedHighlights, ...extra }),
   });
   const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.error || "Failed to save paper.");
-  if (data.paper) currentPaper = data.paper;
-  return data;
-}
-
-async function saveHighlights() {
-  savedHighlights = normalizeHighlights(savedHighlights);
-  await saveCurrentPaper({ highlights: savedHighlights });
+  if (!response.ok) throw new Error(data.error || "Paper save failed.");
+  if (response.ok) currentPaper = data.paper;
 }
 
 function showPdf(file, displayTitle = "") {
@@ -1559,140 +2358,13 @@ function showPdf(file, displayTitle = "") {
   setReaderPaperTitle(title);
 }
 
-function initPdfControls() {
-  pdfZoomOutButton?.addEventListener("click", () => changePdfZoom(-0.15));
-  pdfZoomInButton?.addEventListener("click", () => changePdfZoom(0.15));
-  pdfFitWidthButton?.addEventListener("click", () => setPdfFitMode("width"));
-  pdfFitPageButton?.addEventListener("click", () => setPdfFitMode("page"));
-  pdfPageInput?.addEventListener("change", () => goToPdfPage(Number(pdfPageInput.value)));
-  pdfPageInput?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    goToPdfPage(Number(pdfPageInput.value));
-    pdfPageInput.blur();
-  });
-  pdfShortcutsButton?.addEventListener("click", openPdfShortcuts);
-  pdfShortcutsCloseButton?.addEventListener("click", closePdfShortcuts);
-  pdfShortcutsOverlay?.addEventListener("pointerdown", (event) => {
-    if (event.target === pdfShortcutsOverlay) closePdfShortcuts();
-  });
-  updatePdfControls();
-}
-
-function openPdfShortcuts() {
-  if (!pdfShortcutsOverlay) return;
-  pdfShortcutsOverlay.hidden = false;
-  pdfShortcutsCloseButton?.focus();
-}
-
-function closePdfShortcuts() {
-  if (!pdfShortcutsOverlay) return;
-  pdfShortcutsOverlay.hidden = true;
-  pdfShortcutsButton?.focus();
-}
-
-function updatePdfControls() {
-  const isReady = Boolean(currentPdfDocument);
-  [pdfZoomOutButton, pdfZoomInButton, pdfFitWidthButton, pdfFitPageButton, pdfPageInput].forEach((control) => {
-    if (control) control.disabled = !isReady;
-  });
-  if (pdfZoomLabel) pdfZoomLabel.textContent = `${Math.round(pdfZoom * 100)}%`;
-  if (pdfFitWidthButton) pdfFitWidthButton.classList.toggle("active", pdfFitMode === "width");
-  if (pdfFitPageButton) pdfFitPageButton.classList.toggle("active", pdfFitMode === "page");
-  if (pdfPageInput) {
-    pdfPageInput.min = "1";
-    pdfPageInput.max = String(currentPdfDocument?.numPages || 1);
-  }
-  if (pdfPageTotal) pdfPageTotal.textContent = `/ ${currentPdfDocument?.numPages || 0}`;
-}
-
-function changePdfZoom(amount, anchor = null) {
-  if (!currentPdfDocument) return;
-  const nextZoom = clamp(pdfZoom + amount, 0.5, 3.5);
-  if (nextZoom === pdfZoom) return;
-  pdfFitMode = "manual";
-  setPdfZoom(nextZoom, anchor);
-}
-
-function setPdfFitMode(mode) {
-  if (!currentPdfDocument) return;
-  pdfFitMode = mode === "page" ? "page" : "width";
-  setPdfZoom(1);
-}
-
-function setPdfZoom(nextZoom, anchor = null) {
-  const previousZoom = pdfZoom;
-  const scrollRatio = getViewerScrollRatio();
-  pdfZoom = nextZoom;
-  updatePdfControls();
-  schedulePdfRerender(scrollRatio, anchor, previousZoom);
-}
-
-function getPdfZoomAnchor(event) {
-  const rect = pdfViewer.getBoundingClientRect();
-  return {
-    x: Math.max(0, Math.min(event.clientX - rect.left, rect.width)),
-    y: Math.max(0, Math.min(event.clientY - rect.top, rect.height)),
-    contentX: pdfViewer.scrollLeft + Math.max(0, Math.min(event.clientX - rect.left, rect.width)),
-    contentY: pdfViewer.scrollTop + Math.max(0, Math.min(event.clientY - rect.top, rect.height)),
-  };
-}
-
-function goToPdfPage(pageNumber) {
-  if (!currentPdfDocument) return;
-  const page = clamp(Math.round(Number(pageNumber) || 1), 1, currentPdfDocument.numPages);
-  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${page}"]`);
-  if (pageNode) {
-    pdfViewer.scrollTo({ top: Math.max(pageNode.offsetTop - 12, 0), behavior: "smooth" });
-    renderPdfPage(page, currentPdfTask).catch((error) => console.error("Failed to render requested page.", error));
-  }
-  if (pdfPageInput) pdfPageInput.value = String(page);
-}
-
-function handlePdfKeyboardShortcut(event) {
-  if (event.key === "Escape" && !pdfShortcutsOverlay?.hidden) {
-    closePdfShortcuts();
-    return;
-  }
-  const target = event.target;
-  const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
-  if (isTyping) return;
-
-  if (event.type === "keydown" && (event.ctrlKey || event.metaKey) && ["+", "=", "-", "0"].includes(event.key)) {
-    event.preventDefault();
-    if (event.key === "0") setPdfFitMode("width");
-    else changePdfZoom(event.key === "-" ? -0.15 : 0.15);
-    return;
-  }
-
-}
-
-function startPdfPan(event) {
-  if (event.button !== 1 || !currentPdfDocument) return;
-  event.preventDefault();
-  hideSelectionMenu();
-  pdfPanState = {
-    pointerId: event.pointerId,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    scrollLeft: pdfViewer.scrollLeft,
-    scrollTop: pdfViewer.scrollTop,
-  };
-  pdfViewer.setPointerCapture(event.pointerId);
-  pdfViewer.classList.add("is-panning");
-}
-
-function movePdfPan(event) {
-  if (!pdfPanState || event.pointerId !== pdfPanState.pointerId) return;
-  pdfViewer.scrollLeft = pdfPanState.scrollLeft - (event.clientX - pdfPanState.clientX);
-  pdfViewer.scrollTop = pdfPanState.scrollTop - (event.clientY - pdfPanState.clientY);
-}
-
-function finishPdfPan(event) {
-  if (!pdfPanState || event.pointerId !== pdfPanState.pointerId) return;
-  if (pdfViewer.hasPointerCapture(event.pointerId)) pdfViewer.releasePointerCapture(event.pointerId);
-  pdfPanState = null;
-  pdfViewer.classList.remove("is-panning");
+function setReaderPaperTitle(title) {
+  const normalizedTitle = String(title || "").replace(/\s+/g, " ").trim();
+  const displayTitle = normalizedTitle || "Loading paper...";
+  fileName.textContent = displayTitle;
+  fileName.title = displayTitle;
+  renderReaderPaperTags(currentPaper?.tags);
+  document.title = normalizedTitle ? `${normalizedTitle} - Paper Lantern` : "PaperLantern Paper Reader";
 }
 
 function initPaneResizer() {
@@ -1709,6 +2381,7 @@ function initPaneResizer() {
     document.body.classList.add("resizing-panes");
     hideSelectionMenu();
     hideTranslationBubble();
+    hideReferencePopover();
   });
 
   paneResizer.addEventListener("pointermove", (event) => {
@@ -1737,18 +2410,163 @@ function initPaneResizer() {
 function initSummaryPaneToggle() {
   const isCollapsed = localStorage.getItem("summaryPaneCollapsed") === "true";
   setSummaryPaneCollapsed(isCollapsed, false);
-  toggleSummaryPaneButton?.addEventListener("click", () => {
-    const nextCollapsed = !appShell.classList.contains("summary-pane-collapsed");
-    setSummaryPaneCollapsed(nextCollapsed);
-  });
 }
 
 function setSummaryPaneCollapsed(isCollapsed, shouldRefreshPdf = true) {
   appShell.classList.toggle("summary-pane-collapsed", isCollapsed);
-  toggleSummaryPaneButton?.setAttribute("aria-expanded", String(!isCollapsed));
-  toggleSummaryPaneButton?.setAttribute("aria-label", isCollapsed ? "Expand summary pane" : "Collapse summary pane");
   localStorage.setItem("summaryPaneCollapsed", String(isCollapsed));
   if (shouldRefreshPdf) refreshPdfAfterPaneResize();
+}
+
+let readerSettingsSaveTimer = null;
+
+function initReaderSettings() {
+  readerSettingsButton?.addEventListener("click", openReaderSettings);
+  cloudConfigCloseButton?.addEventListener("click", closeReaderSettings);
+  cloudConfigOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === cloudConfigOverlay) closeReaderSettings();
+  });
+  cloudConfigForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+  });
+  aiApiTestButton?.addEventListener("click", testReaderAiApi);
+  wireReaderSettingsAutoSave();
+  loadReaderSettings().catch((error) => console.error("Failed to load settings.", error));
+}
+
+function wireReaderSettingsAutoSave() {
+  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  fields.forEach((field) => {
+    if (!field) return;
+    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
+    field.addEventListener(eventName, () => {
+      window.clearTimeout(readerSettingsSaveTimer);
+      readerSettingsSaveTimer = window.setTimeout(() => {
+        saveReaderSettings().catch((error) => console.error("Failed to auto-save settings.", error));
+      }, 600);
+    });
+  });
+}
+
+function openReaderSettings() {
+  if (!cloudConfigOverlay) return;
+  cloudConfigOverlay.hidden = false;
+  aiBaseUrlInput?.focus();
+}
+
+function closeReaderSettings() {
+  if (cloudConfigOverlay) cloudConfigOverlay.hidden = true;
+}
+
+async function loadReaderSettings() {
+  const response = await apiFetch("/api/settings");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+  renderReaderSettings(data);
+}
+
+async function saveReaderSettings() {
+  setReaderSettingsBusy(true);
+  try {
+    const response = await apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput?.value.trim() || "",
+          model: aiModelInput?.value.trim() || "",
+          apiKey: aiApiKeyInput?.value || "",
+        },
+        sync: {
+          provider: cloudProviderSelect?.value || "local",
+          localDir: cloudLocalDirInput?.value.trim() || "",
+          webdavUrl: cloudWebdavUrlInput?.value.trim() || "",
+          username: cloudUsernameInput?.value.trim() || "",
+          password: cloudPasswordInput?.value || "",
+          autoSync: Boolean(cloudAutoPushInput?.checked),
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Settings save failed.");
+    renderReaderSettings(data.settings);
+    setStatus("设置已自动保存");
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "设置保存失败。", true);
+  } finally {
+    setReaderSettingsBusy(false);
+  }
+}
+
+async function testReaderAiApi() {
+  setReaderAiApiTestStatus("Testing...", false);
+  setReaderAiApiTestBusy(true);
+  try {
+    const response = await apiFetch("/api/settings/test-ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai: {
+          baseUrl: aiBaseUrlInput?.value.trim() || "",
+          model: aiModelInput?.value.trim() || "",
+          apiKey: aiApiKeyInput?.value || "",
+        },
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+      setReaderAiApiTestStatus(formatReaderAiApiTestError(data), true);
+      return;
+    }
+    const message = data.message ? ` - ${data.message}` : "";
+    setReaderAiApiTestStatus(`Connected: ${data.model || aiModelInput?.value.trim() || "model"}${message}`, false);
+  } catch (error) {
+    console.error(error);
+    setReaderAiApiTestStatus(error.message || "AI API test failed.", true);
+  } finally {
+    setReaderAiApiTestBusy(false);
+  }
+}
+
+function renderReaderSettings(settings) {
+  const ai = settings?.ai || {};
+  const sync = settings?.sync || {};
+  if (aiBaseUrlInput) aiBaseUrlInput.value = ai.baseUrl || "";
+  if (aiModelInput) aiModelInput.value = ai.model || "";
+  if (aiApiKeyInput) aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  if (cloudProviderSelect) cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
+  if (cloudLocalDirInput) cloudLocalDirInput.value = sync.localDir || "";
+  if (cloudWebdavUrlInput) cloudWebdavUrlInput.value = sync.webdavUrl || "";
+  if (cloudUsernameInput) cloudUsernameInput.value = sync.username || "";
+  if (cloudPasswordInput) cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
+  if (cloudAutoPushInput) cloudAutoPushInput.checked = Boolean(sync.autoSync);
+}
+
+function setReaderSettingsBusy(isBusy) {
+  if (readerSettingsButton) readerSettingsButton.disabled = isBusy;
+}
+
+function setReaderAiApiTestBusy(isBusy) {
+  if (!aiApiTestButton) return;
+  aiApiTestButton.disabled = isBusy;
+  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
+}
+
+function setReaderAiApiTestStatus(message, isError) {
+  if (!aiApiTestStatus) return;
+  aiApiTestStatus.textContent = message;
+  aiApiTestStatus.classList.toggle("error", Boolean(isError));
+}
+
+function formatReaderAiApiTestError(data) {
+  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
+  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
+}
+
+function maskSecretTail(tail) {
+  return `****${tail || "****"}`;
 }
 
 function resizePanesToClientX(clientX) {
@@ -1779,14 +2597,16 @@ function refreshPdfAfterPaneResize() {
   window.clearTimeout(paneRenderTimer);
   paneRenderTimer = window.setTimeout(async () => {
     const renderId = Symbol("paneResizeRender");
-    await renderPdfPages(renderId);
+    await renderPdfPages(renderId, { keepExisting: true });
     setViewerScrollRatio(scrollRatio);
+    scheduleVisiblePdfRender();
   }, 120);
 }
 
 async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
+  hideReferencePopover();
   hideCitationPreview();
   hideReferenceActionPopover();
   citationPreviewCache.clear();
@@ -1795,8 +2615,10 @@ async function renderPdf(file) {
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
-  pdfFitMode = "width";
-  updatePdfControls();
+  renderedPdfZoom = 1;
+  window.clearTimeout(zoomRenderTimer);
+  setPdfZoomPreviewScale(1);
+  updatePdfZoomLabel();
   const loadingNode = document.createElement("div");
   loadingNode.className = "pdf-loading";
   loadingNode.textContent = "Loading PDF...";
@@ -1808,71 +2630,122 @@ async function renderPdf(file) {
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   if (currentPdfTask !== renderId) return;
   currentPdfDocument = pdf;
+  pdfPageMetrics = [];
+  pdfRenderedPages = new Map();
+  pdfRenderingPages = new Map();
+  pdfPageTextCache = new Map();
   setPageIndicator(1, pdf.numPages);
-  updatePdfControls();
 
   await renderPdfPages(renderId);
 }
 
-async function renderPdfPages(renderId = Symbol("pdfRender")) {
+async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   if (!currentPdfDocument) return;
+  const { keepExisting = false } = options;
+  const renderZoom = pdfZoom;
   currentPdfTask = renderId;
-  pdfPageObserver?.disconnect();
-  pdfViewer.innerHTML = "";
-  const firstPage = await currentPdfDocument.getPage(1);
-  if (currentPdfTask !== renderId) return;
-  const viewport = getPdfPageViewport(firstPage);
+  pdfRenderingPages = new Map();
+  pdfRenderedPages = new Map();
+  if (!keepExisting) pdfViewer.innerHTML = "";
+  const pagesHost = document.createElement("div");
+  pagesHost.className = "pdf-pages";
+  if (!keepExisting) pdfViewer.appendChild(pagesHost);
   for (let pageNumber = 1; pageNumber <= currentPdfDocument.numPages; pageNumber += 1) {
-    const pageNode = document.createElement("article");
-    pageNode.className = "pdf-page pending";
-    pageNode.dataset.pageNumber = String(pageNumber);
-    pageNode.style.width = `${viewport.width}px`;
-    pageNode.style.height = `${viewport.height}px`;
-    pdfViewer.appendChild(pageNode);
+    const page = await currentPdfDocument.getPage(pageNumber);
+    if (currentPdfTask !== renderId) return;
+    const metrics = getPdfPageMetrics(page, renderZoom);
+    pdfPageMetrics[pageNumber] = metrics;
+    pagesHost.appendChild(createPdfPagePlaceholder(pageNumber, metrics));
   }
-  observePdfPages(renderId);
-  await renderPdfPage(1, renderId);
+  if (keepExisting) {
+    pdfViewer.replaceChildren(pagesHost);
+  }
+  renderedPdfZoom = renderZoom;
+  setPdfZoomPreviewScale(1);
+  await renderVisiblePdfPages(renderId, { force: true });
   updatePageIndicator();
+  resetPdfSearchState();
+  updatePdfZoomLabel();
+  scheduleVisiblePdfRender();
 }
 
-function observePdfPages(renderId) {
-  pdfPageObserver?.disconnect();
-  pdfPageObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting || currentPdfTask !== renderId) return;
-        const pageNumber = Number(entry.target.dataset.pageNumber);
-        renderPdfPage(pageNumber, renderId).catch((error) => console.error("Failed to render PDF page.", error));
-      });
-    },
-    { root: pdfViewer, rootMargin: "900px 0px" },
-  );
-  pdfViewer.querySelectorAll(".pdf-page").forEach((pageNode) => pdfPageObserver.observe(pageNode));
-}
-
-function getPdfPageViewport(page) {
+function getPdfPageMetrics(page, zoom = pdfZoom) {
   const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
   const baseViewport = page.getViewport({ scale: 1 });
-  const containerHeight = Math.max(pdfViewer.clientHeight - 36, 320);
-  const widthScale = Math.min(containerWidth / baseViewport.width, 1.6);
-  const fitScale = pdfFitMode === "page" ? Math.min(widthScale, containerHeight / baseViewport.height) : widthScale;
-  return page.getViewport({ scale: fitScale * pdfZoom });
+  const scale = Math.min(containerWidth / baseViewport.width, 1.6) * zoom;
+  const viewport = page.getViewport({ scale });
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    scale,
+  };
 }
 
-async function renderPdfPage(pageNumber, renderId) {
-  if (!currentPdfDocument || currentPdfTask !== renderId) return;
-  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
-  if (!pageNode || pageNode.dataset.rendered === "true" || pageNode.dataset.rendering === "true") return;
-  pageNode.dataset.rendering = "true";
-  const page = await currentPdfDocument.getPage(pageNumber);
-  if (currentPdfTask !== renderId) return;
-  const viewport = getPdfPageViewport(page);
+function createPdfPagePlaceholder(pageNumber, metrics) {
+  const pageNode = document.createElement("article");
+  pageNode.className = "pdf-page pdf-page-placeholder";
+  pageNode.dataset.pageNumber = String(pageNumber);
+  pageNode.style.width = `${metrics.width}px`;
+  pageNode.style.height = `${metrics.height}px`;
+  return pageNode;
+}
+
+function scheduleVisiblePdfRender() {
+  if (!currentPdfDocument) return;
+  window.clearTimeout(pdfVirtualRenderTimer);
+  pdfVirtualRenderTimer = window.setTimeout(() => {
+    renderVisiblePdfPages(currentPdfTask).catch((error) => console.error("Failed to render visible PDF pages.", error));
+  }, 60);
+}
+
+async function renderVisiblePdfPages(renderId = currentPdfTask, options = {}) {
+  if (!currentPdfDocument) return;
+  const { force = false } = options;
+  const pages = Array.from(pdfViewer.querySelectorAll(".pdf-page"));
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const renderBuffer = Math.max(viewerRect.height * 1.15, 900);
+  const keepBuffer = Math.max(viewerRect.height * 2.2, 1600);
+  const pagesToRender = [];
+
+  pages.forEach((pageNode) => {
+    const pageNumber = Number(pageNode.dataset.pageNumber) || 0;
+    const rect = pageNode.getBoundingClientRect();
+    const renderNear = rect.bottom >= viewerRect.top - renderBuffer && rect.top <= viewerRect.bottom + renderBuffer;
+    const keepNear = rect.bottom >= viewerRect.top - keepBuffer && rect.top <= viewerRect.bottom + keepBuffer;
+    if (renderNear) pagesToRender.push({ pageNumber, pageNode });
+    if (!keepNear && !isPdfTextSelecting) unloadPdfPage(pageNode);
+  });
+
+  for (const { pageNumber, pageNode } of pagesToRender) {
+    if (currentPdfTask !== renderId && !force) return;
+    await renderPdfPageInto(pageNumber, pageNode, renderId);
+  }
+}
+
+function unloadPdfPage(pageNode) {
+  const pageNumber = Number(pageNode.dataset.pageNumber) || 0;
+  if (!pageNumber || !pdfRenderedPages.has(pageNumber)) return;
+  pageNode.replaceChildren();
+  pageNode.classList.add("pdf-page-placeholder");
+  pdfRenderedPages.delete(pageNumber);
+}
+
+async function renderPdfPageInto(pageNumber, pageNode, renderId = currentPdfTask) {
+  if (!currentPdfDocument || !pageNode) return;
+  const rendered = pdfRenderedPages.get(pageNumber);
+  if (rendered && Math.abs(rendered.zoom - renderedPdfZoom) < 0.001) return;
+  if (pdfRenderingPages.has(pageNumber)) return pdfRenderingPages.get(pageNumber);
+
+  const task = (async () => {
+    const page = await currentPdfDocument.getPage(pageNumber);
+    if (currentPdfTask !== renderId) return;
+    const metrics = pdfPageMetrics[pageNumber] || getPdfPageMetrics(page, renderedPdfZoom);
+    const viewport = page.getViewport({ scale: metrics.scale });
   const outputScale = window.devicePixelRatio || 1;
 
-  pageNode.innerHTML = "";
-  pageNode.classList.remove("pending");
-  pageNode.style.width = `${viewport.width}px`;
-  pageNode.style.height = `${viewport.height}px`;
+    pageNode.style.width = `${metrics.width}px`;
+    pageNode.style.height = `${metrics.height}px`;
+    pageNode.replaceChildren();
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.floor(viewport.width * outputScale);
@@ -1890,7 +2763,7 @@ async function renderPdfPage(pageNumber, renderId) {
 
   const textLayer = document.createElement("div");
   textLayer.className = "pdf-text-layer";
-  textLayer.style.setProperty("--scale-factor", `${viewport.scale}`);
+  textLayer.style.setProperty("--scale-factor", `${metrics.scale}`);
 
   pageNode.append(canvas, highlightLayer, textLayer);
 
@@ -1902,13 +2775,22 @@ async function renderPdfPage(pageNumber, renderId) {
     viewport,
   }).render();
   if (currentPdfTask !== renderId) return;
+
+  pageNode.classList.remove("pdf-page-placeholder");
+  pdfRenderedPages.set(pageNumber, { zoom: renderedPdfZoom });
   await renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId);
   if (currentPdfTask !== renderId) return;
   await renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId);
   if (currentPdfTask !== renderId) return;
-  pageNode.dataset.rendered = "true";
-  delete pageNode.dataset.rendering;
   restoreHighlightsForPage(pageNode);
+  })();
+
+  pdfRenderingPages.set(pageNumber, task);
+  try {
+    await task;
+  } finally {
+    pdfRenderingPages.delete(pageNumber);
+  }
 }
 
 async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId) {
@@ -1923,7 +2805,6 @@ async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, rende
 
   const links = annotations.filter((annotation) => annotation.subtype === "Link" && annotation.dest && Array.isArray(annotation.rect));
   if (!links.length) return;
-
   const linkLayer = document.createElement("div");
   linkLayer.className = "pdf-link-layer";
   links.forEach((annotation, index) => {
@@ -1933,14 +2814,10 @@ async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, rende
     const width = Math.abs(x2 - x1);
     const height = Math.abs(y2 - y1);
     if (width < 1 || height < 1) return;
-
     const link = document.createElement("button");
     link.type = "button";
     link.className = "pdf-internal-link";
-    link.style.left = `${left}px`;
-    link.style.top = `${top}px`;
-    link.style.width = `${width}px`;
-    link.style.height = `${height}px`;
+    Object.assign(link.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
     link.setAttribute("aria-label", "Preview linked PDF content");
     link.dataset.linkId = `${pageNumber}:${annotation.id || index}`;
     link.addEventListener("pointerenter", () => showCitationPreview(link, pageNumber, annotation, renderId));
@@ -1957,8 +2834,7 @@ async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, rende
 }
 
 function isCitationDestination(destination) {
-  if (typeof destination !== "string") return false;
-  return /(?:^|[.:/_-])(?:cite|citation)(?:[.:/_-]|$)/i.test(destination);
+  return typeof destination === "string" && /(?:^|[.:/_-])(?:cite|citation)(?:[.:/_-]|$)/i.test(destination);
 }
 
 function ensureCitationPreview() {
@@ -1991,7 +2867,6 @@ function setCitationPreviewContent(preview) {
     const content = document.createElement("div");
     content.className = "pdf-link-preview-page";
     preview.source.canvas.className = "pdf-link-preview-canvas";
-    preview.source.canvas.setAttribute("aria-label", `Linked PDF page ${preview.pageNumber}`);
     content.appendChild(preview.source.canvas);
     if (preview.referenceEntries?.length) {
       renderReferenceActionDotLayer(content, preview.referenceEntries, preview.source.viewport, "pdf-reference-preview-dots");
@@ -2006,7 +2881,6 @@ function setCitationPreviewContent(preview) {
     body.textContent = preview.text;
     children.push(body);
   }
-  node._pdfLinkPreview = preview;
   node.replaceChildren(...children);
   return node;
 }
@@ -2014,13 +2888,10 @@ function setCitationPreviewContent(preview) {
 function positionCitationPreview(anchor) {
   const node = ensureCitationPreview();
   const rect = anchor.getBoundingClientRect();
-  const gap = 2;
   const margin = 12;
-  const width = node.offsetWidth;
-  const height = node.offsetHeight;
-  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
-  const below = rect.bottom + gap;
-  const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, rect.top - height - gap);
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - node.offsetWidth - margin));
+  const below = rect.bottom + 2;
+  const top = below + node.offsetHeight <= window.innerHeight - margin ? below : Math.max(margin, rect.top - node.offsetHeight - 2);
   node.style.left = `${left}px`;
   node.style.top = `${top}px`;
 }
@@ -2039,10 +2910,9 @@ function hideCitationPreview() {
 async function showCitationPreview(anchor, pageNumber, annotation, renderId) {
   window.clearTimeout(citationPreviewHideTimer);
   const token = ++citationPreviewToken;
-  const loadingNode = setCitationPreviewContent({ label: "Loading linked content...", text: "", pageNumber: 0 });
-  loadingNode.hidden = false;
+  const loading = setCitationPreviewContent({ label: "Loading linked content...", text: "", pageNumber: 0 });
+  loading.hidden = false;
   positionCitationPreview(anchor);
-
   try {
     const preview = await getCitationPreview(pageNumber, annotation);
     if (token !== citationPreviewToken || currentPdfTask !== renderId || !anchor.isConnected || !isCitationPreviewActive(anchor)) return;
@@ -2063,60 +2933,49 @@ function isCitationPreviewActive(anchor) {
 
 async function getCitationPreview(sourcePageNumber, annotation) {
   const cacheKey = `${sourcePageNumber}:${annotation.id || JSON.stringify(annotation.dest)}`;
-  if (!citationPreviewCache.has(cacheKey)) {
-    citationPreviewCache.set(cacheKey, resolveCitationPreview(annotation));
-  }
+  if (!citationPreviewCache.has(cacheKey)) citationPreviewCache.set(cacheKey, resolveCitationPreview(annotation));
   return citationPreviewCache.get(cacheKey);
 }
 
 async function resolveCitationPreview(annotation) {
-  if (!currentPdfDocument) return { label: "Linked content", text: "No paper is open.", pageNumber: 0, searchQuery: "" };
+  if (!currentPdfDocument) return { label: "Linked content", text: "No paper is open.", pageNumber: 0 };
   const destination = typeof annotation.dest === "string" ? await currentPdfDocument.getDestination(annotation.dest) : annotation.dest;
   if (!Array.isArray(destination) || !destination[0]) {
-    return { label: "Linked content", text: "The linked content has no readable destination.", pageNumber: 0, searchQuery: "" };
+    return { label: "Linked content", text: "The linked content has no readable destination.", pageNumber: 0 };
   }
-
-  const pageIndex = await currentPdfDocument.getPageIndex(destination[0]);
-  const pageNumber = pageIndex + 1;
+  const pageNumber = (await currentPdfDocument.getPageIndex(destination[0])) + 1;
   const page = await currentPdfDocument.getPage(pageNumber);
   const textContent = await getPdfLinkTextContent(page, pageNumber);
   const referenceText = extractReferenceText(textContent.items, getCitationDestinationY(destination));
   const isCitation = isCitationDestination(annotation.dest) || /^\s*\[\s*\d+\s*\]/.test(referenceText);
-  const text = isCitation ? referenceText : "";
-  const referenceEntries = isCitation && isReferenceListPage(textContent.items) ? extractReferenceEntries(textContent.items) : [];
   const source = await getPdfLinkPreviewSource(page, pageNumber);
   return {
     label: isCitation ? `Reference · page ${pageNumber}` : `Linked content · page ${pageNumber}`,
-    text: isCitation ? text || "Reference text is not available in this PDF." : "",
+    text: "",
     pageNumber,
     destination,
     source,
     isCitation,
-    referenceEntries,
-    searchQuery: isCitation ? buildReferenceSearchQuery(text) : "",
-    arxivUrl: isCitation ? getArxivUrl(text) : "",
+    referenceEntries: isCitation && isReferenceListPage(textContent.items) ? extractPdfReferenceEntriesFromItems(textContent.items) : [],
   };
 }
 
 async function getPdfLinkPreviewSource(page, pageNumber) {
   if (!pdfLinkPageCache.has(pageNumber)) {
     if (pdfLinkPageCache.size >= 8) pdfLinkPageCache.delete(pdfLinkPageCache.keys().next().value);
-    pdfLinkPageCache.set(
-      pageNumber,
-      (async () => {
-        const viewport = page.getViewport({ scale: 1.35 });
-        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.ceil(viewport.width * outputScale);
-        canvas.height = Math.ceil(viewport.height * outputScale);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        const context = canvas.getContext("2d", { alpha: false });
-        const transform = outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0];
-        await page.render({ canvasContext: context, viewport, transform }).promise;
-        return { canvas, viewport };
-      })(),
-    );
+    pdfLinkPageCache.set(pageNumber, (async () => {
+      const viewport = page.getViewport({ scale: 1.35 });
+      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width * outputScale);
+      canvas.height = Math.ceil(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      const context = canvas.getContext("2d", { alpha: false });
+      const transform = outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0];
+      await page.render({ canvasContext: context, viewport, transform }).promise;
+      return { canvas, viewport };
+    })());
   }
   return pdfLinkPageCache.get(pageNumber);
 }
@@ -2129,14 +2988,10 @@ async function getPdfLinkTextContent(page, pageNumber) {
 function buildReferenceSearchQuery(referenceText) {
   const text = String(referenceText || "").replace(/^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s*/, "").replace(/\s+/g, " ").trim();
   if (!text) return "";
-  const sentences = text
-    .split(/\.\s+(?=[A-Z])/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const sentences = text.split(/\.\s+(?=[A-Z])/).map((item) => item.trim()).filter(Boolean);
   const isMetadata = (item) => /(?:arxiv|proceedings|conference|journal|coRR|pages|vol\.?|doi|neural computation|ACL)/i.test(item);
   const title = sentences.slice(1).find((item) => item.length >= 8 && item.length <= 300 && !isMetadata(item))
-    || sentences.find((item) => item.length >= 18 && item.length <= 300 && !isMetadata(item))
-    || text;
+    || sentences.find((item) => item.length >= 18 && item.length <= 300 && !isMetadata(item)) || text;
   return `${title} ${text}`.slice(0, 1200);
 }
 
@@ -2149,10 +3004,9 @@ function getArxivUrl(referenceText) {
 }
 
 async function renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId) {
-  pageNode.querySelector(".pdf-reference-action-dots")?.remove();
   const textContent = await getPdfLinkTextContent(page, pageNumber);
   if (currentPdfTask !== renderId || !isReferenceListPage(textContent.items)) return;
-  const entries = extractReferenceEntries(textContent.items);
+  const entries = extractPdfReferenceEntriesFromItems(textContent.items);
   if (entries.length) renderReferenceActionDotLayer(pageNode, entries, viewport);
 }
 
@@ -2160,27 +3014,19 @@ function renderReferenceActionDotLayer(container, entries, viewport, extraClass 
   const layer = document.createElement("div");
   layer.className = `pdf-reference-action-dots ${extraClass}`.trim();
   entries.forEach((entry) => {
-    const detail = {
-      ...entry,
-      isCitation: true,
-      searchQuery: buildReferenceSearchQuery(entry.text),
-      arxivUrl: getArxivUrl(entry.text),
-    };
+    const detail = { ...entry, searchQuery: buildReferenceSearchQuery(entry.text), arxivUrl: getArxivUrl(entry.text) };
     if (!detail.searchQuery && !detail.arxivUrl) return;
     const dot = document.createElement("button");
     dot.type = "button";
     dot.className = "pdf-reference-action-dot";
     dot.title = "打开此参考文献的 Scholar / arXiv 链接";
-    dot.setAttribute("aria-label", "打开此参考文献的 Scholar / arXiv 链接");
+    dot.setAttribute("aria-label", dot.title);
     positionReferenceActionDot(dot, entry, viewport);
     dot.addEventListener("pointerenter", () => showReferenceActionPopover(dot, detail));
     dot.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
     dot.addEventListener("focus", () => showReferenceActionPopover(dot, detail));
     dot.addEventListener("blur", scheduleReferenceActionPopoverHide);
-    dot.addEventListener("click", (event) => {
-      event.preventDefault();
-      showReferenceActionPopover(dot, detail);
-    });
+    dot.addEventListener("click", (event) => { event.preventDefault(); showReferenceActionPopover(dot, detail); });
     layer.appendChild(dot);
   });
   if (layer.childElementCount) container.appendChild(layer);
@@ -2190,32 +3036,30 @@ function createReferenceActionControls(reference) {
   const actions = document.createElement("div");
   actions.className = "pdf-reference-action-controls";
   if (reference.searchQuery) {
-    const scholarLink = document.createElement("a");
-    scholarLink.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(reference.searchQuery)}`;
-    scholarLink.target = "_blank";
-    scholarLink.rel = "noopener noreferrer";
-    scholarLink.textContent = "Scholar";
-    scholarLink.title = "在 Google Scholar 中搜索此参考文献";
-    scholarLink.setAttribute("aria-label", "在 Google Scholar 中搜索此参考文献");
-    actions.appendChild(scholarLink);
+    const scholar = document.createElement("a");
+    scholar.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(reference.searchQuery)}`;
+    scholar.target = "_blank";
+    scholar.rel = "noopener noreferrer";
+    scholar.textContent = "Scholar";
+    scholar.title = "在 Google Scholar 中搜索此参考文献";
+    actions.appendChild(scholar);
   }
   if (reference.arxivUrl) {
-    const arxivLink = document.createElement("a");
-    arxivLink.href = reference.arxivUrl;
-    arxivLink.target = "_blank";
-    arxivLink.rel = "noopener noreferrer";
-    arxivLink.textContent = "arXiv";
-    arxivLink.title = "打开 arXiv 页面";
-    arxivLink.setAttribute("aria-label", "打开 arXiv 页面");
-    actions.appendChild(arxivLink);
+    const arxiv = document.createElement("a");
+    arxiv.href = reference.arxivUrl;
+    arxiv.target = "_blank";
+    arxiv.rel = "noopener noreferrer";
+    arxiv.textContent = "arXiv";
+    arxiv.title = "打开 arXiv 页面";
+    actions.appendChild(arxiv);
   }
   return actions;
 }
 
 function positionReferenceActionDot(dot, entry, viewport) {
-  const [pointX, pointY] = viewport.convertToViewportPoint(Number(entry.x || viewport.viewBox[0]), entry.y);
-  dot.style.left = `${Math.max(1, pointX - 12)}px`;
-  dot.style.top = `${Math.max(1, pointY + 2)}px`;
+  const [x, y] = viewport.convertToViewportPoint(Number(entry.x || viewport.viewBox[0]), entry.y);
+  dot.style.left = `${Math.max(1, x - 12)}px`;
+  dot.style.top = `${Math.max(1, y + 2)}px`;
 }
 
 function ensureReferenceActionPopover() {
@@ -2223,13 +3067,10 @@ function ensureReferenceActionPopover() {
   const popover = document.createElement("aside");
   popover.className = "pdf-reference-action-popover";
   popover.hidden = true;
-  popover.setAttribute("role", "dialog");
   popover.addEventListener("pointerenter", () => window.clearTimeout(referenceActionHideTimer));
   popover.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
   popover.addEventListener("focusin", () => window.clearTimeout(referenceActionHideTimer));
-  popover.addEventListener("focusout", (event) => {
-    if (!popover.contains(event.relatedTarget)) scheduleReferenceActionPopoverHide();
-  });
+  popover.addEventListener("focusout", (event) => { if (!popover.contains(event.relatedTarget)) scheduleReferenceActionPopoverHide(); });
   document.body.appendChild(popover);
   referenceActionPopover = popover;
   return popover;
@@ -2244,13 +3085,9 @@ function showReferenceActionPopover(anchor, reference) {
   popover.hidden = false;
   const rect = anchor.getBoundingClientRect();
   const margin = 10;
-  const left = Math.max(margin, Math.min(rect.left - 6, window.innerWidth - popover.offsetWidth - margin));
+  popover.style.left = `${Math.max(margin, Math.min(rect.left - 6, window.innerWidth - popover.offsetWidth - margin))}px`;
   const below = rect.bottom + 4;
-  const top = below + popover.offsetHeight <= window.innerHeight - margin
-    ? below
-    : Math.max(margin, rect.top - popover.offsetHeight - 4);
-  popover.style.left = `${left}px`;
-  popover.style.top = `${top}px`;
+  popover.style.top = `${below + popover.offsetHeight <= window.innerHeight - margin ? below : Math.max(margin, rect.top - popover.offsetHeight - 4)}px`;
 }
 
 function scheduleReferenceActionPopoverHide() {
@@ -2312,20 +3149,17 @@ function getPdfDestinationPoint(destination, viewport) {
 
 async function goToPdfLinkDestination(preview) {
   if (!currentPdfDocument || !preview?.pageNumber) return;
-  goToPdfPage(preview.pageNumber);
-  const [page, pageNode] = await Promise.all([
-    currentPdfDocument.getPage(preview.pageNumber),
-    Promise.resolve(pdfViewer.querySelector(`.pdf-page[data-page-number="${preview.pageNumber}"]`)),
-  ]);
-  if (!pageNode || !preview.destination) return;
-  const viewport = getPdfPageViewport(page);
-  const point = getPdfDestinationPoint(preview.destination, viewport);
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${preview.pageNumber}"]`);
+  if (!pageNode) return;
+  await renderPdfPageInto(preview.pageNumber, pageNode, currentPdfTask);
+  const page = await currentPdfDocument.getPage(preview.pageNumber);
+  const metrics = pdfPageMetrics[preview.pageNumber] || getPdfPageMetrics(page, renderedPdfZoom);
+  const point = getPdfDestinationPoint(preview.destination, page.getViewport({ scale: metrics.scale }));
   pdfViewer.scrollTo({
     left: Math.max(0, point.x - pdfViewer.clientWidth * 0.45),
     top: Math.max(0, pageNode.offsetTop + point.y - 42),
     behavior: "smooth",
   });
-  renderPdfPage(preview.pageNumber, currentPdfTask).catch((error) => console.error("Failed to render linked page.", error));
 }
 
 function getCitationDestinationY(destination) {
@@ -2344,10 +3178,7 @@ function buildPdfTextLines(items) {
     if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return;
     const tolerance = Math.max(2, Number(item.height || 8) * 0.28);
     let line = lines.find((candidate) => Math.abs(candidate.y - y) <= tolerance);
-    if (!line) {
-      line = { y, items: [] };
-      lines.push(line);
-    }
+    if (!line) { line = { y, items: [] }; lines.push(line); }
     line.items.push({ x, width: Number(item.width), text });
   });
   lines.sort((left, right) => right.y - left.y);
@@ -2367,23 +3198,21 @@ function isBracketReferenceStart(text) {
 
 function isReferenceListPage(items) {
   const lines = buildPdfReferenceLines(items);
-  const hasReferenceHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
-  const bracketReferenceCount = lines.filter((line) => isBracketReferenceStart(line.text)).length;
-  return hasReferenceHeading || bracketReferenceCount >= 4;
+  const hasHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
+  return hasHeading || lines.filter((line) => isBracketReferenceStart(line.text)).length >= 4;
 }
 
-function extractReferenceEntries(items) {
-  const lines = buildPdfReferenceLines(items);
+function extractPdfReferenceEntriesFromItems(items) {
   const entries = [];
-  buildPdfReferenceColumns(lines).forEach((column) => {
+  buildPdfReferenceColumns(buildPdfReferenceLines(items)).forEach((column) => {
     let current = null;
     column.forEach((line) => {
       if (isReferenceStart(line.text)) {
         if (current) entries.push(current);
         current = { y: line.y, x: line.x, text: line.text };
-        return;
+      } else if (current && current.text.length < 900) {
+        current.text = `${current.text} ${line.text}`.trim();
       }
-      if (current && current.text.length < 900) current.text = `${current.text} ${line.text}`.trim();
     });
     if (current) entries.push(current);
   });
@@ -2405,11 +3234,11 @@ function buildPdfReferenceLines(items) {
       segment.items.push(item);
       previous = item;
     });
-    return segments.map((segment) => ({
-      y: segment.y,
-      x: Math.min(...segment.items.map((item) => item.x)),
-      items: segment.items,
-      text: segment.items.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim(),
+    return segments.map((part) => ({
+      y: part.y,
+      x: Math.min(...part.items.map((item) => item.x)),
+      items: part.items,
+      text: part.items.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim(),
     }));
   });
 }
@@ -2421,35 +3250,18 @@ function buildPdfReferenceColumns(lines) {
     if (column) column.lines.push(line);
     else columns.push({ x: line.x, lines: [line] });
   });
-  return columns
-    .sort((left, right) => left.x - right.x)
-    .map((column) => column.lines.sort((left, right) => right.y - left.y));
+  return columns.sort((left, right) => left.x - right.x).map((column) => column.lines.sort((left, right) => right.y - left.y));
 }
 
 function extractReferenceText(items, destinationY) {
   if (!Number.isFinite(destinationY)) return "";
   const lines = buildPdfTextLines(items);
   if (!lines.length) return "";
-
   let start = lines.findIndex((line) => line.y <= destinationY + 2);
-  if (start < 0) {
-    let distance = Infinity;
-    lines.forEach((line, index) => {
-      const nextDistance = Math.abs(line.y - destinationY);
-      if (nextDistance < distance) {
-        start = index;
-        distance = nextDistance;
-      }
-    });
-  }
-
+  if (start < 0) start = lines.reduce((best, line, index) => Math.abs(line.y - destinationY) < Math.abs(lines[best].y - destinationY) ? index : best, 0);
   for (let index = start; index >= Math.max(0, start - 6); index -= 1) {
-    if (isReferenceStart(lines[index].text)) {
-      start = index;
-      break;
-    }
+    if (isReferenceStart(lines[index].text)) { start = index; break; }
   }
-
   const parts = [];
   for (let index = start; index < lines.length && parts.length < 8; index += 1) {
     const text = lines[index].text;
@@ -2467,26 +3279,311 @@ function handlePdfWheel(event) {
   event.preventDefault();
   hideSelectionMenu();
   hideTranslationBubble();
+  hideReferencePopover();
   window.getSelection()?.removeAllRanges();
 
-  const direction = event.deltaY < 0 ? 1 : -1;
-  changePdfZoom(direction * 0.12, getPdfZoomAnchor(event));
+  const previousZoom = pdfZoom;
+  const zoomFactor = clamp(Math.exp(-event.deltaY * 0.0025), 0.72, 1.38);
+  const nextZoom = clamp(pdfZoom * zoomFactor, 0.6, 2.8);
+  if (nextZoom === previousZoom) return;
+
+  const anchor = getPdfViewportAnchor(event.clientX, event.clientY);
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  restorePdfViewportAnchor(anchor);
+  schedulePdfRerender(anchor);
 }
 
-function schedulePdfRerender(scrollRatio, anchor = null, previousZoom = pdfZoom) {
+function schedulePdfRerender(anchor) {
   window.clearTimeout(zoomRenderTimer);
   zoomRenderTimer = window.setTimeout(async () => {
     const renderId = Symbol("pdfZoomRender");
-    await renderPdfPages(renderId);
-    if (anchor && previousZoom > 0) {
-      const factor = pdfZoom / previousZoom;
-      pdfViewer.scrollLeft = Math.max(0, anchor.contentX * factor - anchor.x);
-      pdfViewer.scrollTop = Math.max(0, anchor.contentY * factor - anchor.y);
-      updatePageIndicator();
-    } else {
-      setViewerScrollRatio(scrollRatio);
+    await renderPdfPages(renderId, { keepExisting: true });
+    if (currentPdfTask === renderId) {
+      restorePdfViewportAnchor(anchor);
+      scheduleVisiblePdfRender();
     }
-  }, 80);
+  }, 140);
+}
+
+function setPdfZoomPreviewScale(scale) {
+  const pagesHost = pdfViewer.querySelector(".pdf-pages");
+  if (!pagesHost) return;
+  pagesHost.style.transform = scale === 1 ? "" : `scale(${scale})`;
+  pagesHost.style.transformOrigin = "0 0";
+}
+
+const pdfZoomPresets = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.8];
+
+function initPdfToolbar() {
+  zoomOutButton?.addEventListener("click", () => zoomPdf(1 / 1.25));
+  zoomInButton?.addEventListener("click", () => zoomPdf(1.25));
+  fitPageButton?.addEventListener("click", () => fitPdfPage());
+  pdfZoomLabel?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePdfZoomMenu();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".pdf-zoom-menu") || event.target.closest(".pdf-zoom-label")) return;
+    closePdfZoomMenu();
+  });
+  pdfSearchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runPdfSearch(pdfSearchInput.value).catch((error) => console.error("PDF search failed.", error));
+    } else if (event.key === "Escape") {
+      clearPdfSearch();
+    }
+  });
+  pdfSearchInput?.addEventListener("input", () => {
+    if (!pdfSearchInput.value) clearPdfSearch();
+  });
+  pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(-1));
+  pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
+  updatePdfZoomLabel();
+  updatePdfSearchUI();
+}
+
+function initPdfShortcuts() {
+  pdfShortcutsButton?.addEventListener("click", () => {
+    if (!pdfShortcutsOverlay) return;
+    pdfShortcutsOverlay.hidden = false;
+    pdfShortcutsCloseButton?.focus();
+  });
+  const close = () => {
+    if (!pdfShortcutsOverlay) return;
+    pdfShortcutsOverlay.hidden = true;
+    pdfShortcutsButton?.focus();
+  };
+  pdfShortcutsCloseButton?.addEventListener("click", close);
+  pdfShortcutsOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === pdfShortcutsOverlay) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && pdfShortcutsOverlay && !pdfShortcutsOverlay.hidden) {
+      close();
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
+    if (!(event.ctrlKey || event.metaKey) || !["+", "=", "-", "0"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "0") setPdfZoomTo(1);
+    else zoomPdf(event.key === "-" ? 1 / 1.25 : 1.25);
+  });
+}
+
+function updatePdfZoomLabel() {
+  if (!pdfZoomLabel) return;
+  pdfZoomLabel.textContent = `${Math.round(pdfZoom * 100)}%`;
+}
+
+function togglePdfZoomMenu() {
+  const existing = document.querySelector(".pdf-zoom-menu");
+  if (existing) {
+    existing.remove();
+    return;
+  }
+  const toolbar = pdfZoomLabel?.closest(".pdf-toolbar");
+  if (!toolbar || !currentPdfDocument) return;
+
+  const menu = document.createElement("div");
+  menu.className = "pdf-zoom-menu";
+  pdfZoomPresets.forEach((value) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "pdf-zoom-menu-item";
+    item.textContent = `${Math.round(value * 100)}%`;
+    item.classList.toggle("active", Math.abs(value - pdfZoom) < 0.01);
+    item.addEventListener("click", () => {
+      setPdfZoomTo(value);
+      menu.remove();
+    });
+    menu.appendChild(item);
+  });
+  toolbar.appendChild(menu);
+
+  const toolbarRect = toolbar.getBoundingClientRect();
+  const labelRect = pdfZoomLabel.getBoundingClientRect();
+  menu.style.top = `${labelRect.bottom - toolbarRect.top + 4}px`;
+  menu.style.left = `${labelRect.left - toolbarRect.left}px`;
+}
+
+function closePdfZoomMenu() {
+  document.querySelector(".pdf-zoom-menu")?.remove();
+}
+
+function setPdfZoomTo(value) {
+  if (!currentPdfDocument) return;
+  const nextZoom = clamp(value, 0.6, 2.8);
+  if (nextZoom === pdfZoom) return;
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  schedulePdfRerender();
+  updatePdfZoomLabel();
+}
+
+function zoomPdf(factor) {
+  if (!currentPdfDocument) return;
+  const previousZoom = pdfZoom;
+  const nextZoom = clamp(pdfZoom * factor, 0.6, 2.8);
+  if (nextZoom === previousZoom) return;
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const anchor = getPdfViewportAnchor(viewerRect.left + viewerRect.width / 2, viewerRect.top + viewerRect.height / 2);
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  restorePdfViewportAnchor(anchor);
+  schedulePdfRerender(anchor);
+  updatePdfZoomLabel();
+}
+
+async function fitPdfPage() {
+  if (!currentPdfDocument) return;
+  const page = await currentPdfDocument.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const containerWidth = Math.max(pdfViewer.clientWidth - 36, 320);
+  const containerHeight = Math.max(pdfViewer.clientHeight - 36, 320);
+  const widthBase = Math.min(containerWidth / base.width, 1.6);
+  const fitScale = Math.min(containerWidth / base.width, containerHeight / base.height, 1.6);
+  const nextZoom = clamp(fitScale / widthBase, 0.6, 2.8);
+  if (nextZoom === pdfZoom) return;
+  pdfZoom = nextZoom;
+  currentPdfTask = Symbol("pdfZoomPending");
+  setPdfZoomPreviewScale(pdfZoom / renderedPdfZoom);
+  schedulePdfRerender();
+  updatePdfZoomLabel();
+}
+
+async function runPdfSearch(query) {
+  const q = String(query || "").trim();
+  const searchId = Symbol("pdfSearch");
+  pdfSearchTask = searchId;
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  if (!q) {
+    updatePdfSearchUI();
+    return;
+  }
+  const lower = q.toLowerCase();
+  for (let pageNumber = 1; pageNumber <= currentPdfDocument.numPages; pageNumber += 1) {
+    if (pdfSearchTask !== searchId) return;
+    const pageText = (await getPdfPagePlainText(pageNumber)).toLowerCase();
+    if (pageText.includes(lower)) {
+      pdfSearchMatches.push(pageNumber);
+      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+      if (pageNode?.querySelector(".pdf-text-layer")) highlightInTextLayer(pageNode, q);
+    }
+  }
+  if (pdfSearchTask !== searchId) return;
+  if (pdfSearchMatches.length) {
+    pdfSearchIndex = 0;
+    jumpToPdfSearchMatch();
+  }
+  updatePdfSearchUI();
+}
+
+function clearPdfSearch() {
+  pdfSearchTask = null;
+  if (pdfSearchInput) pdfSearchInput.value = "";
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  updatePdfSearchUI();
+}
+
+function clearSearchHighlights(root = pdfViewer) {
+  root.querySelectorAll(".pdf-search-hit").forEach((mark) => {
+    const parent = mark.parentNode;
+    const fragment = document.createDocumentFragment();
+    while (mark.firstChild) fragment.appendChild(mark.firstChild);
+    mark.replaceWith(fragment);
+  });
+}
+
+function highlightInTextLayer(pageNode, query) {
+  clearSearchHighlights(pageNode);
+  const textLayer = pageNode.querySelector(".pdf-text-layer");
+  if (!textLayer) return 0;
+  const lower = query.toLowerCase();
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  let count = 0;
+  nodes.forEach((node) => {
+    const text = node.nodeValue || "";
+    const lowerText = text.toLowerCase();
+    let idx = lowerText.indexOf(lower);
+    if (idx === -1) return;
+    const fragment = document.createDocumentFragment();
+    let pos = 0;
+    while (idx !== -1) {
+      if (idx > pos) fragment.appendChild(document.createTextNode(text.slice(pos, idx)));
+      const mark = document.createElement("mark");
+      mark.className = "pdf-search-hit";
+      mark.textContent = text.slice(idx, idx + query.length);
+      fragment.appendChild(mark);
+      pos = idx + query.length;
+      idx = lowerText.indexOf(lower, pos);
+      count += 1;
+    }
+    if (pos < text.length) fragment.appendChild(document.createTextNode(text.slice(pos)));
+    node.replaceWith(fragment);
+  });
+  return count;
+}
+
+async function getPdfPagePlainText(pageNumber) {
+  if (!currentPdfDocument) return "";
+  if (pdfPageTextCache.has(pageNumber)) return pdfPageTextCache.get(pageNumber);
+  const page = await currentPdfDocument.getPage(pageNumber);
+  const content = await page.getTextContent();
+  const text = content.items
+    .map((item) => ("str" in item ? item.str : ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  pdfPageTextCache.set(pageNumber, text);
+  return text;
+}
+
+function stepPdfSearch(delta) {
+  if (!pdfSearchMatches.length) return;
+  pdfSearchIndex = (pdfSearchIndex + delta + pdfSearchMatches.length) % pdfSearchMatches.length;
+  jumpToPdfSearchMatch();
+}
+
+function jumpToPdfSearchMatch() {
+  jumpToPdfSearchMatchAsync().catch((error) => console.error("Failed to jump to PDF search match.", error));
+}
+
+async function jumpToPdfSearchMatchAsync() {
+  if (pdfSearchIndex < 0 || pdfSearchIndex >= pdfSearchMatches.length) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pdfSearchMatches[pdfSearchIndex]}"]`);
+  if (pageNode) {
+    pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
+    await renderPdfPageInto(Number(pdfSearchMatches[pdfSearchIndex]), pageNode, currentPdfTask);
+    if (pdfSearchInput?.value) highlightInTextLayer(pageNode, pdfSearchInput.value);
+  }
+  updatePdfSearchUI();
+}
+
+function updatePdfSearchUI() {
+  if (pdfSearchCount) pdfSearchCount.textContent = pdfSearchMatches.length ? `${pdfSearchIndex + 1}/${pdfSearchMatches.length}` : "";
+  if (pdfSearchPrevButton) pdfSearchPrevButton.disabled = !pdfSearchMatches.length;
+  if (pdfSearchNextButton) pdfSearchNextButton.disabled = !pdfSearchMatches.length;
+}
+
+function resetPdfSearchState() {
+  pdfSearchTask = null;
+  clearSearchHighlights();
+  pdfSearchMatches = [];
+  pdfSearchIndex = -1;
+  updatePdfSearchUI();
 }
 
 async function extractPdfText(file) {
@@ -2514,11 +3611,114 @@ async function extractPdfText(file) {
   };
 }
 
+function extractReferenceEntries(text) {
+  const source = String(text || "")
+    .replace(/\0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!source) return new Map();
+
+  const sectionStart = findReferenceSectionStart(source);
+  if (sectionStart < 0) return new Map();
+
+  const section = trimReferenceSection(source.slice(sectionStart).trim());
+  const markers = Array.from(section.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g));
+  if (!markers.length) return new Map();
+
+  const entries = new Map();
+  markers.forEach((marker, index) => {
+    const number = marker[1];
+    const contentStart = marker.index + marker[0].length;
+    const contentEnd = index + 1 < markers.length ? markers[index + 1].index : section.length;
+    const citation = cleanReferenceText(section.slice(contentStart, contentEnd));
+    if (citation.length >= 12) entries.set(number, citation);
+  });
+  return entries;
+}
+
+function trimReferenceSection(section) {
+  const appendixMatch = section.match(/\b(?:appendix|a\s+p\s*p\s*e\s*n\s*d\s*i\s*x|附录)\b/i);
+  if (!appendixMatch) return section;
+
+  const beforeAppendix = section.slice(0, appendixMatch.index);
+  const markers = beforeAppendix.match(/(?:^|\s)\[(\d{1,3})\]\s+/g) || [];
+  return markers.length >= 5 ? beforeAppendix : section;
+}
+
+function findReferenceSectionStart(source) {
+  const headingMatches = Array.from(
+    source.matchAll(/\b(?:references|bibliography|r\s+e\s*f\s*e\s*r\s*e\s*n\s*c\s*e\s*s|参考文献)\b/gi),
+  );
+  for (let index = headingMatches.length - 1; index >= 0; index -= 1) {
+    const match = headingMatches[index];
+    const preview = source.slice(match.index, match.index + 1800);
+    const firstMarker = preview.match(/\[(1)\]\s+/);
+    if (firstMarker) return match.index + firstMarker.index;
+  }
+
+  return findSequentialReferenceListStart(source);
+}
+
+function findSequentialReferenceListStart(source) {
+  const markers = Array.from(source.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g)).map((match) => ({
+    number: Number(match[1]),
+    index: match.index + match[0].indexOf("["),
+  }));
+
+  let best = null;
+  markers.forEach((marker, startIndex) => {
+    if (marker.number !== 1) return;
+    let expected = 2;
+    let lastIndex = marker.index;
+    let count = 1;
+
+    for (let index = startIndex + 1; index < markers.length && expected <= 12; index += 1) {
+      const next = markers[index];
+      if (next.index - lastIndex > 2500) break;
+      if (next.number !== expected) continue;
+      count += 1;
+      expected += 1;
+      lastIndex = next.index;
+    }
+
+    if (count >= 5 && (!best || count > best.count || marker.index > best.index)) {
+      best = { count, index: marker.index };
+    }
+  });
+
+  return best ? best.index : -1;
+}
+
+function cleanReferenceText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+}
+
+function getCitationNumbers(value) {
+  const body = String(value || "").replace(/^\[/, "").replace(/\]$/, "");
+  const numbers = [];
+  body.split(/[，,]/).forEach((part) => {
+    const range = part.match(/(\d{1,3})\s*-\s*(\d{1,3})/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      const step = start <= end ? 1 : -1;
+      for (let number = start; number !== end + step; number += step) numbers.push(String(number));
+      return;
+    }
+    const single = part.match(/\d{1,3}/);
+    if (single) numbers.push(single[0]);
+  });
+  return Array.from(new Set(numbers));
+}
+
 async function summarizeText(text) {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
   });
   const data = await readJsonResponse(response);
 
@@ -2539,7 +3739,7 @@ async function refreshOverviewInfo(text) {
   const response = await apiFetch("/api/overview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
   });
   const data = await readJsonResponse(response);
 
@@ -2583,11 +3783,54 @@ function cleanPaperTitle(value) {
     .trim();
 }
 
+function handlePdfSelectionPointerDown(event) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
+  const textSpan = getPdfTextSpanForNode(event.target);
+  const pageNode = textSpan?.closest(".pdf-page");
+  isPdfTextSelecting = Boolean(textSpan && pageNode);
+  pdfSelectionPointerId = isPdfTextSelecting ? event.pointerId : null;
+  pdfSelectionStartPageNumber = isPdfTextSelecting ? Number(pageNode.dataset.pageNumber) || null : null;
+  pendingPdfSelectionRect = null;
+  if (!isPdfTextSelecting) {
+    resetPdfSelectionPointerState();
+    clearPdfSelectionState({ clearBrowserSelection: true });
+    return;
+  }
+  hideSelectionMenu();
+  hideTranslationBubble();
+  hideReferencePopover();
+  document.body.classList.add("selecting-pdf-text");
+}
+
+function handlePdfSelectionPointerFinish(event) {
+  if (!isPdfTextSelecting || event.pointerId !== pdfSelectionPointerId) return;
+  resetPdfSelectionPointerState();
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    pendingPdfSelectionRect = null;
+    return;
+  }
+  if (!isPdfSelection(selection)) {
+    clearPdfSelectionState({ clearBrowserSelection: true });
+    return;
+  }
+  if (pendingPdfSelectionRect || lastSelectionRect) {
+    showSelectionMenu(pendingPdfSelectionRect || lastSelectionRect);
+  }
+  pendingPdfSelectionRect = null;
+}
+
+function resetPdfSelectionPointerState() {
+  isPdfTextSelecting = false;
+  pdfSelectionPointerId = null;
+  pdfSelectionStartPageNumber = null;
+  document.body.classList.remove("selecting-pdf-text");
+}
+
 function handlePdfSelectionChange() {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
     return;
   }
 
@@ -2596,16 +3839,19 @@ function handlePdfSelectionChange() {
     ? range.commonAncestorContainer.parentElement
     : range.commonAncestorContainer;
   if (!pdfViewer.contains(commonNode)) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
+    return;
+  }
+
+  if (!isPdfSelection(selection)) {
+    clearPdfSelectionState({ clearBrowserSelection: isPdfTextSelecting });
     return;
   }
 
   const text = selection.toString().trim();
   const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
   if (!text || !rects.length) {
-    hideSelectionMenu();
-    hideTranslationBubble();
+    clearPdfSelectionState();
     return;
   }
 
@@ -2613,7 +3859,71 @@ function handlePdfSelectionChange() {
   selectedPdfRange = range.cloneRange();
   lastSelectionRect = rects[rects.length - 1];
   hideTranslationBubble();
+  hideReferencePopover();
+  if (isPdfTextSelecting) {
+    pendingPdfSelectionRect = lastSelectionRect;
+    hideSelectionMenu();
+    return;
+  }
   showSelectionMenu(lastSelectionRect);
+}
+
+function clearPdfSelectionState(options = {}) {
+  const { clearBrowserSelection = false } = options;
+  selectedPdfText = "";
+  selectedPdfRange = null;
+  lastSelectionRect = null;
+  pendingPdfSelectionRect = null;
+  hideSelectionMenu();
+  hideTranslationBubble();
+  if (clearBrowserSelection) window.getSelection()?.removeAllRanges();
+}
+
+function isPdfSelection(selection) {
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  const startPage = getPdfPageForNode(range.startContainer);
+  const endPage = getPdfPageForNode(range.endContainer);
+  const anchorPage = getPdfPageForNode(selection.anchorNode);
+  const focusPage = getPdfPageForNode(selection.focusNode);
+  if (!startPage || !endPage || !anchorPage || !focusPage) return false;
+  if (isPdfTextSelecting) {
+    const startPageNumber = Number(startPage.dataset.pageNumber) || null;
+    const endPageNumber = Number(endPage.dataset.pageNumber) || null;
+    const anchorPageNumber = Number(anchorPage.dataset.pageNumber) || null;
+    const focusPageNumber = Number(focusPage.dataset.pageNumber) || null;
+    if (
+      !pdfSelectionStartPageNumber ||
+      startPageNumber !== pdfSelectionStartPageNumber ||
+      endPageNumber !== pdfSelectionStartPageNumber ||
+      anchorPageNumber !== pdfSelectionStartPageNumber ||
+      focusPageNumber !== pdfSelectionStartPageNumber
+    ) {
+      return false;
+    }
+  }
+  const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+  if (!rects.length) return false;
+  return rects.every((rect) => {
+    const pageNode = getPageNodeForRect(rect);
+    if (!pageNode) return false;
+    return !isPdfTextSelecting || Number(pageNode.dataset.pageNumber) === pdfSelectionStartPageNumber;
+  });
+}
+
+function getPdfTextLayerForNode(node) {
+  const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return element?.closest?.(".pdf-text-layer") || null;
+}
+
+function getPdfTextSpanForNode(node) {
+  const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return element?.closest?.(".pdf-text-layer span") || null;
+}
+
+function getPdfPageForNode(node) {
+  const textSpan = getPdfTextSpanForNode(node);
+  return textSpan?.closest(".pdf-page") || null;
 }
 
 function showSelectionMenu(rect) {
@@ -2642,9 +3952,8 @@ function highlightSelection() {
 
   hideSelectionMenu();
   hideTranslationBubble();
-  hideCommentBubble();
   window.getSelection()?.removeAllRanges();
-  saveHighlights().catch((error) => console.error("Failed to save highlights.", error));
+  saveCurrentPaper().catch((error) => console.error("Failed to save highlights.", error));
 }
 
 function createHighlightsFromRange(range, extra = {}) {
@@ -2708,16 +4017,25 @@ function commentSelection() {
   if (!selectedPdfRange) return;
 
   const groupId = createAnnotationId();
-  commentDraftHighlights = createHighlightsFromRange(selectedPdfRange, {
+  const draftHighlights = createHighlightsFromRange(selectedPdfRange, {
     groupId,
     color: "green",
     type: "comment",
     text: selectedPdfText,
   });
-  if (!commentDraftHighlights.length) return;
+  if (!draftHighlights.length) return;
+
+  draftHighlights.forEach((highlight) => {
+    savedHighlights.push(highlight);
+    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
+    if (pageNode) drawHighlight(pageNode, highlight);
+  });
+
   hideSelectionMenu();
   hideTranslationBubble();
-  showCommentWindow("");
+  window.getSelection()?.removeAllRanges();
+  showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+  refreshCommentsNavigation();
 }
 
 async function translateSelection(withContext = false) {
@@ -2733,20 +4051,20 @@ async function translateSelection(withContext = false) {
   });
   if (!draftHighlights.length) return;
 
-  hideCommentBubble();
-  const button = withContext ? translateWithContextButton : translateButton;
-  button.disabled = true;
-  button.textContent = "\u7ffb\u8bd1\u4e2d";
+  const activeTranslateButton = withContext ? translateWithContextButton : translateButton;
+  activeTranslateButton.disabled = true;
+  const previousLabel = activeTranslateButton.textContent;
+  activeTranslateButton.textContent = "\u7ffb\u8bd1\u4e2d";
   try {
-    const requestPayload = { text };
-    if (withContext) {
-      requestPayload.summary = paperToSummary(currentPaper);
-      requestPayload.surroundingContext = getTranslationSurroundingContext(lastExtractedText, text);
-    }
-    const response = await apiFetch(withContext ? "/api/translate-context" : "/api/translate", {
+    const response = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestPayload),
+      body: JSON.stringify({
+        text,
+        withContext,
+        summary: paperToSummary(currentPaper),
+        surroundingContext: withContext ? getTranslationSurroundingContext(text) : "",
+      }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
@@ -2758,28 +4076,100 @@ async function translateSelection(withContext = false) {
       if (pageNode) drawHighlight(pageNode, annotation);
     });
     window.getSelection()?.removeAllRanges();
-    await saveHighlights();
+    await saveCurrentPaper();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    refreshCommentsNavigation();
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
   } finally {
-    button.disabled = false;
-    button.textContent = withContext ? "\u7ed3\u5408\u4e0a\u4e0b\u6587\u7ffb\u8bd1" : "\u7ffb\u8bd1";
+    activeTranslateButton.disabled = false;
+    activeTranslateButton.textContent = previousLabel;
   }
 }
 
-function getTranslationSurroundingContext(paperText, selectedText) {
-  const source = String(paperText || "").replace(/\s+/g, " ").trim();
-  const target = String(selectedText || "").replace(/\s+/g, " ").trim();
-  if (!source || !target) return "";
+function showDiscussionThreadMenu(thread, anchor) {
+  closeDiscussionThreadMenu();
+  const menu = document.createElement("div");
+  menu.className = "discussion-thread-menu library-menu";
+  const rename = document.createElement("button");
+  rename.type = "button";
+  rename.textContent = "重命名";
+  rename.addEventListener("click", () => {
+    closeDiscussionThreadMenu();
+    beginDiscussionRename(thread);
+  });
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "删除";
+  remove.addEventListener("click", () => {
+    if (!remove.dataset.confirming) {
+      remove.dataset.confirming = "true";
+      remove.textContent = "再次点击确认删除";
+      return;
+    }
+    closeDiscussionThreadMenu();
+    deleteDiscussionThread(thread.id, { skipConfirm: true });
+  });
+  menu.append(rename, remove);
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right - 170, window.innerWidth - 178))}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+  discussionThreadMenu = menu;
+}
 
-  const index = source.indexOf(target);
-  if (index < 0) return "";
+function closeDiscussionThreadMenu() {
+  discussionThreadMenu?.remove();
+  discussionThreadMenu = null;
+}
 
+function beginDiscussionRename(thread) {
+  const host = activeDiscussionId === thread.id
+    ? discussionThreadTitle
+    : discussionThreadList.querySelector(`[data-thread-id="${CSS.escape(thread.id)}"] .discussion-thread-item-title`);
+  if (!host) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "discussion-inline-title-input";
+  input.value = thread.title || "New discussion";
+  host.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const next = input.value.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (save && next) {
+      thread.title = next;
+      thread.updatedAt = new Date().toISOString();
+      thread.hash = await makeDiscussionThreadHash(thread);
+      await saveDiscussionThreads();
+    }
+    renderDiscussionThreadList();
+    if (activeDiscussionId === thread.id) renderDiscussionThreadHeader(thread);
+  };
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function getTranslationSurroundingContext(selectedText) {
+  const source = String(lastExtractedText || "");
+  const selected = String(selectedText || "").trim();
+  if (!source || !selected) return "";
+  const index = source.indexOf(selected);
+  if (index < 0) return source.slice(0, 3000);
   const radius = 1500;
-  const start = Math.max(0, index - radius);
-  const end = Math.min(source.length, index + target.length + radius);
-  return `${start > 0 ? "…" : ""}${source.slice(start, end)}${end < source.length ? "…" : ""}`;
+  return source.slice(Math.max(0, index - radius), Math.min(source.length, index + selected.length + radius));
 }
 
 async function explainSelection() {
@@ -2801,7 +4191,6 @@ async function explainSelection() {
   if (!draftHighlights.length) return;
 
   hideTranslationBubble();
-  hideCommentBubble();
   explainButton.disabled = true;
   explainButton.textContent = "\u89e3\u91ca\u4e2d";
   try {
@@ -2826,7 +4215,8 @@ async function explainSelection() {
     window.getSelection()?.removeAllRanges();
     hideSelectionMenu();
     showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
-    saveHighlights().catch((error) => console.error("Failed to save explanation annotation.", error));
+    refreshCommentsNavigation();
+    saveCurrentPaper().catch((error) => console.error("Failed to save explanation annotation.", error));
   } catch (error) {
     setStatus(error.message || "\u89e3\u91ca\u5931\u8d25", true);
   } finally {
@@ -2863,84 +4253,62 @@ function showTranslationWindow(text) {
   bubble.style.top = `${top}px`;
 }
 
-function showCommentWindow(text) {
-  let bubble = document.querySelector("#commentBubble");
-  if (!bubble) {
-    bubble = document.createElement("section");
-    bubble.id = "commentBubble";
-    bubble.className = "translation-window comment-window";
-    bubble.innerHTML = `
-      <header class="translation-window-header">
-        <span>Comment</span>
-        <button class="translation-close" type="button" aria-label="Close comment">×</button>
-      </header>
-      <textarea class="translation-text comment-text" placeholder="Add a comment..." spellcheck="false"></textarea>
-      <footer class="comment-actions">
-        <button class="ghost comment-cancel" type="button">Close</button>
-      </footer>
-    `;
-    pdfViewer.parentElement.appendChild(bubble);
-    initTranslationWindow(bubble, hideCommentBubble);
-    bubble.querySelector(".comment-text").addEventListener("input", scheduleCommentAutoSave);
-    bubble.querySelector(".comment-cancel").addEventListener("click", hideCommentBubble);
-  }
+function decorateReferenceCitations(pageNode, textLayer) {
+  if (!referenceEntries.size) return;
 
-  bubble.querySelector(".comment-text").value = text;
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
-  const rect = lastSelectionRect || frameRect;
-  const bubbleWidth = bubble.offsetWidth || 360;
-  const bubbleHeight = bubble.offsetHeight || 240;
-  const left = Math.max(12, Math.min(rect.left - frameRect.left, frameRect.width - bubbleWidth - 12));
-  const top = Math.max(12, Math.min(rect.bottom - frameRect.top + 10, frameRect.height - bubbleHeight - 12));
-  bubble.style.left = `${left}px`;
-  bubble.style.top = `${top}px`;
+  const pageRect = pageNode.getBoundingClientRect();
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  textNodes.forEach((node) => {
+    const text = node.nodeValue || "";
+    const matches = Array.from(text.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
+    matches.forEach((match) => {
+      const numbers = getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
+      if (!numbers.length) return;
+
+      const range = document.createRange();
+      range.setStart(node, match.index);
+      range.setEnd(node, match.index + match[0].length);
+      const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+      range.detach();
+
+      rects.forEach((rect) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pdf-reference-cue";
+        button.dataset.references = numbers.join(",");
+        button.setAttribute("aria-label", `Show reference ${numbers.join(", ")}`);
+        button.title = `Reference ${numbers.join(", ")}`;
+        button.style.left = `${rect.left - pageRect.left}px`;
+        button.style.top = `${rect.top - pageRect.top}px`;
+        button.style.width = `${Math.max(rect.width, 10)}px`;
+        button.style.height = `${Math.max(rect.height, 10)}px`;
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showReferencePopover(numbers, event.clientX, event.clientY);
+        });
+        pageNode.appendChild(button);
+      });
+    });
+  });
 }
 
-function scheduleCommentAutoSave() {
-  window.clearTimeout(commentAutoSaveTimer);
-  commentAutoSaveTimer = window.setTimeout(() => {
-    saveCommentDraft().catch((error) => console.error("Failed to auto-save comment.", error));
-  }, 450);
-}
-
-async function saveCommentDraft({ refreshHighlights = false } = {}) {
-  const bubble = document.querySelector("#commentBubble");
-  const comment = bubble?.querySelector(".comment-text")?.value.trim() || "";
-  if (!commentDraftHighlights.length) return;
-
-  const draftGroupId = commentDraftHighlights[0].groupId;
-  const hasSavedDraft = savedHighlights.some((highlight) => isSameHighlightGroup(highlight, draftGroupId));
-  if (!comment) {
-    if (hasSavedDraft) {
-      savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, draftGroupId));
-      redrawHighlights();
-      await saveHighlights();
-    }
-    return;
-  }
-
-  if (hasSavedDraft) {
-    savedHighlights = savedHighlights.map((highlight) => {
-      if (!isSameHighlightGroup(highlight, draftGroupId)) return highlight;
-      return { ...highlight, comment, type: highlight.translation ? "comment-translation" : "comment" };
-    });
-    if (refreshHighlights) redrawHighlights();
-  } else {
-    commentDraftHighlights.forEach((highlight) => {
-      const annotation = { ...highlight, comment };
-      savedHighlights.push(annotation);
-      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
-      if (pageNode) drawHighlight(pageNode, annotation);
-    });
-  }
-
-  await saveHighlights();
+function refreshReferenceCitations() {
+  pdfViewer.querySelectorAll(".pdf-reference-cue").forEach((cue) => cue.remove());
+  if (!referenceEntries.size) return;
+  pdfViewer.querySelectorAll(".pdf-page").forEach((pageNode) => {
+    const textLayer = pageNode.querySelector(".pdf-text-layer");
+    if (textLayer) decorateReferenceCitations(pageNode, textLayer);
+  });
 }
 
 function handlePdfClick(event) {
   const selection = window.getSelection();
   if (selection && selection.toString().trim()) return;
-  if (selectionMenu.contains(event.target)) return;
+  if (selectionMenu.contains(event.target) || event.target.closest(".reference-popover, .citation-preview, .pdf-reference-action-popover")) return;
 
   const hit = findHighlightAtPoint(event.clientX, event.clientY);
   if (!hit) return;
@@ -2948,8 +4316,158 @@ function handlePdfClick(event) {
   event.preventDefault();
   hideSelectionMenu();
   hideTranslationBubble();
-  hideCommentBubble();
+  hideReferencePopover();
   showAnnotationEditor(hit.highlight, event.clientX, event.clientY);
+}
+
+function getCitationAtPoint(clientX, clientY) {
+  const range = getTextRangeAtPoint(clientX, clientY);
+  if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE) return [];
+
+  const text = range.startContainer.nodeValue || "";
+  const offset = range.startOffset;
+  const windowStart = Math.max(0, offset - 16);
+  const windowText = text.slice(windowStart, Math.min(text.length, offset + 16));
+  const matches = Array.from(windowText.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
+  const match = matches.find((item) => {
+    const start = windowStart + item.index;
+    const end = start + item[0].length;
+    return offset >= start && offset <= end;
+  });
+  if (!match) return [];
+
+  return getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
+}
+
+function getTextRangeAtPoint(clientX, clientY) {
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(clientX, clientY);
+  if (!document.caretPositionFromPoint) return null;
+  const position = document.caretPositionFromPoint(clientX, clientY);
+  if (!position) return null;
+  const range = document.createRange();
+  range.setStart(position.offsetNode, position.offset);
+  range.collapse(true);
+  return range;
+}
+
+function showReferencePopover(numbers, clientX, clientY) {
+  const entries = numbers
+    .map((number) => ({ number, text: referenceEntries.get(number) }))
+    .filter((entry) => entry.text);
+  if (!entries.length) return;
+
+  hideSelectionMenu();
+  hideTranslationBubble();
+  hideAnnotationEditor();
+
+  let popover = document.querySelector("#referencePopover");
+  if (!popover) {
+    popover = document.createElement("section");
+    popover.id = "referencePopover";
+    popover.className = "reference-popover";
+    popover.innerHTML = `
+      <header class="reference-popover-header">
+        <span>参考文献</span>
+        <div class="reference-popover-tools">
+          <button class="reference-icon-button reference-copy" type="button" aria-label="复制引用" title="复制引用">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          </button>
+          <button class="reference-icon-button reference-scholar" type="button" aria-label="在 Google Scholar 中打开" title="Google Scholar">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 10 12 5 2 10l10 5 10-5z"></path><path d="M6 12.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.5"></path><path d="M22 10v6"></path></svg>
+          </button>
+          <button class="reference-icon-button reference-close" type="button" aria-label="关闭参考文献预览" title="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          </button>
+        </div>
+      </header>
+      <div class="reference-popover-body"></div>
+    `;
+    popover.querySelector(".reference-close").addEventListener("click", hideReferencePopover);
+    pdfViewer.parentElement.appendChild(popover);
+  }
+
+  popover.querySelector(".reference-copy").onclick = () => copyReferenceEntries(entries, popover);
+  popover.querySelector(".reference-scholar").onclick = () => openReferenceInGoogleScholar(entries);
+  const body = popover.querySelector(".reference-popover-body");
+  body.innerHTML = "";
+  entries.forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = "reference-entry";
+    const number = document.createElement("strong");
+    number.textContent = `[${entry.number}]`;
+    const text = document.createElement("p");
+    text.textContent = entry.text;
+    item.append(number, text);
+    body.appendChild(item);
+  });
+  popover.dataset.copyText = entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
+  resetReferenceCopyButton(popover.querySelector(".reference-copy"));
+  positionReferencePopover(popover, clientX, clientY);
+}
+
+function positionReferencePopover(popover, clientX, clientY) {
+  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const width = popover.offsetWidth || 340;
+  const height = popover.offsetHeight || 180;
+  const placeRight = clientX - frameRect.left + 12 + width <= frameRect.width - 12;
+  const left = placeRight ? clientX - frameRect.left + 12 : clientX - frameRect.left - width - 12;
+  const top = Math.min(Math.max(clientY - frameRect.top - 18, 12), frameRect.height - height - 12);
+  popover.style.left = `${Math.max(12, Math.min(left, frameRect.width - width - 12))}px`;
+  popover.style.top = `${Math.max(12, top)}px`;
+}
+
+async function copyReferenceEntries(entries, popover) {
+  const text = popover.dataset.copyText || entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
+  const button = popover.querySelector(".reference-copy");
+  try {
+    await copyTextToClipboard(text);
+    button.classList.add("copied");
+    button.setAttribute("aria-label", "已复制");
+    button.title = "已复制";
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m20 6-11 11-5-5"></path></svg>';
+    window.setTimeout(() => {
+      if (document.body.contains(button)) resetReferenceCopyButton(button);
+    }, 1200);
+  } catch (error) {
+    console.error("Failed to copy reference.", error);
+    button.classList.add("error");
+    button.setAttribute("aria-label", "复制失败");
+    button.title = "复制失败";
+  }
+}
+
+function resetReferenceCopyButton(button) {
+  if (!button) return;
+  button.classList.remove("copied", "error");
+  button.setAttribute("aria-label", "复制引用");
+  button.title = "复制引用";
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+}
+
+function openReferenceInGoogleScholar(entries) {
+  const text = entries.map((entry) => entry.text).join(" ").replace(/\s+/g, " ").trim();
+  if (!text) return;
+  window.open(`https://scholar.google.com/scholar?q=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function hideReferencePopover() {
+  document.querySelector("#referencePopover")?.remove();
 }
 
 function findHighlightAtPoint(clientX, clientY) {
@@ -3001,7 +4519,12 @@ function showAnnotationEditor(highlight, clientX, clientY) {
       <div class="annotation-tabs" role="tablist" aria-label="Annotation fields">
         <button class="annotation-tab active" type="button" role="tab" aria-selected="true" data-annotation-tab="comment">Comment</button>
         <button class="annotation-tab" type="button" role="tab" aria-selected="false" data-annotation-tab="translation">Translation</button>
-        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit">Preview</button>
+        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit" aria-label="Preview" title="Preview">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+          </svg>
+        </button>
       </div>
       <div class="annotation-tab-panel active" data-annotation-panel="comment">
         <textarea class="translation-text annotation-comment" placeholder="Add or edit comment with Markdown..." spellcheck="false"></textarea>
@@ -3105,24 +4628,38 @@ function setAnnotationMode(editor, mode) {
   });
   const toggle = editor.querySelector(".annotation-mode-toggle");
   if (toggle) {
+    const isPreview = nextMode === "preview";
     toggle.dataset.annotationMode = nextMode;
-    toggle.textContent = nextMode === "preview" ? "Edit" : "Preview";
+    toggle.setAttribute("aria-label", isPreview ? "Edit" : "Preview");
+    toggle.title = isPreview ? "Edit" : "Preview";
+    // Same icons as the notes preview/edit toggle: pencil in preview mode,
+    // eye in edit mode.
+    toggle.innerHTML = isPreview
+      ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 20h9"></path>
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+        </svg>`
+      : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
+          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
+        </svg>`;
   }
 }
 
 function scheduleAnnotationAutoSave() {
   window.clearTimeout(annotationAutoSaveTimer);
   annotationAutoSaveTimer = window.setTimeout(() => {
-    saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
+    saveAnnotationEdit({ refreshHighlights: false }).catch((error) => console.error("Failed to auto-save annotation.", error));
   }, 450);
 }
 
-async function saveAnnotationEdit() {
+async function saveAnnotationEdit({ refreshHighlights = true } = {}) {
   if (!activeHighlightGroupId) return;
   const editor = document.querySelector("#annotationEditor");
   const comment = editor?.querySelector(".annotation-comment")?.value.trim() || "";
   const translation = editor?.querySelector(".annotation-translation")?.value.trim() || "";
   const color = editor?.querySelector(".color-swatch.active")?.dataset.color || "yellow";
+  const wasCommentAnnotation = getHighlightGroup(activeHighlightGroupId).some((item) => item.type === "comment");
   savedHighlights = savedHighlights.map((highlight) => {
     if (!isSameHighlightGroup(highlight, activeHighlightGroupId)) return highlight;
     const next = { ...highlight, color };
@@ -3141,8 +4678,11 @@ async function saveAnnotationEdit() {
     }
     return next;
   });
-  redrawHighlights();
-  await saveHighlights();
+  if (wasCommentAnnotation && !comment && !translation) {
+    savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
+  }
+  if (refreshHighlights) redrawHighlights();
+  await saveCurrentPaper();
 }
 
 function deleteActiveHighlight() {
@@ -3150,7 +4690,7 @@ function deleteActiveHighlight() {
   savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
   redrawHighlights();
   hideAnnotationEditor();
-  saveHighlights().catch((error) => console.error("Failed to delete annotation.", error));
+  saveCurrentPaper().catch((error) => console.error("Failed to delete annotation.", error));
 }
 
 function initTranslationWindow(bubble, closeHandler = hideTranslationBubble) {
@@ -3194,16 +4734,9 @@ function hideTranslationBubble() {
   document.querySelector("#translationBubble")?.remove();
 }
 
-function hideCommentBubble() {
-  window.clearTimeout(commentAutoSaveTimer);
-  saveCommentDraft({ refreshHighlights: true }).catch((error) => console.error("Failed to auto-save comment.", error));
-  document.querySelector("#commentBubble")?.remove();
-  commentDraftHighlights = [];
-}
-
 function hideAnnotationEditor() {
   window.clearTimeout(annotationAutoSaveTimer);
-  saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
+  saveAnnotationEdit({ refreshHighlights: true }).catch((error) => console.error("Failed to auto-save annotation.", error));
   document.querySelector("#annotationEditor")?.remove();
   activeHighlightGroupId = null;
 }
@@ -3217,15 +4750,146 @@ function redrawHighlights() {
 
 function restoreHighlights() {
   savedHighlights = normalizeHighlights(savedHighlights);
-  pdfViewer.querySelectorAll(".pdf-page[data-rendered='true']").forEach(restoreHighlightsForPage);
+  savedHighlights.forEach((highlight) => {
+    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
+    if (pageNode) drawHighlight(pageNode, highlight);
+  });
+  refreshCommentsNavigation();
 }
 
 function restoreHighlightsForPage(pageNode) {
-  if (!pageNode?.dataset?.pageNumber) return;
-  const pageNumber = Number(pageNode.dataset.pageNumber);
-  savedHighlights
-    .filter((highlight) => highlight.pageNumber === pageNumber)
-    .forEach((highlight) => drawHighlight(pageNode, highlight));
+  if (!pageNode) return;
+  const pageNumber = Number(pageNode.dataset.pageNumber) || 0;
+  const layer = pageNode.querySelector(".pdf-highlight-layer");
+  if (!pageNumber || !layer) return;
+  layer.innerHTML = "";
+  savedHighlights = normalizeHighlights(savedHighlights);
+  savedHighlights.forEach((highlight) => {
+    if (Number(highlight.pageNumber) === pageNumber) drawHighlight(pageNode, highlight);
+  });
+  refreshCommentsNavigation();
+}
+
+function buildCommentGroups() {
+  const groups = [];
+  const seen = new Set();
+  for (const highlight of savedHighlights) {
+    if (!highlight.comment && !highlight.translation) continue;
+    const groupId = highlight.groupId || getHighlightKey(highlight);
+    if (seen.has(groupId)) continue;
+    seen.add(groupId);
+    const group = getHighlightGroup(groupId);
+    groups.push({
+      groupId,
+      pageNumber: Number(highlight.pageNumber),
+      comment: group.find((item) => item.comment)?.comment || "",
+      translation: group.find((item) => item.translation)?.translation || "",
+      text: group.find((item) => item.text)?.text || "",
+      color: group[0]?.color || "yellow",
+    });
+  }
+  groups.sort((a, b) => a.pageNumber - b.pageNumber || a.comment.localeCompare(b.comment));
+  return groups;
+}
+
+function refreshCommentsNavigation() {
+  const groups = buildCommentGroups();
+  if (commentsNavIndex >= groups.length) commentsNavIndex = 0;
+  document.querySelectorAll(".comments-nav-card").forEach((card) => {
+    renderCommentsNavCard(card, groups);
+  });
+}
+
+function renderCommentsNavCard(card, groups) {
+  const list = card.querySelector(".comments-nav-list");
+  list.innerHTML = "";
+  if (!groups.length) {
+    const empty = document.createElement("div");
+    empty.className = "comments-nav-empty";
+    empty.textContent = "暂无评论";
+    list.appendChild(empty);
+    return;
+  }
+
+  groups.forEach((entry, index) => {
+    const item = document.createElement("div");
+    item.className = "comments-nav-item";
+    item.classList.toggle("current", index === commentsNavIndex);
+    item.addEventListener("click", () => setCommentsNavIndex(index));
+
+    const head = document.createElement("div");
+    head.className = "comments-nav-head";
+
+    const swatch = document.createElement("span");
+    swatch.className = "comments-nav-swatch";
+    swatch.style.background = commentSwatchColors[entry.color] || entry.color || commentSwatchColors.yellow;
+
+    const page = document.createElement("span");
+    page.className = "comments-nav-page";
+    page.textContent = `第${entry.pageNumber}页`;
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "comments-nav-delete icon-button";
+    deleteButton.title = "删除评论";
+    deleteButton.setAttribute("aria-label", "删除评论");
+    deleteButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>';
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteCommentGroup(entry.groupId);
+    });
+
+    head.append(swatch, page, deleteButton);
+
+    const body = document.createElement("span");
+    body.className = "comments-nav-body";
+    const rawText = entry.comment || entry.translation || entry.text || "（无内容）";
+    const text = rawText.trim();
+    body.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
+
+    item.append(head, body);
+    list.appendChild(item);
+  });
+}
+
+async function deleteCommentGroup(groupId) {
+  savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, groupId));
+  redrawHighlights();
+  try {
+    await saveCurrentPaper();
+  } catch (error) {
+    console.error("Failed to save after deleting comment.", error);
+  }
+}
+
+function setCommentsNavIndex(index) {
+  const groups = buildCommentGroups();
+  if (index < 0 || index >= groups.length) return;
+  commentsNavIndex = index;
+  refreshCommentsNavigation();
+  jumpToComment(groups[index].groupId);
+}
+
+function jumpToComment(groupId) {
+  jumpToCommentAsync(groupId).catch((error) => console.error("Failed to jump to comment.", error));
+}
+
+async function jumpToCommentAsync(groupId) {
+  const group = getHighlightGroup(groupId);
+  if (!group.length) return;
+  const first = group[0];
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${first.pageNumber}"]`);
+  if (!pageNode) return;
+  pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
+  await renderPdfPageInto(Number(first.pageNumber), pageNode, currentPdfTask);
+  const selector = `[data-group-id="${CSS.escape(groupId)}"]`;
+  const target = pageNode.querySelector(selector);
+  if (target) {
+    target.classList.remove("pdf-highlight-flash");
+    void target.offsetWidth;
+    target.classList.add("pdf-highlight-flash");
+  }
 }
 
 function normalizeHighlights(highlights) {
@@ -3285,6 +4949,7 @@ function simpleHash(value) {
 
 function drawHighlight(pageNode, highlight) {
   const layer = pageNode.querySelector(".pdf-highlight-layer");
+  if (!layer) return;
   const mark = document.createElement("span");
   mark.className = highlight.comment || highlight.translation ? "pdf-highlight pdf-highlight-comment" : "pdf-highlight";
   mark.dataset.groupId = highlight.groupId || getHighlightKey(highlight);
@@ -3351,6 +5016,63 @@ function setViewerScrollRatio(ratio) {
   const maxScrollLeft = Math.max(pdfViewer.scrollWidth - pdfViewer.clientWidth, 0);
   pdfViewer.scrollTop = maxScrollTop * ratio.top;
   pdfViewer.scrollLeft = maxScrollLeft * ratio.left;
+  updatePageIndicator();
+}
+
+function getPdfViewportAnchor(clientX, clientY) {
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const x = Number.isFinite(clientX) ? clientX : viewerRect.left + viewerRect.width / 2;
+  const y = Number.isFinite(clientY) ? clientY : viewerRect.top + viewerRect.height * 0.42;
+  const pages = Array.from(pdfViewer.querySelectorAll(".pdf-page"));
+  let pageNode = pages.find((node) => {
+    const rect = node.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  });
+
+  if (!pageNode) {
+    pageNode = pages.find((node) => {
+      const rect = node.getBoundingClientRect();
+      return y >= rect.top && y <= rect.bottom;
+    });
+  }
+
+  if (!pageNode) {
+    return {
+      clientX: x,
+      clientY: y,
+      scrollRatio: getViewerScrollRatio(),
+    };
+  }
+
+  const pageRect = pageNode.getBoundingClientRect();
+  return {
+    pageNumber: Number(pageNode.dataset.pageNumber) || 1,
+    ratioX: clamp((x - pageRect.left) / Math.max(pageRect.width, 1), 0, 1),
+    ratioY: clamp((y - pageRect.top) / Math.max(pageRect.height, 1), 0, 1),
+    clientX: x,
+    clientY: y,
+    scrollRatio: getViewerScrollRatio(),
+  };
+}
+
+function restorePdfViewportAnchor(anchor) {
+  if (!anchor) return;
+  if (!anchor.pageNumber) {
+    setViewerScrollRatio(anchor.scrollRatio || { top: 0, left: 0 });
+    return;
+  }
+
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${anchor.pageNumber}"]`);
+  if (!pageNode) {
+    setViewerScrollRatio(anchor.scrollRatio || { top: 0, left: 0 });
+    return;
+  }
+
+  const pageRect = pageNode.getBoundingClientRect();
+  const targetX = pageRect.left + pageRect.width * anchor.ratioX;
+  const targetY = pageRect.top + pageRect.height * anchor.ratioY;
+  pdfViewer.scrollLeft += targetX - anchor.clientX;
+  pdfViewer.scrollTop += targetY - anchor.clientY;
   updatePageIndicator();
 }
 
@@ -3425,8 +5147,7 @@ async function apiFetch(path, options = {}) {
     try {
       tried.push(base || window.location.origin || "current origin");
       const response = await fetch(`${base}${url}`, options);
-      const isPaperLanternResponse = response.headers.get("X-Paper-Lantern") === "1";
-      if (response.status !== 404 || !url.startsWith("/api/") || isPaperLanternResponse) {
+      if (response.status !== 404 || !url.startsWith("/api/")) {
         apiBaseUrl = base;
         return response;
       }
@@ -3522,6 +5243,539 @@ function setBasicInfoStatus(message, isError = false) {
   basicInfoStatus.classList.toggle("error", isError);
 }
 
+function initBasicInfoEditing() {
+  const fields = [
+    { dd: basicInfoAuthors, key: "authors", isArray: true },
+    { dd: basicInfoVenue, key: "venue", isArray: false },
+    { dd: basicInfoDate, key: "publishedDate", isArray: false },
+    { dd: basicInfoInstitutions, key: "institutions", isArray: true },
+    { dd: basicInfoDoi, key: "doi", isArray: false, isDoi: true },
+  ];
+
+  fields.forEach((field) => {
+    if (!field.dd) return;
+    field.dd.contentEditable = "true";
+    field.dd.spellcheck = false;
+    field.dd.setAttribute("aria-label", "可编辑");
+    field.dd.addEventListener("blur", async () => {
+      const raw = String(field.dd.textContent || "").trim();
+      const value = raw === "未识别" ? "" : raw;
+      if (!currentPaper?.id) return;
+      if (field.isArray) {
+        currentPaper.basicInfo = currentPaper.basicInfo || {};
+        currentPaper.basicInfo[field.key] = value
+          .split(/[；;\n]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      } else if (field.isDoi) {
+        currentPaper.doi = value;
+      } else {
+        currentPaper.basicInfo = currentPaper.basicInfo || {};
+        currentPaper.basicInfo[field.key] = value;
+      }
+      try {
+        await saveCurrentPaper(field.isDoi ? { doi: currentPaper.doi } : { basicInfo: currentPaper.basicInfo });
+        setBasicInfoStatus("");
+      } catch (error) {
+        console.error("Failed to save basic info edit.", error);
+        renderBasicInfo(currentPaper.basicInfo);
+        renderDoi(currentPaper.doi);
+        setBasicInfoStatus(error.message || "基本信息保存失败。", true);
+      }
+    });
+  });
+}
+
+function renderDoi(doi) {
+  if (!basicInfoDoi) return;
+  basicInfoDoi.textContent = String(doi || "").trim() || "未识别";
+}
+
+function setCitationStatus(message, isError = false) {
+  if (!citationStatus) return;
+  citationStatus.textContent = message;
+  citationStatus.classList.toggle("error", isError);
+  citationStatus.hidden = !message;
+}
+
+function resetCitationSection() {
+  citationCandidates = [];
+  selectedCitationIndex = -1;
+  citationSelectedCandidate = null;
+  citationSearchSummaryVisible = false;
+  closeCitationOverlay();
+  if (citationStatus) {
+    setCitationStatus("");
+  }
+  if (citationResults) {
+    citationResults.hidden = true;
+    citationResults.innerHTML = "";
+  }
+  if (generateCitationButton) {
+    generateCitationButton.disabled = false;
+  }
+}
+
+async function loadCurrentCitationInfo() {
+  const title = currentPaper?.title || "";
+  const basicInfo = currentPaper?.basicInfo || {};
+  if (!title) {
+    setCitationStatus("缺少论文标题，无法生成当前引用信息。", true);
+    return;
+  }
+
+  citationCandidates = [createCurrentCitationCandidate(currentPaper)];
+  selectedCitationIndex = -1;
+  citationSearchSummaryVisible = false;
+  setCitationStatus("");
+  renderCitationCandidates(citationCandidates);
+}
+
+function createCurrentCitationCandidate(paper) {
+  const basicInfo = paper?.basicInfo || {};
+  const authors = (Array.isArray(basicInfo.authors) ? basicInfo.authors : [])
+    .map(normalizeCitationAuthor)
+    .filter(Boolean);
+  const year = extractCitationYear(basicInfo.publishedDate);
+  const candidate = {
+    doi: String(paper?.doi || "").trim(),
+    title: String(paper?.title || "").trim(),
+    venue: String(basicInfo.venue || "").trim(),
+    authors,
+    authorNames: authors.map((author) => author.name).filter(Boolean),
+    volume: "",
+    issue: "",
+    page: "",
+    year,
+    publisher: "",
+    type: basicInfo.venue ? "proceedings-article" : "misc",
+    url: paper?.doi ? `https://doi.org/${paper.doi}` : "",
+    score: 10000,
+    titleSimilarity: 1,
+    authorSimilarity: authors.length ? 1 : 0,
+    matchLabel: "当前信息",
+    source: "local",
+  };
+  candidate.citations = formatCurrentCitations(candidate);
+  return candidate;
+}
+
+function normalizeCitationAuthor(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  if (!name) return null;
+  if (name.includes(",")) {
+    const [family, ...givenParts] = name.split(",");
+    return { name, family: family.trim(), given: givenParts.join(",").trim() };
+  }
+  const parts = name.split(" ");
+  if (parts.length >= 2) {
+    return { name, given: parts.slice(0, -1).join(" "), family: parts[parts.length - 1] };
+  }
+  return { name, given: "", family: name };
+}
+
+function extractCitationYear(value) {
+  const match = String(value || "").match(/(?:19|20)\d{2}/);
+  return match ? match[0] : "";
+}
+
+function formatCurrentCitations(candidate) {
+  return {
+    gbt7714: formatCurrentGbtCitation(candidate),
+    bibtex: formatCurrentBibtexCitation(candidate),
+    ris: formatCurrentRisCitation(candidate),
+    apa: formatCurrentApaCitation(candidate),
+    mla: formatCurrentMlaCitation(candidate),
+    ieee: formatCurrentIeeeCitation(candidate),
+  };
+}
+
+function formatCurrentGbtCitation(candidate) {
+  const authors = candidate.authors.map((author) => {
+    const initials = author.given ? author.given.split(/\s+/).map((part) => part[0]?.toUpperCase()).filter(Boolean).join(" ") : "";
+    return [author.family, initials].filter(Boolean).join(" ") || author.name;
+  });
+  const authorPart = authors.length > 3 ? `${authors.slice(0, 3).join(", ")}, 等` : authors.join(", ");
+  const marker = candidate.venue ? "[C]" : "[EB/OL]";
+  const head = `${authorPart ? `${authorPart}. ` : ""}${candidate.title}${marker}.`;
+  const tail = [candidate.venue, candidate.year].filter(Boolean).join(", ");
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return `${head}${tail ? ` ${tail}.` : ""}${doiPart}`.trim();
+}
+
+function formatCurrentBibtexCitation(candidate) {
+  const type = candidate.venue ? "inproceedings" : "misc";
+  const key = makeCurrentBibtexKey(candidate);
+  const lines = [`@${type}{${key},`];
+  const authors = candidate.authors.map(formatCurrentBibtexAuthor).filter(Boolean).join(" and ");
+  if (authors) lines.push(`  author = {${escapeBibtexValue(authors)}},`);
+  if (candidate.title) lines.push(`  title = {${escapeBibtexValue(candidate.title)}},`);
+  if (candidate.venue) lines.push(`  booktitle = {${escapeBibtexValue(candidate.venue)}},`);
+  if (candidate.year) lines.push(`  year = {${candidate.year}},`);
+  if (candidate.doi) lines.push(`  doi = {${candidate.doi}},`);
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function formatCurrentRisCitation(candidate) {
+  const lines = [`TY  - ${candidate.venue ? "CONF" : "GEN"}`];
+  candidate.authors.forEach((author) => {
+    const name = formatCurrentBibtexAuthor(author);
+    if (name) lines.push(`AU  - ${name}`);
+  });
+  if (candidate.title) lines.push(`TI  - ${candidate.title}`);
+  if (candidate.venue) lines.push(`JO  - ${candidate.venue}`);
+  if (candidate.year) lines.push(`PY  - ${candidate.year}`);
+  if (candidate.doi) lines.push(`DO  - ${candidate.doi}`);
+  lines.push("ER  - ");
+  return lines.join("\n");
+}
+
+function formatCurrentApaCitation(candidate) {
+  const authors = candidate.authors.map(formatCurrentApaAuthor).filter(Boolean);
+  const authorPart = joinCitationAuthors(authors, "&");
+  const yearPart = candidate.year ? `(${candidate.year}).` : "";
+  const source = candidate.venue ? ` ${candidate.venue}.` : "";
+  const doiPart = candidate.doi ? ` https://doi.org/${candidate.doi}` : "";
+  return [authorPart, yearPart, `${candidate.title}.${source}${doiPart}`].filter(Boolean).join(" ").trim();
+}
+
+function formatCurrentMlaCitation(candidate) {
+  const authors = candidate.authors;
+  let authorPart = "";
+  if (authors.length === 1) authorPart = formatCurrentBibtexAuthor(authors[0]);
+  if (authors.length === 2) authorPart = `${formatCurrentBibtexAuthor(authors[0])}, and ${authors[1].name}`;
+  if (authors.length > 2) authorPart = `${formatCurrentBibtexAuthor(authors[0])}, et al.`;
+  const parts = [authorPart, candidate.title ? `"${candidate.title}."` : "", candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function formatCurrentIeeeCitation(candidate) {
+  const authors = candidate.authors.map((author) => {
+    const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+    return [initials, author.family].filter(Boolean).join(" ") || author.name;
+  });
+  const authorPart = joinCitationAuthors(authors, "and");
+  const parts = [authorPart, candidate.title ? `"${candidate.title},"` : "", candidate.venue, candidate.year].filter(Boolean);
+  return `${parts.join(", ")}.`;
+}
+
+function joinCitationAuthors(authors, conjunction) {
+  if (!authors.length) return "";
+  if (authors.length === 1) return authors[0];
+  if (authors.length === 2) return `${authors[0]} ${conjunction} ${authors[1]}`;
+  return `${authors.slice(0, -1).join(", ")}, ${conjunction} ${authors[authors.length - 1]}`;
+}
+
+function formatCurrentBibtexAuthor(author) {
+  return author.family && author.given ? `${author.family}, ${author.given}` : author.name || author.family || author.given;
+}
+
+function formatCurrentApaAuthor(author) {
+  if (!author.family) return author.name || author.given;
+  const initials = author.given ? author.given.split(/\s+/).map((part) => `${part[0]?.toUpperCase()}.`).filter(Boolean).join(" ") : "";
+  return `${author.family}, ${initials}`.trim();
+}
+
+function makeCurrentBibtexKey(candidate) {
+  const firstAuthor = candidate.authors[0]?.family || candidate.authors[0]?.name || "reference";
+  const firstTitleWord = (candidate.title.match(/[A-Za-z0-9]+/) || [""])[0].toLowerCase();
+  return `${firstAuthor}${candidate.year || ""}${firstTitleWord}`.replace(/[^A-Za-z0-9]/g, "") || "reference";
+}
+
+function escapeBibtexValue(value) {
+  return String(value || "").replace(/[&%$#_{}]/g, (char) => `\\${char}`);
+}
+
+async function generateCitation() {
+  const title = currentPaper?.title || "";
+  const basicInfo = currentPaper?.basicInfo || {};
+  const paperText = lastExtractedText.trim();
+
+  if (!title && !paperText) {
+    setCitationStatus("缺少论文标题或正文，无法查询引用信息。", true);
+    return;
+  }
+
+  setBusy(true);
+  generateCitationButton.disabled = true;
+  generateCitationButton.classList.add("spinning");
+  appliedCitationDoi = "";
+  selectedCitationIndex = -1;
+  citationSearchSummaryVisible = true;
+  citationCandidates = [createCurrentCitationCandidate(currentPaper)];
+  renderCitationSearching();
+
+  try {
+    const response = await apiFetch("/api/citation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperId: currentPaper?.id || "",
+        title,
+        authors: basicInfo.authors || [],
+        institutions: basicInfo.institutions || [],
+        venue: basicInfo.venue || "",
+        publishedDate: basicInfo.publishedDate || "",
+        doi: currentPaper?.doi || "",
+        paperText,
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || data.detail || "引用信息查询失败。");
+
+    if (data.doi) {
+      currentPaper.doi = data.doi;
+      renderDoi(data.doi);
+    }
+    citationCandidates = Array.isArray(data.candidates) ? data.candidates : [];
+    if (!citationCandidates.length) {
+      setCitationStatus("未在 Crossref 中找到匹配的论文信息。", true);
+      return;
+    }
+    setCitationStatus("");
+    renderCitationCandidates(citationCandidates, { showSearchSummary: true });
+  } catch (error) {
+    console.error(error);
+    setCitationStatus(error.message || "引用信息查询失败。", true);
+  } finally {
+    generateCitationButton.classList.remove("spinning");
+    setBusy(false);
+    generateCitationButton.disabled = false;
+  }
+}
+
+function renderCitationSearching() {
+  citationResults.hidden = false;
+  citationResults.innerHTML = "";
+  setCitationStatus("");
+  const localCandidate = citationCandidates.find((candidate) => candidate.source === "local");
+  if (localCandidate) {
+    citationResults.appendChild(createCitationCandidate(localCandidate, citationCandidates.indexOf(localCandidate), { isCurrent: true }));
+  }
+  const searching = document.createElement("p");
+  searching.className = "citation-searching";
+  searching.textContent = "正在通过 Crossref 检索引用信息...";
+  citationResults.appendChild(searching);
+}
+
+function renderCitationCandidates(candidates, options = {}) {
+  const { showSearchSummary = false } = options;
+  citationResults.hidden = false;
+  citationResults.innerHTML = "";
+
+  const localIndex = candidates.findIndex((candidate) => candidate.source === "local");
+  const currentIndex = localIndex >= 0 ? localIndex : 0;
+  const currentCandidate = candidates[currentIndex];
+  const remoteEntries = candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .filter((entry) => entry.index !== currentIndex);
+
+  if (currentCandidate) {
+    citationResults.appendChild(createCitationCandidate(currentCandidate, currentIndex, { isCurrent: true }));
+  }
+
+  if (showSearchSummary) {
+    const label = document.createElement("p");
+    label.className = "citation-results-label";
+    label.textContent = `共找到 ${remoteEntries.length} 条候选，点击选择：`;
+    citationResults.appendChild(label);
+  }
+
+  const list = document.createElement("div");
+  list.className = "citation-candidate-list";
+  citationResults.appendChild(list);
+
+  let isExpanded = false;
+
+  function renderList() {
+    const visible = isExpanded ? remoteEntries : remoteEntries.slice(0, 5);
+    list.innerHTML = "";
+    visible.forEach((entry) => {
+      list.appendChild(createCitationCandidate(entry.candidate, entry.index));
+    });
+    renderExpandToggle();
+  }
+
+  function renderExpandToggle() {
+    citationResults.querySelector(".citation-expand-button")?.remove();
+    if (remoteEntries.length <= 5) return;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "citation-expand-button";
+    toggle.textContent = isExpanded ? "收起" : `展开全部 (${remoteEntries.length - 5})`;
+    toggle.addEventListener("click", () => {
+      isExpanded = !isExpanded;
+      renderList();
+    });
+    citationResults.appendChild(toggle);
+  }
+
+  renderList();
+}
+
+function createCitationCandidate(candidate, index, options = {}) {
+  const { isCurrent = false } = options;
+  const row = document.createElement("div");
+  row.className = "citation-candidate-row";
+  row.classList.toggle("citation-current-row", isCurrent);
+
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "citation-candidate";
+  item.classList.toggle("citation-current-candidate", isCurrent);
+  item.dataset.index = String(index);
+  item.classList.toggle("selected", index === selectedCitationIndex);
+  item.addEventListener("click", () => selectCitationCandidate(index));
+
+  if (isCurrent) {
+    const badge = document.createElement("span");
+    badge.className = "citation-current-badge";
+    badge.textContent = "当前信息";
+    item.appendChild(badge);
+  }
+
+  const titleNode = document.createElement("div");
+  titleNode.className = "citation-candidate-title";
+  titleNode.textContent = candidate.title || "(无题名)";
+
+  const meta = document.createElement("div");
+  meta.className = "citation-candidate-meta";
+  const authors = Array.isArray(candidate.authors) ? candidate.authors : [];
+  const authorText = authors
+    .slice(0, 3)
+    .map((author) => author.name || author.family || author.given)
+    .filter(Boolean)
+    .join("；");
+  const metaParts = [authorText, candidate.venue, candidate.year].filter(Boolean);
+  meta.textContent = metaParts.join(" · ");
+
+  const doiNode = document.createElement("div");
+  doiNode.className = "citation-candidate-doi";
+  doiNode.textContent = candidate.doi ? `DOI: ${candidate.doi}` : (isCurrent ? "" : candidate.matchLabel || "");
+
+  item.append(titleNode, meta, doiNode);
+
+  const applyButton = document.createElement("button");
+  applyButton.type = "button";
+  applyButton.className = "citation-apply-button";
+  applyButton.title = "更新引用信息";
+  applyButton.setAttribute("aria-label", "更新引用信息");
+  applyButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg>';
+  applyButton.addEventListener("click", () => applyCandidateBasicInfo(candidate));
+  applyButton.hidden = candidate.source === "local";
+  applyButton.classList.toggle("citation-apply-applied", Boolean(candidate.doi) && candidate.doi === appliedCitationDoi);
+
+  row.append(item, applyButton);
+  return row;
+}
+
+function selectCitationCandidate(index) {
+  if (index < 0 || index >= citationCandidates.length) return;
+  selectedCitationIndex = index;
+
+  citationResults.querySelectorAll(".citation-candidate").forEach((item) => {
+    item.classList.toggle("selected", Number(item.dataset.index) === index);
+  });
+
+  openCitationOverlay(citationCandidates[index]);
+}
+
+function openCitationOverlay(candidate) {
+  citationSelectedCandidate = candidate;
+  citationOverlayTitle.textContent = candidate.title || "引用信息";
+  citationOverlayMeta.textContent = buildCitationMetaText(candidate);
+  citationFormatSelect.value = citationFormat;
+  updateCitationOutput(candidate);
+  citationOverlay.hidden = false;
+}
+
+function closeCitationOverlay() {
+  citationOverlay.hidden = true;
+}
+
+function buildCitationMetaText(candidate) {
+  const authors = Array.isArray(candidate.authors) ? candidate.authors : [];
+  const authorText = authors
+    .map((author) => author.name || author.family || author.given)
+    .filter(Boolean)
+    .join("；");
+  const parts = [authorText, candidate.venue, candidate.year].filter(Boolean);
+  return parts.join(" · ") || candidate.doi || "";
+}
+
+function updateCitationOutput(candidate) {
+  const citations = candidate.citations || {};
+  citationOutput.value = citations[citationFormat] || "";
+}
+
+function initCitationOverlay() {
+  citationOverlayCloseButton?.addEventListener("click", closeCitationOverlay);
+  citationOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === citationOverlay) closeCitationOverlay();
+  });
+  citationFormatSelect?.addEventListener("change", () => {
+    citationFormat = citationFormatSelect.value;
+    if (citationSelectedCandidate) updateCitationOutput(citationSelectedCandidate);
+  });
+  citationCopyButton?.addEventListener("click", () => {
+    copyCitationText(citationCopyButton, citationOutput.value);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && citationOverlay && !citationOverlay.hidden) {
+      closeCitationOverlay();
+    }
+  });
+}
+
+async function copyCitationText(button, text) {
+  if (!text) return;
+  try {
+    await copyTextToClipboard(text);
+    button.classList.add("copied");
+    button.title = "已复制";
+    button.setAttribute("aria-label", "已复制");
+    showCopiedFeedback(button);
+    window.setTimeout(() => {
+      if (!document.body.contains(button)) return;
+      button.classList.remove("copied");
+      button.title = "复制引用";
+      button.setAttribute("aria-label", "复制引用");
+    }, 1200);
+  } catch (error) {
+    console.error("Failed to copy citation.", error);
+  }
+}
+
+async function applyCandidateBasicInfo(candidate) {
+  if (!currentPaper?.id || !candidate || candidate.source === "local") return;
+  setBusy(true);
+  try {
+    const response = await apiFetch("/api/citation/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paperId: currentPaper.id, candidate }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || data.detail || "更新引用信息失败。");
+
+    currentPaper = data.paper || currentPaper;
+    renderBasicInfo(currentPaper.basicInfo);
+    renderDoi(currentPaper.doi);
+    appliedCitationDoi = String(candidate.doi || "");
+    const remoteCandidates = citationCandidates.filter((item) => item.source !== "local");
+    citationCandidates = [createCurrentCitationCandidate(currentPaper), ...remoteCandidates];
+    renderCitationCandidates(citationCandidates, { showSearchSummary: citationSearchSummaryVisible });
+    setCitationStatus("已更新引用信息。");
+  } catch (error) {
+    console.error(error);
+    setCitationStatus(error.message || "更新引用信息失败。", true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function renderSummaryLoading(message = "Loading...") {
   keywords.innerHTML = "";
   methodSections.innerHTML = "";
@@ -3578,7 +5832,7 @@ function renderMethodSections(sections, options = {}) {
     if (section.motivation) {
       const motivationNode = document.createElement("p");
       motivationNode.className = "method-motivation";
-      motivationNode.textContent = `动机：${section.motivation}`;
+      motivationNode.append(document.createTextNode("动机："), ...formatInlineTechnicalText(section.motivation));
       article.appendChild(motivationNode);
     }
 
@@ -3606,10 +5860,7 @@ function renderMethodSections(sections, options = {}) {
       const formulaBox = document.createElement("div");
       formulaBox.className = "formula-list";
       formulas.forEach((formula) => {
-        const formulaNode = document.createElement("div");
-        formulaNode.className = "formula-display";
-        renderFormula(formulaNode, String(formula), true);
-        formulaBox.appendChild(formulaNode);
+        formulaBox.appendChild(createFormulaExplanationBlock(formula));
       });
       article.appendChild(formulaBox);
     }
@@ -3671,43 +5922,334 @@ function extractFormulaLikeText(text) {
   );
 }
 
-function formatInlineTechnicalText(text) {
-  const pattern = /(\b[A-Z][A-Za-z0-9_-]{1,}\b|(?:\\?[A-Za-z]+[A-Za-z0-9_{}α-ωΑ-Ω]*|[A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^，。；;,.]+|[A-Za-z]\([^)]+\)|G=\([^)]+\)|O\([^)]+\))/g;
-  const nodes = [];
-  let lastIndex = 0;
-  let match;
+function createFormulaExplanationBlock(value) {
+  const parsed = splitFormulaAndExplanation(value);
+  const block = document.createElement("div");
+  block.className = "formula-explanation";
 
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(document.createTextNode(text.slice(lastIndex, match.index)));
-    }
-    const mark = document.createElement("mark");
-    mark.className = looksLikeFormula(match[0]) ? "formula-inline" : "term-inline";
-    if (looksLikeFormula(match[0])) {
-      renderFormula(mark, match[0], false);
-    } else {
-      mark.textContent = match[0];
-    }
-    nodes.push(mark);
-    lastIndex = pattern.lastIndex;
+  if (parsed.intro) {
+    const introNode = document.createElement("div");
+    introNode.className = "formula-explanation-text";
+    introNode.append(...formatInlineTechnicalText(parsed.intro));
+    block.appendChild(introNode);
   }
 
-  if (lastIndex < text.length) {
-    nodes.push(document.createTextNode(text.slice(lastIndex)));
+  const formulaNode = document.createElement("div");
+  formulaNode.className = "formula-display";
+  if (isFormulaRenderCandidate(parsed.formula) && !isInlineMathProse(parsed.formula)) {
+    renderFormula(formulaNode, parsed.formula, true);
+  } else {
+    formulaNode.className = "formula-explanation-text";
+    formulaNode.append(...formatInlineTechnicalText(parsed.formula));
   }
-  return nodes.length ? nodes : [document.createTextNode(text)];
+  block.appendChild(formulaNode);
+
+  if (parsed.explanation) {
+    const explanationNode = document.createElement("div");
+    explanationNode.className = "formula-explanation-text";
+    explanationNode.append(...formatInlineTechnicalText(parsed.explanation));
+    block.appendChild(explanationNode);
+  }
+
+  return block;
 }
 
-function looksLikeFormula(value) {
-  return /=|\(|\)|\+|-|\*|\/|\^|_/.test(value);
+function splitFormulaAndExplanation(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return { intro: "", formula: "", explanation: "" };
+
+  const embeddedDisplayFormula = splitEmbeddedDisplayFormula(text);
+  if (embeddedDisplayFormula) return embeddedDisplayFormula;
+
+  const explicitFormula = splitExplicitFormulaAndExplanation(text);
+  if (explicitFormula) return explicitFormula;
+
+  const patterns = [
+    /\s*(?:，|,|；|;)\s*(?:其中|where|with|in which)\s*/i,
+    /\s*(?:：|:)\s*(?:其中|where|with|in which)\s*/i,
+    /\s+(?:where|with|in which)\s+/i,
+    /\s*(?:——|--|–|—)\s*/,
+  ];
+  for (const pattern of patterns) {
+    const parsed = splitFormulaTextAtPattern(text, pattern);
+    if (parsed) return parsed;
+  }
+
+  const generalSeparator = findFormulaExplanationSeparator(text);
+  if (generalSeparator > 0) {
+    return {
+      intro: "",
+      formula: text.slice(0, generalSeparator).trim(),
+      explanation: text.slice(generalSeparator + 1).trim(),
+    };
+  }
+
+  return { intro: "", formula: text, explanation: "" };
+}
+
+function splitEmbeddedDisplayFormula(text) {
+  const dollarStart = text.indexOf("$$");
+  const bracketStart = text.indexOf("\\[");
+  const candidates = [dollarStart, bracketStart].filter((index) => index >= 0).sort((a, b) => a - b);
+  const start = candidates[0];
+  if (start === undefined) return null;
+
+  const isDollar = text.startsWith("$$", start);
+  const close = isDollar ? "$$" : "\\]";
+  const formulaStart = start + (isDollar ? 2 : 2);
+  const end = text.indexOf(close, formulaStart);
+  if (end < 0) return null;
+
+  const intro = text.slice(0, start).trim();
+  const formula = text.slice(start, end + close.length).trim();
+  const explanation = stripFormulaExplanationPrefix(text.slice(end + close.length).trim());
+  return { intro, formula, explanation };
+}
+
+function splitExplicitFormulaAndExplanation(text) {
+  const formulaEnd = findLeadingFormulaEnd(text);
+  if (formulaEnd <= 0) return null;
+  return {
+    intro: "",
+    formula: text.slice(0, formulaEnd).trim(),
+    explanation: stripFormulaExplanationPrefix(text.slice(formulaEnd).trim()),
+  };
+}
+
+function findLeadingFormulaEnd(text) {
+  if (text.startsWith("$$")) {
+    const end = text.indexOf("$$", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  if (text.startsWith("\\[")) {
+    const end = text.indexOf("\\]", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  if (text.startsWith("$")) {
+    const end = findUnescapedDollar(text, 1);
+    return end > 0 ? end + 1 : -1;
+  }
+  if (text.startsWith("\\(")) {
+    const end = text.indexOf("\\)", 2);
+    return end > 1 ? end + 2 : -1;
+  }
+  return -1;
+}
+
+function findUnescapedDollar(text, startIndex) {
+  for (let index = startIndex; index < text.length; index += 1) {
+    if (text[index] === "$" && text[index - 1] !== "\\") return index;
+  }
+  return -1;
+}
+
+function stripFormulaExplanationPrefix(value) {
+  return String(value || "")
+    .replace(/^\s*(?:：|:|；|;|，|,|——|--|–|—)\s*/u, "")
+    .replace(/^(?:其中|where|with|in which)\s*/i, "")
+    .trim();
+}
+
+function splitFormulaTextAtPattern(text, pattern) {
+  const match = text.match(pattern);
+  if (!match || match.index <= 0) return null;
+  return {
+    intro: "",
+    formula: text.slice(0, match.index).trim(),
+    explanation: text.slice(match.index + match[0].length).trim(),
+  };
+}
+
+function findFormulaExplanationSeparator(text) {
+  const separators = ["：", ":", "；", ";", "，", ","];
+  for (const separator of separators) {
+    let index = text.indexOf(separator);
+    while (index >= 0) {
+      const before = text.slice(0, index).trim();
+      const after = text.slice(index + separator.length).trim();
+      if (before.length >= 3 && after.length >= 3 && looksLikeStandaloneFormula(before) && looksLikeExplanation(after)) {
+        return index;
+      }
+      index = text.indexOf(separator, index + separator.length);
+    }
+  }
+  return -1;
+}
+
+function looksLikeStandaloneFormula(value) {
+  return /=|\\frac|\\sum|\\min|\\max|[_^]|\([^)]+\)|\{[^}]+\}/.test(value);
+}
+
+function looksLikeExplanation(value) {
+  return /^(?:[\u4e00-\u9fff]|where\b|denote\b|means\b|represents\b|is the\b|为|表示)/i.test(value.trim());
+}
+
+function formatInlineTechnicalText(text) {
+  const source = normalizeInlineMathText(text);
+  const tokens = tokenizeInlineMath(source);
+  if (!tokens.some((token) => token.type === "math")) {
+    return renderInlineMarkdownNodes(source);
+  }
+
+  return tokens.flatMap((token) => {
+    if (token.type === "math") return [createInlineFormulaNode(token.value, token.raw)];
+    return renderInlineMarkdownNodes(token.value);
+  });
+}
+
+function normalizeInlineMathText(text) {
+  return String(text || "")
+    .replace(/\\\$/g, "$")
+    .replace(/＄/g, "$")
+    .replace(/\\\(/g, "\\(")
+    .replace(/\\\)/g, "\\)");
+}
+
+function tokenizeInlineMath(source) {
+  const tokens = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const dollarIndex = findNextInlineMathDelimiter(source, cursor);
+    const bracketIndex = source.indexOf("\\(", cursor);
+    const nextIndex = [dollarIndex, bracketIndex].filter((index) => index >= 0).sort((a, b) => a - b)[0] ?? -1;
+    if (nextIndex < 0) break;
+
+    const parsed = source.startsWith("\\(", nextIndex)
+      ? readBracketInlineMath(source, nextIndex)
+      : readDollarInlineMath(source, nextIndex);
+    if (!parsed) {
+      tokens.push({ type: "text", value: source.slice(cursor, nextIndex + 1) });
+      cursor = nextIndex + 1;
+      continue;
+    }
+
+    if (nextIndex > cursor) tokens.push({ type: "text", value: source.slice(cursor, nextIndex) });
+    tokens.push({ type: "math", value: parsed.value, raw: parsed.raw });
+    cursor = parsed.end;
+  }
+
+  if (cursor < source.length) tokens.push({ type: "text", value: source.slice(cursor) });
+  return tokens;
+}
+
+function findNextInlineMathDelimiter(source, startIndex) {
+  for (let index = startIndex; index < source.length; index += 1) {
+    if (source[index] !== "$" || isEscaped(source, index)) continue;
+    if (source[index + 1] === "$" || source[index - 1] === "$") continue;
+    return index;
+  }
+  return -1;
+}
+
+function readDollarInlineMath(source, startIndex) {
+  const endIndex = findClosingDollar(source, startIndex + 1);
+  if (endIndex < 0) return null;
+  const value = source.slice(startIndex + 1, endIndex).trim();
+  if (!isValidInlineFormulaContent(value)) return null;
+  return {
+    value,
+    raw: source.slice(startIndex, endIndex + 1),
+    end: endIndex + 1,
+  };
+}
+
+function readBracketInlineMath(source, startIndex) {
+  const endIndex = source.indexOf("\\)", startIndex + 2);
+  if (endIndex < 0) return null;
+  const value = source.slice(startIndex + 2, endIndex).trim();
+  if (!isValidInlineFormulaContent(value)) return null;
+  return {
+    value,
+    raw: source.slice(startIndex, endIndex + 2),
+    end: endIndex + 2,
+  };
+}
+
+function findClosingDollar(source, startIndex) {
+  for (let index = startIndex; index < source.length; index += 1) {
+    if (source[index] !== "$" || isEscaped(source, index)) continue;
+    if (source[index + 1] === "$" || source[index - 1] === "$") continue;
+    return index;
+  }
+  return -1;
+}
+
+function isEscaped(source, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function isValidInlineFormulaContent(value) {
+  if (!value || /\n/.test(value)) return false;
+  if (value.length > 180) return false;
+  return /[A-Za-z0-9\\_^{}=+\-*/()[\]|.,<>α-ωΑ-Ω]/.test(value);
+}
+
+function createInlineFormulaNode(value, raw) {
+  const node = document.createElement("span");
+  node.className = "formula-inline";
+  if (!window.katex) {
+    node.textContent = raw || value;
+    return node;
+  }
+
+  renderFormula(node, value, false);
+  return node;
+}
+
+function renderInlineMarkdownNodes(source) {
+  const renderer = getDiscussionMarkdownRenderer();
+  if (!renderer) return [document.createTextNode(source)];
+
+  const template = document.createElement("template");
+  template.innerHTML = renderer.renderInline(escapeMarkdownMathDelimiters(source));
+  return Array.from(template.content.childNodes);
+}
+
+function escapeMarkdownMathDelimiters(source) {
+  return String(source || "").replace(/\$/g, "\\$").replace(/\\\(/g, "\\\\(").replace(/\\\)/g, "\\\\)");
 }
 
 function normalizeFormulaSource(value) {
-  return String(value || "")
-    .replace(/^\s*(?:\$\$|\\\[|\\\()/, "")
-    .replace(/(?:\$\$|\\\]|\\\))\s*$/, "")
+  const formula = String(value || "")
+    .replace(/^\s*(?:\$\$|\$|\\\[|\\\()/, "")
+    .replace(/(?:\$\$|\$|\\\]|\\\))\s*$/, "")
     .replace(/\s+/g, " ")
     .trim();
+  return fixFormulaSubscripts(formula);
+}
+
+function isFormulaRenderCandidate(value) {
+  const text = String(value || "").trim();
+  return isExplicitFormulaSource(text) || looksLikeStandaloneFormula(text);
+}
+
+function isInlineMathProse(value) {
+  const text = String(value || "").trim();
+  if (!/(^|[^$])\$[^$\n]+\$/.test(text) && !/\\\([^)]*\\\)/.test(text)) return false;
+  const withoutMath = text
+    .replace(/\$[^$\n]+\$/g, "")
+    .replace(/\\\([^)]*\\\)/g, "")
+    .trim();
+  return /[\u4e00-\u9fff]/.test(withoutMath) || /\b[a-z]{4,}\b/i.test(withoutMath);
+}
+
+function isExplicitFormulaSource(value) {
+  const text = String(value || "").trim();
+  return (
+    (text.startsWith("$$") && text.endsWith("$$")) ||
+    (text.startsWith("$") && text.endsWith("$")) ||
+    (text.startsWith("\\[") && text.endsWith("\\]")) ||
+    (text.startsWith("\\(") && text.endsWith("\\)"))
+  );
+}
+
+function fixFormulaSubscripts(value) {
+  return String(value || "").replace(/(^|[^\\])_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})/g, "$1_{$2}");
 }
 
 function renderFormula(node, source, displayMode = false) {

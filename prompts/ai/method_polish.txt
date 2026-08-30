@@ -1,22 +1,3 @@
-Return strict JSON only. Do not return Markdown.
-All user-facing JSON values must be in Chinese.
-
-JSON schema:
-{{
-  "method": "short overall method overview in 120 to 220 Chinese characters",
-  "methodOverview": "opening overview for Method Breakdown in 80 to 140 Chinese characters",
-  "methodSections": [
-    {{
-      "title": "method point title",
-      "motivation": "why this method point is needed",
-      "summary": "one sentence overview",
-      "bullets": ["technical detail bullet"],
-      "formulas": ["important formula or notation and explanation"]
-    }}
-  ],
-  "methodConclusion": "closing synthesis for Method Breakdown in 80 to 140 Chinese characters"
-}}
-
 Task:
 Polish and combine the method point analyses into an easy-to-read structured method explanation. Use the paper content again to verify order and evidence.
 
@@ -25,19 +6,6 @@ Ordered method points:
 
 Draft details for each point:
 {point_details_json}
-
-Hard requirements:
-- Return 3 to 5 methodSections, preserving logical order unless paper evidence indicates a better order.
-- methodOverview should briefly state the whole method pipeline, main design idea, and how the sections connect.
-- methodConclusion should synthesize what the method achieves, its key tradeoff, and any stated limitation or dependency.
-- Each section should have one clear title, one plain motivation sentence, one summary sentence, 2 to 4 compact bullets, and formulas/notations only when useful.
-- Motivation should be modest and factual. Do not style it rhetorically; explain the specific limitation, bottleneck, or design need.
-- Make formulas readable: keep notation such as "L = ...", "d_i = ...", "p_{{current}}", "G=(V,E)", "O(n)", "\frac{{a}}{{b}}" if present, and explain what the variables mean.
-- Keep formulas in simple LaTeX-like plain text so the frontend can render subscripts and superscripts.
-- Write partial derivatives as \frac{{\partial c_i}}{{\partial p}} rather than "\partial c_i \partial p".
-- Emphasize concrete modules, representations, equations, algorithms, training/inference procedures, experiments, and baseline differences.
-- Avoid one giant paragraph. The frontend will render these sections directly.
-- Do not add unsupported claims. If a detail is missing, say it is not explicit.
 
 Paper content:
 {paper_text}

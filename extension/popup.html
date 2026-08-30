@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paper Lantern Importer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <img class="app-icon" src="figure.jpg" alt="" />
+        <div>
+          <h1>Paper Lantern</h1>
+          <p id="serviceStatus">检查本地服务...</p>
+        </div>
+      </header>
+
+      <section class="action-stack">
+        <button id="importCurrentButton" class="primary-button" type="button">导入当前页</button>
+      </section>
+
+      <form id="settingsForm" class="settings-form">
+        <label for="apiBaseInput">本地服务地址</label>
+        <div class="settings-row">
+          <input id="apiBaseInput" type="url" spellcheck="false" />
+          <button id="testBaseButton" type="submit">测试</button>
+        </div>
+      </form>
+
+      <p id="message" role="status"></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

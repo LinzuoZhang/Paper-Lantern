@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Paper Lantern Importer",
+  "description": "One-click import of PDFs and arXiv pages into a local Paper Lantern library.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "109",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Import to Paper Lantern",
+    "default_icon": {
+      "128": "figure.jpg"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "notifications",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ]
+}

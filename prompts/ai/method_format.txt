@@ -1,0 +1,16 @@
+Task:
+Correct only the formatting of this Method Breakdown JSON for rendering. Do not add new facts.
+
+Method Breakdown JSON:
+{method_json}
+
+Hard formatting rules:
+- Do not output Markdown outside JSON.
+- Preserve the existing Chinese wording as much as possible.
+- Formula markup is mandatory: block formulas must be wrapped in "$$...$$"; inline formulas or short notations must be wrapped in "$...$".
+- In each formulas item, put the wrapped formula/notation first, then put the symbol explanation after a clear separator outside the math delimiters, such as "$$L = ...$$: L means ...".
+- Every formulas item must include a plain-text symbol explanation after the formula. If a symbol meaning is already implied by the surrounding generated text, use that wording. If it is not explicit, state in Chinese that the symbol meaning is not explicit in the paper.
+- The symbol explanation must be plain Chinese text. Do not put the explanation itself inside "$...$" or "$$...$$".
+- For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, and $c_{{obs}}$ rather than $P_target$, $p_current$, or $c_obs$.
+- Do not change domain terms except to preserve the required "中文解释 (Original English Full Term, ABBR)" or "中文解释 (Original English Full Term)" format when already present.
+- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, the mention must be a complete phrase in the form "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation/acronym exists, or "Chinese explanation (Original English Full Term)" when it does not. Do not use only the Chinese translation. Use the exact original English term from the paper when available.

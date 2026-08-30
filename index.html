@@ -4,89 +4,96 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperLantern Paper Reader</title>
+    <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
+    <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main id="libraryView" class="library-view" aria-label="Literature library">
-      <header class="library-header">
-        <div>
-          <h1>Paper Lantern</h1>
-          <p id="libraryRoot" hidden></p>
-        </div>
-        <div class="library-header-actions">
-          <form id="uploadForm" class="upload-form">
-            <div class="upload-menu-wrap">
-              <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
-                <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 3v12" />
-                  <path d="m7 8 5-5 5 5" />
-                  <path d="M5 15v4h14v-4" />
-                </svg>
-              </button>
-              <div id="uploadMenu" class="upload-menu" role="menu" hidden>
-                <label class="upload-drop-option" role="menuitem">
-                  <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
-                  <span class="upload-drop-box">
-                    <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
-                      <path d="M24 34V12" />
-                      <path d="m14 22 10-10 10 10" />
-                      <path d="M12 36h24" />
-                    </svg>
-                    <strong>Upload PDF</strong>
-                    <small>Drop a file here or click to choose</small>
-                  </span>
-                </label>
-                <div class="arxiv-upload-panel" role="menuitem">
-                  <label for="arxivUploadInput">arXiv ID or URL</label>
-                  <div class="arxiv-upload-row">
-                    <input id="arxivUploadInput" type="text" placeholder="2401.12345 or arxiv.org/abs/..." autocomplete="off" />
-                    <button id="arxivUploadButton" type="button">Upload</button>
+      <div class="library-layout">
+        <aside class="category-panel">
+          <div class="brand-lockup library-brand">
+            <img class="site-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
+            <div>
+              <h1>Paper Lantern</h1>
+              <p id="libraryRoot" hidden></p>
+            </div>
+          </div>
+          <div id="categoryTree" class="category-tree">
+            <div id="categoryTopRows"></div>
+            <label class="category-search">
+              <input id="librarySearchInput" type="search" placeholder="搜索标题或分类" autocomplete="off" />
+            </label>
+            <section class="tag-filter-panel" aria-labelledby="tagFilterTitle">
+              <div class="tag-filter-header">
+                <span id="tagFilterTitle">Tags</span>
+                <button id="clearTagFiltersButton" type="button" hidden>Clear</button>
+              </div>
+              <div id="tagFilterList" class="tag-filter-list"></div>
+            </section>
+            <div id="categoryMainRows"></div>
+          </div>
+          <div class="library-footer-actions">
+            <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
+                <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
+              </svg>
+              <small id="cloudSyncStatus" hidden>Checking...</small>
+            </button>
+            <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
+                <path d="M4 5v4h4" />
+                <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
+                <path d="M20 19v-4h-4" />
+              </svg>
+            </button>
+          </div>
+        </aside>
+        <div id="libraryLayoutResizer" class="library-layout-resizer" role="separator" aria-label="调整文献库左右比例" aria-orientation="vertical"></div>
+        <section class="paper-list-panel">
+          <div class="paper-list-header">
+            <div>
+              <h2 id="currentCategoryName">All Papers</h2>
+              <p id="libraryStatus" role="status"></p>
+            </div>
+            <form id="uploadForm" class="upload-form">
+              <div class="upload-menu-wrap">
+                <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
+                  <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v12" />
+                    <path d="m7 8 5-5 5 5" />
+                    <path d="M5 15v4h14v-4" />
+                  </svg>
+                </button>
+                <div id="uploadMenu" class="upload-menu" role="menu" hidden>
+                  <label class="upload-drop-option" role="menuitem">
+                    <input id="libraryPdfInput" name="pdf" type="file" accept="application/pdf" />
+                    <span class="upload-drop-box">
+                      <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
+                        <path d="M24 34V12" />
+                        <path d="m14 22 10-10 10 10" />
+                        <path d="M12 36h24" />
+                      </svg>
+                      <strong>Upload PDF</strong>
+                      <small>Drop a file here or click to choose</small>
+                    </span>
+                  </label>
+                  <div class="arxiv-upload-panel" role="menuitem">
+                    <label for="arxivUploadInput">PDF URL or arXiv</label>
+                    <div class="arxiv-upload-row">
+                      <input id="arxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
+                      <button id="arxivUploadButton" type="button">Import</button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </form>
-          <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
-              <path d="M4 5v4h4" />
-              <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
-              <path d="M20 19v-4h-4" />
-            </svg>
-          </button>
-          <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
-              <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
-            </svg>
-            <small id="cloudSyncStatus" hidden>Checking...</small>
-          </button>
-        </div>
-      </header>
-      <div class="library-layout">
-        <aside class="category-panel">
-          <h2>Categories</h2>
-          <label class="category-search">
-            <span>Search</span>
-            <input id="librarySearchInput" type="search" placeholder="Search title or category" autocomplete="off" />
-          </label>
-          <section class="tag-filter-panel" aria-labelledby="tagFilterTitle">
-            <div class="tag-filter-header">
-              <span id="tagFilterTitle">Tags</span>
-              <button id="clearTagFiltersButton" type="button" hidden>Clear</button>
-            </div>
-            <div id="tagFilterList" class="tag-filter-list"></div>
-          </section>
-          <div id="categoryTree" class="category-tree"></div>
-        </aside>
-        <div id="libraryPaneResizer" class="library-pane-resizer" role="separator" aria-orientation="vertical" aria-label="调整分类侧栏宽度" tabindex="0"></div>
-        <section class="paper-list-panel">
-          <div class="paper-list-header">
-            <h2 id="currentCategoryName">All Papers</h2>
-            <p id="libraryStatus" role="status"></p>
+            </form>
           </div>
           <div id="paperList" class="paper-list"></div>
         </section>
+        <aside id="paperInfoPanel" class="paper-info-panel" aria-label="Paper information" hidden></aside>
       </div>
     </main>
     <div id="cloudConfigOverlay" class="cloud-config-overlay" hidden>
@@ -95,7 +102,7 @@
           <h2>Settings</h2>
           <button id="cloudConfigCloseButton" class="drawer-close-button" type="button" aria-label="Close"></button>
         </div>
-        <div class="settings-section-title">Unified AI Settings</div>
+        <div class="settings-section-title">AI API</div>
         <label>
           <span>API Base URL</span>
           <input id="aiBaseUrlInput" type="url" placeholder="https://api.openai.com/v1" />
@@ -110,60 +117,59 @@
         </label>
         <details class="ai-advanced-settings">
           <summary>Advanced: feature-specific AI settings</summary>
-          <p class="settings-help">Set optional request parameters as a JSON object, for example <code>{"enable_thinking": false}</code> for compatible Qwen models. Each feature uses the unified settings by default; disable it to configure an independent API, model, key, and parameters.</p>
+          <p class="settings-help">Optional request parameters must be a JSON object. For Qwen, for example: <code>{"enable_thinking": false}</code>. Each feature uses the unified settings unless configured below.</p>
           <section class="ai-extra-params-config">
             <strong>Unified API Extra Parameters</strong>
             <label><span>JSON object</span><textarea id="aiExtraParamsInput" rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
           </section>
           <section class="ai-task-config" data-ai-task="summary">
-          <div class="ai-task-config-header">
-            <strong>Paper Summary &amp; Basic Info</strong>
-            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
-          </div>
-          <div class="ai-task-fields">
-            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
-            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
-            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
-            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
-          </div>
+            <div class="ai-task-config-header"><strong>Paper Summary &amp; Basic Info</strong><label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label></div>
+            <div class="ai-task-fields">
+              <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+              <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+              <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" /></label>
+              <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
+            </div>
           </section>
           <section class="ai-task-config" data-ai-task="translate">
-          <div class="ai-task-config-header">
-            <strong>Selected Text Translation</strong>
-            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
-          </div>
-          <div class="ai-task-fields">
-            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
-            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
-            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
-            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
-          </div>
+            <div class="ai-task-config-header"><strong>Selected Text Translation</strong><label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label></div>
+            <div class="ai-task-fields">
+              <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+              <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+              <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" /></label>
+              <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
+            </div>
           </section>
           <section class="ai-task-config" data-ai-task="explain">
-          <div class="ai-task-config-header">
-            <strong>Selected Text Explanation</strong>
-            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
-          </div>
-          <div class="ai-task-fields">
-            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
-            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
-            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
-            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
-          </div>
+            <div class="ai-task-config-header"><strong>Selected Text Explanation</strong><label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label></div>
+            <div class="ai-task-fields">
+              <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+              <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+              <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" /></label>
+              <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
+            </div>
           </section>
           <section class="ai-task-config" data-ai-task="discuss">
-          <div class="ai-task-config-header">
-            <strong>Paper Discussion</strong>
-            <label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label>
-          </div>
-          <div class="ai-task-fields">
-            <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
-            <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
-            <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to use unified key" /></label>
-            <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
-          </div>
+            <div class="ai-task-config-header"><strong>Paper Discussion</strong><label class="ai-task-default-row"><input data-ai-task-default type="checkbox" checked /><span>Use unified settings</span></label></div>
+            <div class="ai-task-fields">
+              <label><span>API Base URL</span><input data-ai-task-base-url type="url" placeholder="Leave blank to use unified URL" /></label>
+              <label><span>Model</span><input data-ai-task-model type="text" placeholder="Leave blank to use unified model" /></label>
+              <label><span>API Key</span><input data-ai-task-api-key type="password" autocomplete="new-password" placeholder="Leave blank to keep existing key" /></label>
+              <label class="ai-extra-params-label"><span>API Extra Parameters (JSON)</span><textarea data-ai-task-extra-params rows="3" spellcheck="false" placeholder='e.g. {"enable_thinking": false} for qwen'></textarea></label>
+            </div>
           </section>
         </details>
+        <div class="ai-api-test-row">
+          <button id="aiApiTestButton" class="secondary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5h8" />
+              <path d="M12 5v5" />
+              <path d="M9 10h6l4 8a2 2 0 0 1-1.8 3H6.8A2 2 0 0 1 5 18l4-8z" />
+            </svg>
+            <span>Test API</span>
+          </button>
+          <p id="aiApiTestStatus" class="ai-api-test-status" role="status"></p>
+        </div>
         <div class="settings-section-title">Web AI Handoff</div>
         <label>
           <span>Discussion web URL</span>
@@ -198,8 +204,33 @@
           <input id="cloudAutoPushInput" type="checkbox" />
           <span>Auto sync after library changes</span>
         </label>
-        <button type="submit">Save Settings</button>
       </form>
+    </div>
+    <div id="libCitationOverlay" class="citation-overlay" hidden>
+      <div class="citation-overlay-card">
+        <div class="citation-overlay-header">
+          <h2 id="libCitationOverlayTitle">引用信息</h2>
+          <button id="libCitationOverlayCloseButton" class="drawer-close-button" type="button" aria-label="关闭"></button>
+        </div>
+        <p id="libCitationOverlayMeta" class="citation-overlay-meta"></p>
+        <div class="citation-overlay-toolbar">
+          <select id="libCitationFormatSelect" class="citation-format-select" aria-label="引用格式">
+            <option value="gbt7714">GB/T 7714</option>
+            <option value="bibtex">BibTeX</option>
+            <option value="ris">RIS</option>
+            <option value="apa">APA</option>
+            <option value="mla">MLA</option>
+            <option value="ieee">IEEE</option>
+          </select>
+          <button id="libCitationCopyButton" class="icon-button copy-section-button" type="button" aria-label="复制引用" title="复制引用">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <textarea id="libCitationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
+      </div>
     </div>
     <script src="./app.js" type="module"></script>
   </body>
