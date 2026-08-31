@@ -181,6 +181,7 @@ let referenceActionHideTimer = null;
 const citationPreviewCache = new Map();
 const pdfLinkPageCache = new Map();
 const pdfLinkTextCache = new Map();
+let pdfCitationDestinationCache = null;
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -2612,6 +2613,7 @@ async function renderPdf(file) {
   citationPreviewCache.clear();
   pdfLinkPageCache.clear();
   pdfLinkTextCache.clear();
+  pdfCitationDestinationCache = null;
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
@@ -2949,6 +2951,9 @@ async function resolveCitationPreview(annotation) {
   const referenceText = extractReferenceText(textContent.items, getCitationDestinationY(destination));
   const isCitation = isCitationDestination(annotation.dest) || /^\s*\[\s*\d+\s*\]/.test(referenceText);
   const source = await getPdfLinkPreviewSource(page, pageNumber);
+  const referenceEntries = isCitation && isReferenceListPage(textContent.items)
+    ? await getPdfReferenceEntries(pageNumber, textContent.items)
+    : [];
   return {
     label: isCitation ? `Reference · page ${pageNumber}` : `Linked content · page ${pageNumber}`,
     text: "",
@@ -2956,7 +2961,7 @@ async function resolveCitationPreview(annotation) {
     destination,
     source,
     isCitation,
-    referenceEntries: isCitation && isReferenceListPage(textContent.items) ? extractPdfReferenceEntriesFromItems(textContent.items) : [],
+    referenceEntries,
   };
 }
 
@@ -3006,8 +3011,49 @@ function getArxivUrl(referenceText) {
 async function renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId) {
   const textContent = await getPdfLinkTextContent(page, pageNumber);
   if (currentPdfTask !== renderId || !isReferenceListPage(textContent.items)) return;
-  const entries = extractPdfReferenceEntriesFromItems(textContent.items);
+  const entries = await getPdfReferenceEntries(pageNumber, textContent.items);
+  if (currentPdfTask !== renderId) return;
   if (entries.length) renderReferenceActionDotLayer(pageNode, entries, viewport);
+}
+
+async function getPdfReferenceEntries(pageNumber, items) {
+  const destinationsByPage = await getPdfCitationDestinationsByPage();
+  const destinations = destinationsByPage.get(pageNumber) || [];
+  const linkedEntries = extractPdfReferenceEntriesFromDestinations(items, destinations);
+  return linkedEntries.length ? linkedEntries : extractPdfReferenceEntriesFromItems(items);
+}
+
+async function getPdfCitationDestinationsByPage() {
+  if (!currentPdfDocument) return new Map();
+  if (!pdfCitationDestinationCache) {
+    const documentAtStart = currentPdfDocument;
+    pdfCitationDestinationCache = (async () => {
+      const byPage = new Map();
+      let destinations = {};
+      try {
+        destinations = await documentAtStart.getDestinations();
+      } catch (error) {
+        console.warn("Unable to read named PDF destinations.", error);
+        return byPage;
+      }
+
+      await Promise.all(Object.entries(destinations).map(async ([name, destination]) => {
+        if (!isCitationDestination(name) || !Array.isArray(destination) || !destination[0]) return;
+        try {
+          const pageNumber = (await documentAtStart.getPageIndex(destination[0])) + 1;
+          const x = Number(destination[2]);
+          const y = getCitationDestinationY(destination);
+          if (!Number.isFinite(y)) return;
+          if (!byPage.has(pageNumber)) byPage.set(pageNumber, []);
+          byPage.get(pageNumber).push({ name, x, y });
+        } catch (error) {
+          console.warn(`Unable to resolve PDF citation destination ${name}.`, error);
+        }
+      }));
+      return byPage;
+    })();
+  }
+  return pdfCitationDestinationCache;
 }
 
 function renderReferenceActionDotLayer(container, entries, viewport, extraClass = "") {
@@ -3200,6 +3246,64 @@ function isReferenceListPage(items) {
   const lines = buildPdfReferenceLines(items);
   const hasHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
   return hasHeading || lines.filter((line) => isBracketReferenceStart(line.text)).length >= 4;
+}
+
+function extractPdfReferenceEntriesFromDestinations(items, destinations) {
+  if (!destinations.length) return [];
+  const textItems = items.map((item) => ({
+    text: String(item.str || "").trim(),
+    x: Number(item.transform?.[4]),
+    y: Number(item.transform?.[5]),
+    width: Number(item.width || 0),
+  })).filter((item) => item.text && Number.isFinite(item.x) && Number.isFinite(item.y));
+  const referenceStarts = textItems.filter((item) => isReferenceStart(item.text));
+  if (!referenceStarts.length) return [];
+
+  const matchedStarts = [];
+  const seenStarts = new Set();
+  destinations.forEach((destination) => {
+    const targetX = Number(destination.x);
+    const targetY = Number(destination.y);
+    const candidates = referenceStarts.map((start) => ({
+      start,
+      xDistance: Number.isFinite(targetX) ? Math.abs(start.x - targetX) : 0,
+      yDistance: Math.abs(start.y - targetY),
+    })).filter((candidate) => candidate.yDistance <= 48 && candidate.xDistance <= 72)
+      .sort((left, right) => (left.yDistance + left.xDistance * 0.4) - (right.yDistance + right.xDistance * 0.4));
+    const directionalCandidates = candidates.filter((candidate) => candidate.start.y <= targetY + 3);
+    const match = (directionalCandidates.length ? directionalCandidates : candidates)[0];
+    if (!match) return;
+    const key = `${match.start.x.toFixed(2)}:${match.start.y.toFixed(2)}`;
+    if (seenStarts.has(key)) return;
+    seenStarts.add(key);
+    matchedStarts.push(match.start);
+  });
+
+  const columnStarts = [];
+  referenceStarts.map((start) => start.x).sort((left, right) => left - right).forEach((x) => {
+    if (!columnStarts.some((columnX) => Math.abs(columnX - x) <= 72)) columnStarts.push(x);
+  });
+
+  return matchedStarts.map((start) => {
+    const columnX = columnStarts.reduce((best, x) => Math.abs(x - start.x) < Math.abs(best - start.x) ? x : best, columnStarts[0]);
+    const nextColumnX = columnStarts.find((x) => x > columnX + 72);
+    const sameColumnStarts = referenceStarts.filter((candidate) => Math.abs(candidate.x - columnX) <= 72)
+      .sort((left, right) => right.y - left.y);
+    const nextStart = sameColumnStarts.find((candidate) => candidate.y < start.y - 2);
+    const lowerY = nextStart ? nextStart.y + 2 : -Infinity;
+    const parts = textItems.filter((item) => (
+      item.x >= columnX - 4
+      && (!Number.isFinite(nextColumnX) || item.x < nextColumnX - 4)
+      && item.y <= start.y + 3
+      && item.y > lowerY
+    )).sort((left, right) => Math.abs(left.y - right.y) <= 2 ? left.x - right.x : right.y - left.y);
+    return {
+      x: start.x,
+      y: start.y,
+      text: parts.map((item) => item.text).join(" ").replace(/\s+/g, " ").slice(0, 900).trim(),
+    };
+  }).filter((entry) => entry.text.length >= 18)
+    .sort((left, right) => left.x - right.x || right.y - left.y);
 }
 
 function extractPdfReferenceEntriesFromItems(items) {
