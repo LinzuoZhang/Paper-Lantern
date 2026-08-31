@@ -5589,3 +5589,51 @@ button.ghost:hover,
   }
 
 }
+
+/* Keep the Discussion composer in one readable column. These rules are kept
+   after the upstream theme so generic form-button sizing cannot compress it. */
+.discussion-form {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 7px;
+  backdrop-filter: none;
+}
+
+.discussion-form .discussion-resize-handle,
+.discussion-form .discussion-input-area,
+.discussion-form .discussion-form-actions {
+  grid-column: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.discussion-form .discussion-input-area {
+  display: grid;
+  gap: 6px;
+}
+
+.discussion-form .discussion-form-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.discussion-form .discussion-web-button {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 12px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.discussion-form .send-discussion-button {
+  flex: 0 0 42px;
+  width: 42px;
+  min-width: 42px;
+  min-height: 38px;
+}
