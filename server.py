@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 import urllib.error
@@ -29,6 +30,9 @@ LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
 PROMPT_DIR = BASE_DIR / "prompts" / "ai"
 MAX_PAPER_CHARS = 5_000_000
 MAX_TRANSLATE_CHARS = 4000
+MAX_TRANSLATION_CONTEXT_CHARS = 3000
+MAX_TRANSLATION_SUMMARY_CHARS = 8000
+AI_SUMMARY_TIMEOUT_SECONDS = 600
 MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
@@ -45,6 +49,9 @@ PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
 MAX_REMOTE_PDF_BYTES = 200 * 1024 * 1024
+DEFAULT_TAG_COLOR = "#2c758c"
+MAX_PAPER_TAGS = 16
+MAX_TAG_NAME_LENGTH = 48
 
 
 def load_env_file(path):
@@ -63,13 +70,25 @@ def load_env_file(path):
             os.environ[key] = value
 
 
-def get_ai_config():
+def get_ai_config(task_name="summary"):
     config = load_config(BASE_DIR)
-    api_key = get_secret(config, "ai", "apiKey").strip()
-    model = str(config.get("ai", {}).get("model", "")).strip() or "gpt-4o-mini"
-    base_url = str(config.get("ai", {}).get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    ai = config.get("ai", {})
+    task_configs = ai.get("tasks", {}) if isinstance(ai.get("tasks", {}), dict) else {}
+    task = task_configs.get(task_name, {}) if isinstance(task_configs.get(task_name, {}), dict) else {}
+    use_default = bool(task.get("useDefault", True))
+    default_api_key = get_secret(config, "ai", "apiKey").strip()
+    default_model = str(ai.get("model", "")).strip() or "gpt-4o-mini"
+    default_base_url = str(ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    default_extra_params = dict(ai.get("extraParams", {})) if isinstance(ai.get("extraParams", {}), dict) else {}
+    if use_default:
+        api_key, model, base_url, extra_params = default_api_key, default_model, default_base_url, default_extra_params
+    else:
+        api_key = get_secret({"task": task}, "task", "apiKey").strip() or default_api_key
+        model = str(task.get("model", "")).strip() or default_model
+        base_url = str(task.get("baseUrl", "")).strip() or default_base_url
+        extra_params = dict(task.get("extraParams", {})) if isinstance(task.get("extraParams", {}), dict) else {}
     chat_completions_url = build_chat_completions_url(base_url)
-    return api_key, model, chat_completions_url
+    return api_key, model, chat_completions_url, extra_params
 
 
 def build_chat_completions_url(base_url):
@@ -607,7 +626,38 @@ def default_metadata(title, category):
         "methodConclusion": "",
         "basicInfo": {},
         "notes": "",
+        "tags": [],
+        "read": False,
+        "todo": False,
     }
+
+
+def normalize_tag_color(value):
+    color = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        return color.lower()
+    if re.fullmatch(r"#[0-9a-fA-F]{3}", color):
+        return "#" + "".join(character * 2 for character in color[1:].lower())
+    return DEFAULT_TAG_COLOR
+
+
+def normalize_paper_tags(value):
+    if not isinstance(value, list):
+        return []
+    tags = []
+    seen = set()
+    for item in value:
+        raw_name = item.get("name", "") if isinstance(item, dict) else item
+        name = " ".join(str(raw_name or "").split())[:MAX_TAG_NAME_LENGTH]
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        color = normalize_tag_color(item.get("color")) if isinstance(item, dict) else DEFAULT_TAG_COLOR
+        tags.append({"name": name, "color": color})
+        if len(tags) >= MAX_PAPER_TAGS:
+            break
+    return tags
 
 
 def read_library_tree():
@@ -660,6 +710,7 @@ def read_paper(paper_id):
         "read": read_flag,
         "todo": todo_flag,
         "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
+        "tags": normalize_paper_tags(metadata.get("tags", [])),
     }
 
 
@@ -768,6 +819,7 @@ def load_library_db():
         save_library_db(db)
     reconcile_paper_storage(db)
     ensure_uncategorized(db)
+    normalize_library_sort_orders(db)
     save_library_db(db)
     return db
 
@@ -780,12 +832,37 @@ def save_library_db(db):
 def ensure_uncategorized(db):
     db.setdefault("categories", {})
     db.setdefault("papers", {})
+    existing = db["categories"].get(UNCATEGORIZED_ID, {})
     db["categories"][UNCATEGORIZED_ID] = {
         "id": UNCATEGORIZED_ID,
         "name": UNCATEGORIZED_NAME,
         "parentId": "",
         "locked": True,
+        "sortOrder": existing.get("sortOrder", 0),
     }
+
+
+def normalize_library_sort_orders(db):
+    parent_ids = {str(item.get("parentId", "")) for item in db.get("categories", {}).values()}
+    for parent_id in parent_ids:
+        siblings = [item for item in db["categories"].values() if str(item.get("parentId", "")) == parent_id]
+        siblings.sort(key=lambda item: (
+            0 if isinstance(item.get("sortOrder"), int) else 1,
+            int(item.get("sortOrder", 0)) if isinstance(item.get("sortOrder"), int) else 0,
+            str(item.get("name", "")).lower(),
+        ))
+        for index, item in enumerate(siblings):
+            item["sortOrder"] = index
+
+    category_ids = {str(item.get("categoryId", UNCATEGORIZED_ID)) for item in db.get("papers", {}).values()}
+    for category_id in category_ids:
+        siblings = [item for item in db["papers"].values() if str(item.get("categoryId", UNCATEGORIZED_ID)) == category_id]
+        with_order = [item for item in siblings if isinstance(item.get("sortOrder"), int)]
+        without_order = [item for item in siblings if not isinstance(item.get("sortOrder"), int)]
+        with_order.sort(key=lambda item: int(item["sortOrder"]))
+        without_order.sort(key=lambda item: str(item.get("uploadedAt", "")), reverse=True)
+        for index, item in enumerate([*with_order, *without_order]):
+            item["sortOrder"] = index
 
 
 def migrate_existing_library(db):
@@ -860,6 +937,19 @@ def paper_dir_from_record(record):
     return (LIBRARY_DIR / record["folder"]).resolve()
 
 
+def reveal_paper_in_folder(paper_id):
+    db = load_library_db()
+    record = db["papers"].get(str(paper_id))
+    if not record:
+        raise FileNotFoundError("Paper not found.")
+    pdf_path = paper_dir_from_record(record) / "paper.pdf"
+    if not pdf_path.exists():
+        raise FileNotFoundError("PDF not found.")
+    if os.name != "nt":
+        raise OSError("Showing files in a folder is only supported on Windows.")
+    subprocess.Popen(["explorer.exe", f"/select,{pdf_path}"], close_fds=True)
+
+
 def read_library_tree():
     db = load_library_db()
     return build_category_node(db, "")
@@ -873,15 +963,17 @@ def build_category_node(db, category_id):
     else:
         name = "\u6587\u732e\u5e93"
         locked = False
+    category_records = [item for item in db["categories"].values() if item.get("parentId", "") == category_id]
+    category_records.sort(key=lambda item: (int(item.get("sortOrder", 10**9)), item["name"].lower()))
     folders = [
         build_category_node(db, child["id"])
-        for child in sorted(db["categories"].values(), key=lambda item: item["name"].lower())
-        if child.get("parentId", "") == category_id
+        for child in category_records
     ]
+    paper_records = [(paper_id, paper) for paper_id, paper in db["papers"].items() if paper.get("categoryId") == category_id]
+    paper_records.sort(key=lambda item: (int(item[1].get("sortOrder", 10**9)), str(item[1].get("uploadedAt", ""))), reverse=False)
     papers = [
         read_paper(paper_id, db)
-        for paper_id, paper in sorted(db["papers"].items(), key=lambda item: item[1].get("uploadedAt", ""), reverse=True)
-        if paper.get("categoryId") == category_id
+        for paper_id, paper in paper_records
     ]
     papers = [paper for paper in papers if paper]
     return {"id": category_id, "name": name, "locked": locked, "folders": folders, "papers": papers}
@@ -917,6 +1009,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "doi": str(metadata.get("doi", "")).strip(),
         "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
+        "tags": normalize_paper_tags(metadata.get("tags", [])),
         "read": read_flag,
         "todo": todo_flag,
         "discussion": discussion,
@@ -935,7 +1028,14 @@ def create_category(parent_id, name):
     category_id = f"{parent_id}/{child_name}".strip("/")
     if category_id in db["categories"]:
         raise FileExistsError("Category already exists.")
-    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False}
+    sibling_orders = [int(item.get("sortOrder", index)) for index, item in enumerate(db["categories"].values()) if item.get("parentId", "") == parent_id]
+    db["categories"][category_id] = {
+        "id": category_id,
+        "name": child_name,
+        "parentId": parent_id,
+        "locked": False,
+        "sortOrder": max(sibling_orders, default=-1) + 1,
+    }
     save_library_db(db)
     return category_id
 
@@ -1028,12 +1128,46 @@ def move_paper(paper_id, category_id):
         raise FileNotFoundError("Paper not found.")
     target_category = ensure_category_path(db, category_id)
     record["categoryId"] = target_category
+    sibling_orders = [
+        int(item.get("sortOrder", index))
+        for index, item in enumerate(db["papers"].values())
+        if item.get("categoryId") == target_category and item.get("id") != record["id"]
+    ]
+    record["sortOrder"] = max(sibling_orders, default=-1) + 1
     metadata_path = paper_dir_from_record(record) / "metadata.json"
     metadata = read_json(metadata_path, default_metadata(record.get("title", paper_id), target_category))
     metadata["category"] = target_category
     write_json(metadata_path, metadata)
     save_library_db(db)
     return read_paper(paper_id, db)
+
+
+def reorder_category_siblings(parent_id, ordered_ids):
+    db = load_library_db()
+    parent_id = str(parent_id or "")
+    if parent_id and parent_id not in db["categories"]:
+        raise ValueError("Invalid parent category.")
+    current_ids = [item["id"] for item in db["categories"].values() if item.get("parentId", "") == parent_id]
+    requested_ids = [str(item) for item in ordered_ids] if isinstance(ordered_ids, list) else []
+    if len(requested_ids) != len(current_ids) or set(requested_ids) != set(current_ids):
+        raise ValueError("Category order does not match the current sibling categories.")
+    for index, category_id in enumerate(requested_ids):
+        db["categories"][category_id]["sortOrder"] = index
+    save_library_db(db)
+
+
+def reorder_category_papers(category_id, ordered_ids):
+    db = load_library_db()
+    category_id = str(category_id or UNCATEGORIZED_ID)
+    if category_id not in db["categories"]:
+        raise ValueError("Invalid category.")
+    current_ids = [item["id"] for item in db["papers"].values() if item.get("categoryId") == category_id]
+    requested_ids = [str(item) for item in ordered_ids] if isinstance(ordered_ids, list) else []
+    if len(requested_ids) != len(current_ids) or set(requested_ids) != set(current_ids):
+        raise ValueError("Paper order does not match the current category.")
+    for index, paper_id in enumerate(requested_ids):
+        db["papers"][paper_id]["sortOrder"] = index
+    save_library_db(db)
 
 
 def delete_paper(paper_id):
@@ -1069,6 +1203,10 @@ def add_paper_to_db(title, category, pdf_file):
         "categoryId": category_id,
         "folder": f"papers/{paper_id}",
         "uploadedAt": metadata["uploadedAt"],
+        "sortOrder": max(
+            [int(item.get("sortOrder", index)) for index, item in enumerate(db["papers"].values()) if item.get("categoryId") == category_id],
+            default=-1,
+        ) + 1,
     }
     save_library_db(db)
     return read_paper(paper_id, db)
@@ -1135,7 +1273,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Not found")
             return
 
-        api_key, model, chat_completions_url = get_ai_config()
+        task_name = {
+            "/api/translate": "translate",
+            "/api/explain": "explain",
+            "/api/discuss": "discuss",
+        }.get(request_path, "summary")
+        api_key, model, chat_completions_url, extra_params = get_ai_config(task_name)
         if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
             self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
@@ -1153,7 +1296,18 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
             try:
-                translation = translate_text(api_key, model, chat_completions_url, selected_text)
+                if bool(payload.get("withContext")):
+                    translation = translate_with_context(
+                        api_key,
+                        model,
+                        chat_completions_url,
+                        selected_text,
+                        payload.get("summary", {}),
+                        payload.get("surroundingContext", ""),
+                        extra_params,
+                    )
+                else:
+                    translation = translate_text(api_key, model, chat_completions_url, selected_text, extra_params)
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -1179,6 +1333,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     paper_text,
                     selected_text,
                     payload.get("summary", {}),
+                    extra_params,
                 )
                 self._send_json(200, {"explanation": explanation})
             except urllib.error.HTTPError as exc:
@@ -1207,6 +1362,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     payload.get("summary", {}),
                     payload.get("history", []),
                     stream=bool(payload.get("stream")),
+                    extra_params=extra_params,
                 )
                 if bool(payload.get("stream")):
                     first_chunk = next(answer, None)
@@ -1228,7 +1384,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             run_dir = create_ai_run_dir(payload.get("paperId", ""))
             write_ai_stage(run_dir, "request_overview", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
             try:
-                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=run_dir, extra_params=extra_params)
                 write_ai_stage(run_dir, "overview_final", {"overviewInfo": overview})
                 self._send_json(200, {"overviewInfo": overview, "raw": raw})
             except urllib.error.HTTPError as exc:
@@ -1247,7 +1403,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 return
             run_dir = create_ai_run_dir(payload.get("paperId", ""))
             write_ai_stage(run_dir, "request_summary", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
-            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir, extra_params=extra_params)
             write_ai_stage(run_dir, "summary_final", {"summary": summary})
             self._send_json(200, {"summary": summary, "raw": raw})
         except urllib.error.HTTPError as exc:
@@ -1459,6 +1615,15 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         action = str(payload.get("action", "save")).strip() or "save"
+        if action == "reveal":
+            try:
+                reveal_paper_in_folder(str(payload.get("id", "")))
+                self._send_json(200, {"revealed": True})
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except OSError as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if action == "move":
             try:
                 paper = move_paper(str(payload.get("id", "")), str(payload.get("category", "")))
@@ -1477,6 +1642,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             except FileNotFoundError as exc:
                 self._send_json(404, {"error": str(exc)})
             except OSError as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
+        if action == "reorder":
+            try:
+                reorder_category_papers(str(payload.get("category", "")), payload.get("orderedIds", []))
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
+            except ValueError as exc:
                 self._send_json(400, {"error": str(exc)})
             return
 
@@ -1534,16 +1707,20 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if isinstance(payload.get("notes"), str):
             metadata["notes"] = payload["notes"][:MAX_NOTES_CHARS]
             sync_relevant_changed = True
+        if isinstance(payload.get("tags"), list):
+            metadata["tags"] = normalize_paper_tags(payload["tags"])
+            sync_relevant_changed = True
         if isinstance(payload.get("read"), bool) or isinstance(payload.get("todo"), bool):
             flags = load_paper_flags()
             entry = flags["papers"].setdefault(record["id"], {})
             if isinstance(payload.get("read"), bool):
                 entry["read"] = payload["read"]
+                metadata["read"] = payload["read"]
             if isinstance(payload.get("todo"), bool):
                 entry["todo"] = payload["todo"]
+                metadata["todo"] = payload["todo"]
             save_paper_flags(flags)
-            # Read/todo markers are local-only preferences, stored outside
-            # metadata.json so cloud sync is never triggered.
+            sync_relevant_changed = True
         if isinstance(payload.get("extractedText"), str):
             extracted_text = payload["extractedText"].strip()
             if extracted_text:
@@ -1575,6 +1752,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 return
             if action == "delete":
                 delete_category(str(payload.get("id", "")))
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"tree": read_library_tree(), "sync": sync})
+                return
+            if action == "reorder":
+                reorder_category_siblings(str(payload.get("parentId", "")), payload.get("orderedIds", []))
                 sync = maybe_auto_sync_library()
                 self._send_json(200, {"tree": read_library_tree(), "sync": sync})
                 return
@@ -1844,14 +2026,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self._send_json(200, {"paper": read_paper(paper_id, db), "tree": read_library_tree(), "sync": sync})
 
 
-def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None):
+def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir)
+    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir, extra_params=extra_params)
     method_points = normalize_method_points(overview.get("methodPoints", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
-    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=run_dir)
+    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=run_dir, extra_params=extra_params)
     point_details = [item["detail"] for item in point_results]
     point_raws = [item["raw"] for item in point_results]
 
@@ -1862,9 +2044,10 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=No
         chat_completions_url,
         polish_prompt,
         system_prompt=build_method_polish_system_prompt(),
+        extra_params=extra_params,
     )
     write_ai_stage(run_dir, "method_polish", {"prompt": polish_prompt, "parsed": polished, "raw": polished_raw})
-    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir)
+    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir, extra_params=extra_params)
 
     three_line = overview.get("threeLineSummary", {})
     method_sections = normalize_method_sections(formatted.get("methodSections", []))
@@ -1900,6 +2083,7 @@ def test_ai_api(payload):
     api_key = str(ai_payload.get("apiKey", "")).strip() or get_secret(config, "ai", "apiKey").strip()
     model = str(ai_payload.get("model", "")).strip() or str(saved_ai.get("model", "")).strip() or "gpt-4o-mini"
     base_url = str(ai_payload.get("baseUrl", "")).strip() or str(saved_ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    extra_params = ai_payload.get("extraParams") if isinstance(ai_payload.get("extraParams"), dict) else saved_ai.get("extraParams", {})
     if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
         raise ValueError("Missing AI API key. Enter an API key or save one first.")
 
@@ -1924,7 +2108,7 @@ def test_ai_api(payload):
     }
 
 
-def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None):
+def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None, extra_params=None):
     format_prompt = build_method_format_prompt(method_json)
     try:
         formatted, raw = call_chat_completions(
@@ -1934,6 +2118,7 @@ def format_method_breakdown(api_key, model, chat_completions_url, method_json, r
             format_prompt,
             system_prompt=build_method_format_system_prompt(),
             temperature=0,
+            extra_params=extra_params,
         )
         write_ai_stage(run_dir, "method_format", {"prompt": format_prompt, "parsed": formatted, "raw": raw})
     except Exception as exc:
@@ -1996,16 +2181,16 @@ def fix_multicharacter_subscripts(text):
     return re.sub(r"_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})", r"_{\1}", text)
 
 
-def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None):
+def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None, extra_params=None):
     total = len(method_points)
     max_workers = min(MAX_METHOD_POINT_WORKERS, total)
     if max_workers <= 1:
-        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir) for index, point in enumerate(method_points, start=1)]
+        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir, extra_params=extra_params) for index, point in enumerate(method_points, start=1)]
 
     results = [None] * total
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
-            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir): index - 1
+            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir, extra_params): index - 1
             for index, point in enumerate(method_points, start=1)
         }
         for future in as_completed(future_to_index):
@@ -2013,13 +2198,14 @@ def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt,
     return results
 
 
-def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None):
+def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None, extra_params=None):
     prompt = build_method_point_prompt(paper_excerpt, point, index, total)
     detail, detail_raw = call_chat_completions(
         api_key,
         model,
         chat_completions_url,
         prompt,
+        extra_params=extra_params,
     )
     result = {
         "detail": {
@@ -2035,10 +2221,10 @@ def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, 
     return result
 
 
-def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None):
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     prompt = build_overview_prompt(paper_excerpt)
-    overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt)
+    overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt, extra_params=extra_params)
     three_line = overview.get("threeLineSummary", {})
     parsed = {
         "paperTitle": str(overview.get("paperTitle", "")).strip(),
@@ -2054,7 +2240,7 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
     return parsed, raw
 
 
-def translate_text(api_key, model, chat_completions_url, text):
+def translate_text(api_key, model, chat_completions_url, text, extra_params=None):
     source_text = text[:MAX_TRANSLATE_CHARS]
     upstream_payload = {
         "model": model,
@@ -2067,12 +2253,51 @@ def translate_text(api_key, model, chat_completions_url, text):
             {"role": "user", "content": source_text},
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None):
+def translate_with_context(
+    api_key,
+    model,
+    chat_completions_url,
+    text,
+    paper_summary=None,
+    surrounding_context="",
+    extra_params=None,
+):
+    source_text = text[:MAX_TRANSLATE_CHARS]
+    summary_context = json.dumps(paper_summary if isinstance(paper_summary, dict) else {}, ensure_ascii=False)
+    summary_context = summary_context[:MAX_TRANSLATION_SUMMARY_CHARS]
+    context_excerpt = str(surrounding_context or "").strip()[:MAX_TRANSLATION_CONTEXT_CHARS]
+    upstream_payload = {
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": render_prompt("translate_with_context_system.txt")},
+            {
+                "role": "user",
+                "content": (
+                    "Paper summary (reference only; do not translate or repeat it):\n"
+                    f"{summary_context}\n\n"
+                    "Surrounding source context (reference only; do not translate or repeat it):\n"
+                    f"{context_excerpt}\n\n"
+                    "Selected text to translate:\n"
+                    f"{source_text}"
+                ),
+            },
+        ],
+    }
+    if isinstance(extra_params, dict):
+        upstream_payload.update(extra_params)
+    upstream_payload.update(extra_params or {})
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=120)
+    return raw["choices"][0]["message"]["content"].strip()
+
+
+def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None, extra_params=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     selected_excerpt = selected_text[:MAX_TRANSLATE_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
@@ -2104,6 +2329,7 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
             },
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
     return extract_selected_role_section(raw["choices"][0]["message"]["content"].strip())
@@ -2122,8 +2348,9 @@ def extract_selected_role_section(text):
     return f"## 这段话在论文中的作用\n{body}".strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, stream=False):
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, stream=False, extra_params=None):
     upstream_payload = build_discussion_payload(model, paper_text, question, summary, history)
+    upstream_payload.update(extra_params or {})
     if stream:
         return stream_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
 
@@ -2205,7 +2432,7 @@ def format_earlier_discussion_context(messages):
     return "\n".join(lines)
 
 
-def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12):
+def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12, extra_params=None):
     upstream_payload = {
         "model": model,
         "temperature": temperature,
@@ -2218,12 +2445,13 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
             {"role": "user", "content": prompt},
         ],
     }
+    upstream_payload.update(extra_params or {})
 
     raw = post_chat_completion(
         api_key,
         chat_completions_url,
         upstream_payload,
-        timeout=120,
+        timeout=AI_SUMMARY_TIMEOUT_SECONDS,
         retry_without_response_format=True,
     )
     try:

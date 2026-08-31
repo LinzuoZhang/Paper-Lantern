@@ -32,9 +32,12 @@ const selectionMenu = document.querySelector("#selectionMenu");
 const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
 const translateButton = document.querySelector("#translateButton");
+const translateWithContextButton = document.querySelector("#translateWithContextButton");
 const explainButton = document.querySelector("#explainButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
+const readerPaperTagIndicators = document.querySelector("#readerPaperTagIndicators");
+const readerPaperMenuButton = document.querySelector("#readerPaperMenuButton");
 const pageIndicator = document.querySelector("#pageIndicator");
 const summarizeButton = document.querySelector("#summarizeButton");
 const statusText = document.querySelector("#status");
@@ -88,6 +91,13 @@ const pdfSearchInput = document.querySelector("#pdfSearchInput");
 const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
 const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
 const pdfSearchCount = document.querySelector("#pdfSearchCount");
+const pdfShortcutsButton = document.querySelector("#pdfShortcutsButton");
+const pdfShortcutsOverlay = document.querySelector("#pdfShortcutsOverlay");
+const pdfShortcutsCloseButton = document.querySelector("#pdfShortcutsCloseButton");
+const discussionThreadMenuButton = document.querySelector("#discussionThreadMenuButton");
+const discussionInputTarget = document.querySelector("#discussionInputTarget");
+const discussionResizeHandle = document.querySelector("#discussionResizeHandle");
+const continueInWebButton = document.querySelector("#continueInWebButton");
 
 const READER_LIBRARY_ALL_ID = "__library";
 const READER_RECENT_ID = "__recent";
@@ -146,6 +156,9 @@ let discussionThreads = [];
 let activeDiscussionId = null;
 let discussionIsBusy = false;
 let discussionMarkdownRenderer = null;
+let discussionInputResizeState = null;
+let discussionThreadMenu = null;
+let discussionWebUrl = "https://chatgpt.com/";
 let annotationAutoSaveTimer = null;
 let notesAutoSaveTimer = null;
 let copiedToastTimer = null;
@@ -160,6 +173,15 @@ let citationSelectedCandidate = null;
 let appliedCitationDoi = "";
 let commentsNavIndex = 0;
 let citationSearchSummaryVisible = false;
+let citationPreviewNode = null;
+let citationPreviewHideTimer = null;
+let citationPreviewToken = 0;
+let referenceActionPopover = null;
+let referenceActionHideTimer = null;
+const citationPreviewCache = new Map();
+const pdfLinkPageCache = new Map();
+const pdfLinkTextCache = new Map();
+let pdfCitationDestinationCache = null;
 
 const highlightColors = {
   yellow: "rgba(255, 221, 64, 0.42)",
@@ -183,10 +205,18 @@ initReaderSettings();
 initCitationOverlay();
 initBasicInfoEditing();
 initPdfToolbar();
+initPdfShortcuts();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
+initDiscussionInputResizer();
+loadDiscussionWebSettings().catch((error) => console.error("Failed to load discussion web settings.", error));
 openReaderFromUrl();
+
+readerPaperMenuButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (currentPaper) showReaderPaperMenu(currentPaper, readerPaperMenuButton);
+});
 
 function initReaderLibraryDrawer() {
   openLibraryDrawerButton?.addEventListener("click", () => {
@@ -757,6 +787,207 @@ function collectReaderPapers(node) {
   return [...(node.papers || []), ...(node.folders || []).flatMap(collectReaderPapers)];
 }
 
+function normalizePaperTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  return tags.map((tag) => ({
+    name: String(tag?.name || "").replace(/\s+/g, " ").trim().slice(0, 48),
+    color: /^#[0-9a-f]{6}$/i.test(String(tag?.color || "")) ? String(tag.color).toLowerCase() : "#2c758c",
+  })).filter((tag) => {
+    const key = tag.name.toLowerCase();
+    if (!tag.name || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 16);
+}
+
+function renderReaderPaperTags(tags) {
+  if (!readerPaperTagIndicators) return;
+  readerPaperTagIndicators.replaceChildren();
+  normalizePaperTags(tags).forEach((tag) => {
+    const dot = document.createElement("span");
+    dot.className = "tag-color-dot";
+    dot.style.backgroundColor = tag.color;
+    dot.title = tag.name;
+    readerPaperTagIndicators.appendChild(dot);
+  });
+}
+
+function showReaderPaperMenu(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu library-menu reader-paper-menu";
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.textContent = "移动";
+  moveButton.addEventListener("click", () => {
+    menu.remove();
+    showReaderMovePaperMenu(paper, anchor);
+  });
+  const tagsButton = document.createElement("button");
+  tagsButton.type = "button";
+  tagsButton.textContent = "编辑标签";
+  tagsButton.addEventListener("click", () => {
+    menu.remove();
+    showReaderPaperTagEditor(paper, anchor);
+  });
+  const revealButton = document.createElement("button");
+  revealButton.type = "button";
+  revealButton.textContent = "在文件夹中显示";
+  revealButton.addEventListener("click", async () => {
+    menu.remove();
+    try {
+      await updateReaderPaper({ action: "reveal", id: paper.id });
+      setStatus("Opened the paper in File Explorer.");
+    } catch (error) {
+      setStatus(error.message || "Failed to show the paper in its folder.", true);
+    }
+  });
+  const exportLink = document.createElement("a");
+  exportLink.href = `${apiBaseUrl || ""}/api/library/export?id=${encodeURIComponent(paper.id)}`;
+  exportLink.download = `${paper.title || "paper"}-export.pdf`;
+  exportLink.textContent = "导出 PDF";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.textContent = "删除论文";
+  deleteButton.addEventListener("click", async () => {
+    menu.remove();
+    if (!window.confirm(`Delete paper "${paper.title}"?`)) return;
+    try {
+      await updateReaderPaper({ action: "delete", id: paper.id });
+      window.location.href = "./index.html";
+    } catch (error) {
+      setStatus(error.message || "Failed to delete the paper.", true);
+    }
+  });
+  menu.append(moveButton, tagsButton, revealButton, exportLink, deleteButton);
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 190);
+}
+
+function showReaderMovePaperMenu(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu move-paper-menu library-menu reader-paper-menu";
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "移动到分类";
+  menu.appendChild(heading);
+  flattenReaderCategories(readerLibraryTree).filter((category) => category.id).forEach((category) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "move-category-option";
+    button.disabled = category.id === paper.category;
+    button.textContent = category.name;
+    button.addEventListener("click", async () => {
+      menu.remove();
+      await moveCurrentPaperToCategory(category);
+    });
+    menu.appendChild(button);
+  });
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 240);
+}
+
+function showReaderPaperTagEditor(paper, anchor) {
+  document.querySelector(".reader-paper-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu tag-editor-menu library-menu reader-paper-menu";
+  document.body.appendChild(menu);
+  positionReaderPaperMenu(menu, anchor, 290);
+  renderReaderPaperTagEditor(menu, paper);
+}
+
+function renderReaderPaperTagEditor(menu, paper) {
+  const tags = normalizePaperTags(paper.tags);
+  menu.replaceChildren();
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "Tags";
+  const list = document.createElement("div");
+  list.className = "tag-editor-list";
+  if (!tags.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-editor-empty";
+    empty.textContent = "No tags yet";
+    list.appendChild(empty);
+  }
+  tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "tag-editor-row";
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = tag.color;
+    color.addEventListener("change", () => saveReaderPaperTagsFromEditor(menu, paper, tags.map((item) => item.name === tag.name ? { ...item, color: color.value } : item)));
+    const name = document.createElement("span");
+    name.textContent = tag.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-remove-button";
+    remove.textContent = "×";
+    remove.addEventListener("click", () => saveReaderPaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name)));
+    row.append(color, name, remove);
+    list.appendChild(row);
+  });
+  const addRow = document.createElement("div");
+  addRow.className = "tag-editor-add-row";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 48;
+  input.placeholder = "New tag";
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = "#2c758c";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add";
+  const submit = async () => {
+    const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!name) return;
+    const existing = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+    const next = existing ? tags.map((tag) => tag === existing ? { ...tag, color: color.value } : tag) : [...tags, { name, color: color.value }];
+    await saveReaderPaperTagsFromEditor(menu, paper, next);
+  };
+  add.addEventListener("click", submit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  });
+  addRow.append(input, color, add);
+  menu.append(heading, list, addRow);
+}
+
+async function saveReaderPaperTagsFromEditor(menu, paper, tags) {
+  await saveCurrentPaper({ tags: normalizePaperTags(tags) });
+  paper.tags = normalizePaperTags(currentPaper?.tags);
+  renderReaderPaperTags(paper.tags);
+  renderReaderPaperTagEditor(menu, paper);
+}
+
+function positionReaderPaperMenu(menu, anchor, width) {
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+}
+
+async function updateReaderPaper(payload) {
+  const response = await apiFetch("/api/library/paper", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Paper operation failed.");
+  if (data.paper && currentPaper) currentPaper = { ...currentPaper, ...data.paper, extractedText: currentPaper.extractedText };
+  if (data.tree) {
+    readerLibraryTree = data.tree;
+    renderReaderLibrary();
+  }
+  return data;
+}
+
 function findReaderCategoryNode(node, id) {
   if (!node) return null;
   if ((node.id || "") === id) return node;
@@ -793,6 +1024,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 
   currentPaper = data.paper;
+  if (readerPaperMenuButton) readerPaperMenuButton.disabled = false;
   readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   renderDiscussionHistory(currentPaper.discussion || []);
@@ -803,6 +1035,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   resetCitationSection();
   loadCurrentCitationInfo().catch((error) => console.error("Failed to load current citation info.", error));
   setReaderPaperTitle(currentPaper.title);
+  renderReaderPaperTags(currentPaper.tags);
   renderReaderLibrary();
 
   const pdfResponse = await apiFetch(currentPaper.pdfUrl);
@@ -822,8 +1055,6 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
     const extractedText = extraction.text;
     lastExtractedText = extractedText;
-    referenceEntries = extractReferenceEntries(extractedText);
-    refreshReferenceCitations();
     if (extraction.title) {
       setReaderPaperTitle(extraction.title);
       currentPaper.title = extraction.title;
@@ -876,6 +1107,9 @@ document.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
     document.querySelector(".library-menu")?.remove();
   }
+  if (!event.target.closest(".discussion-thread-menu") && !event.target.closest(".discussion-thread-more-button, .discussion-thread-delete")) {
+    closeDiscussionThreadMenu();
+  }
   if (!clickedFloatingUi) {
     hideTranslationBubble();
     hideReferencePopover();
@@ -890,14 +1124,22 @@ document.addEventListener("pointerdown", (event) => {
 highlightButton.addEventListener("mousedown", (event) => event.preventDefault());
 commentButton.addEventListener("mousedown", (event) => event.preventDefault());
 translateButton.addEventListener("mousedown", (event) => event.preventDefault());
+translateWithContextButton?.addEventListener("mousedown", (event) => event.preventDefault());
 explainButton.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
+translateWithContextButton?.addEventListener("click", () => translateSelection(true));
 explainButton.addEventListener("click", explainSelection);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
+discussionThreadMenuButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (thread) showDiscussionThreadMenu(thread, discussionThreadMenuButton);
+});
+continueInWebButton?.addEventListener("click", continueDiscussionOnWeb);
 copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
 copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
 
@@ -1297,6 +1539,115 @@ function showDiscussionList() {
   discussionListView.hidden = false;
   discussionThreadView.hidden = true;
   renderDiscussionThreadList();
+  updateDiscussionInputTarget();
+}
+
+async function loadDiscussionWebSettings() {
+  const response = await apiFetch("/api/settings");
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
+  discussionWebUrl = normalizeDiscussionWebUrl(data.settings?.web?.discussionUrl);
+}
+
+function normalizeDiscussionWebUrl(value) {
+  const url = String(value || "").trim() || "https://chatgpt.com/";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+  } catch {
+    // Fall back to ChatGPT when a saved URL is invalid.
+  }
+  return "https://chatgpt.com/";
+}
+
+async function continueDiscussionOnWeb() {
+  if (!currentPaper) return setStatus("请先打开一篇论文。", true);
+  const targetWindow = window.open(normalizeDiscussionWebUrl(discussionWebUrl), "_blank");
+  if (targetWindow) targetWindow.opener = null;
+  let copied = false;
+  try {
+    await copyTextToClipboard(buildDiscussionWebHandoff());
+    copied = true;
+  } catch (error) {
+    console.warn("Failed to copy discussion handoff.", error);
+  }
+  const revealed = await updateReaderPaper({ action: "reveal", id: currentPaper.id }).then(() => true).catch(() => false);
+  if (!targetWindow) return setStatus(copied ? "已复制讨论上下文，但浏览器阻止了新窗口。" : "浏览器阻止了新窗口。", true);
+  if (copied && revealed) setStatus("已复制讨论上下文、打开网页，并在文件夹中显示论文。");
+  else if (copied) setStatus("已复制讨论上下文并打开网页，但未能显示论文所在文件夹。", true);
+  else setStatus("已打开网页，但复制讨论上下文失败。", true);
+}
+
+function buildDiscussionWebHandoff() {
+  const summary = paperToSummary(currentPaper) || {};
+  const threeLine = summary.threeLineSummary || {};
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  const recentHistory = normalizeDiscussionHistory(thread?.messages || []).slice(-16)
+    .map((message) => `${message.role === "user" ? "我" : "Paper Lantern AI"}：${message.content}`);
+  const sections = [
+    "请基于以下论文与讨论上下文继续交流。若信息不足，请明确指出缺少什么。",
+    `论文标题：${currentPaper.title || "未命名论文"}`,
+  ];
+  const summaryLines = [
+    ["挑战", threeLine.challenges],
+    ["核心方法", threeLine.method],
+    ["结论", threeLine.conclusion],
+    ["方法概览", summary.methodOverview],
+  ].filter(([, value]) => String(value || "").trim()).map(([label, value]) => `${label}：${String(value).trim()}`);
+  if (summaryLines.length) sections.push(`论文摘要：\n${summaryLines.join("\n")}`);
+  if (summary.keywords?.length) sections.push(`关键词：${summary.keywords.join("、")}`);
+  sections.push(`当前 Discussion：${thread?.title || "新建 Discussion"}`);
+  if (recentHistory.length) sections.push(`最近讨论记录：\n${recentHistory.join("\n\n")}`);
+  const draft = discussionInput?.value.trim();
+  sections.push(draft ? `我现在想问：\n${draft}` : "我接下来想继续讨论这篇论文，请结合以上内容回答。");
+  return sections.join("\n\n");
+}
+
+function initDiscussionInputResizer() {
+  if (!discussionResizeHandle || !discussionInput) return;
+  const savedHeight = Number(localStorage.getItem("discussionInputHeight"));
+  setDiscussionInputHeight(Number.isFinite(savedHeight) ? savedHeight : 74, false);
+  discussionResizeHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    discussionInputResizeState = { pointerId: event.pointerId, startY: event.clientY, startHeight: discussionInput.getBoundingClientRect().height };
+    discussionResizeHandle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-discussion-input");
+  });
+  discussionResizeHandle.addEventListener("pointermove", (event) => {
+    if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
+    setDiscussionInputHeight(discussionInputResizeState.startHeight - (event.clientY - discussionInputResizeState.startY), false);
+  });
+  const finish = (event) => {
+    if (!discussionInputResizeState || event.pointerId !== discussionInputResizeState.pointerId) return;
+    if (discussionResizeHandle.hasPointerCapture(event.pointerId)) discussionResizeHandle.releasePointerCapture(event.pointerId);
+    localStorage.setItem("discussionInputHeight", String(Math.round(discussionInput.getBoundingClientRect().height)));
+    discussionInputResizeState = null;
+    document.body.classList.remove("resizing-discussion-input");
+  };
+  discussionResizeHandle.addEventListener("pointerup", finish);
+  discussionResizeHandle.addEventListener("pointercancel", finish);
+}
+
+function setDiscussionInputHeight(value, save = true) {
+  if (!discussionInput || !discussionResizeHandle) return;
+  const height = Math.round(clamp(Number(value) || 74, 74, 360));
+  discussionInput.style.height = `${height}px`;
+  discussionResizeHandle.setAttribute("aria-valuenow", String(height));
+  if (save) localStorage.setItem("discussionInputHeight", String(height));
+}
+
+function updateDiscussionInputTarget() {
+  if (!discussionInputTarget || !discussionInput) return;
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  if (!thread) {
+    discussionInputTarget.textContent = "新建 Discussion";
+    discussionInput.placeholder = "输入问题后将新建一个 Discussion...";
+    return;
+  }
+  const title = thread.title || "未命名 Discussion";
+  discussionInputTarget.textContent = `继续：${title}`;
+  discussionInput.placeholder = `继续“${title}”...`;
 }
 
 function showDiscussionThread(threadId) {
@@ -1307,6 +1658,7 @@ function showDiscussionThread(threadId) {
   discussionThreadView.hidden = false;
   renderDiscussionThreadHeader(thread);
   renderDiscussionMessages(thread.messages);
+  updateDiscussionInputTarget();
 }
 
 function renderDiscussionThreadHeader(thread) {
@@ -1343,9 +1695,15 @@ function renderDiscussionThreadList() {
     button.append(title, meta);
     button.addEventListener("click", () => showDiscussionThread(thread.id));
 
-    const deleteButton = createMessageActionButton("delete", "Delete discussion");
-    deleteButton.classList.add("discussion-thread-delete");
-    deleteButton.addEventListener("click", () => deleteDiscussionThread(thread.id));
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "discussion-thread-delete menu-button";
+    deleteButton.textContent = "•••";
+    deleteButton.setAttribute("aria-label", `${thread.title || "Discussion"} options`);
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showDiscussionThreadMenu(thread, deleteButton);
+    });
 
     item.append(button, deleteButton);
     discussionThreadList.appendChild(item);
@@ -1411,11 +1769,11 @@ function getDiscussionMessageContent(messageNode, fallback = "") {
   return String(fallback || "");
 }
 
-async function deleteDiscussionThread(threadId) {
+async function deleteDiscussionThread(threadId, { skipConfirm = false } = {}) {
   if (discussionIsBusy) return;
   const index = discussionThreads.findIndex((thread) => thread.id === threadId);
   if (index < 0) return;
-  if (!window.confirm("Delete this discussion?")) return;
+  if (!skipConfirm && !window.confirm("Delete this discussion?")) return;
   discussionThreads.splice(index, 1);
   if (activeDiscussionId === threadId) activeDiscussionId = null;
   renderDiscussionThreadList();
@@ -2006,6 +2364,7 @@ function setReaderPaperTitle(title) {
   const displayTitle = normalizedTitle || "Loading paper...";
   fileName.textContent = displayTitle;
   fileName.title = displayTitle;
+  renderReaderPaperTags(currentPaper?.tags);
   document.title = normalizedTitle ? `${normalizedTitle} - Paper Lantern` : "PaperLantern Paper Reader";
 }
 
@@ -2249,6 +2608,12 @@ async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
   hideReferencePopover();
+  hideCitationPreview();
+  hideReferenceActionPopover();
+  citationPreviewCache.clear();
+  pdfLinkPageCache.clear();
+  pdfLinkTextCache.clear();
+  pdfCitationDestinationCache = null;
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
@@ -2300,7 +2665,6 @@ async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   renderedPdfZoom = renderZoom;
   setPdfZoomPreviewScale(1);
   await renderVisiblePdfPages(renderId, { force: true });
-  refreshReferenceCitations();
   updatePageIndicator();
   resetPdfSearchState();
   updatePdfZoomLabel();
@@ -2416,8 +2780,11 @@ async function renderPdfPageInto(pageNumber, pageNode, renderId = currentPdfTask
 
   pageNode.classList.remove("pdf-page-placeholder");
   pdfRenderedPages.set(pageNumber, { zoom: renderedPdfZoom });
+  await renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId);
+  if (currentPdfTask !== renderId) return;
+  await renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId);
+  if (currentPdfTask !== renderId) return;
   restoreHighlightsForPage(pageNode);
-  if (pageNode.isConnected) decorateReferenceCitations(pageNode, textLayer);
   })();
 
   pdfRenderingPages.set(pageNumber, task);
@@ -2426,6 +2793,592 @@ async function renderPdfPageInto(pageNumber, pageNode, renderId = currentPdfTask
   } finally {
     pdfRenderingPages.delete(pageNumber);
   }
+}
+
+async function renderPdfLinkPreviews(pageNode, page, viewport, pageNumber, renderId) {
+  let annotations = [];
+  try {
+    annotations = await page.getAnnotations({ intent: "display" });
+  } catch (error) {
+    console.warn("Unable to read PDF links for previews.", error);
+    return;
+  }
+  if (currentPdfTask !== renderId) return;
+
+  const links = annotations.filter((annotation) => annotation.subtype === "Link" && annotation.dest && Array.isArray(annotation.rect));
+  if (!links.length) return;
+  const linkLayer = document.createElement("div");
+  linkLayer.className = "pdf-link-layer";
+  links.forEach((annotation, index) => {
+    const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(annotation.rect);
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    if (width < 1 || height < 1) return;
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "pdf-internal-link";
+    Object.assign(link.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
+    link.setAttribute("aria-label", "Preview linked PDF content");
+    link.dataset.linkId = `${pageNumber}:${annotation.id || index}`;
+    link.addEventListener("pointerenter", () => showCitationPreview(link, pageNumber, annotation, renderId));
+    link.addEventListener("pointerleave", scheduleCitationPreviewHide);
+    link.addEventListener("focus", () => showCitationPreview(link, pageNumber, annotation, renderId));
+    link.addEventListener("blur", scheduleCitationPreviewHide);
+    link.addEventListener("click", async () => {
+      const preview = await getCitationPreview(pageNumber, annotation);
+      if (preview?.pageNumber) await goToPdfLinkDestination(preview);
+    });
+    linkLayer.appendChild(link);
+  });
+  if (linkLayer.childElementCount) pageNode.appendChild(linkLayer);
+}
+
+function isCitationDestination(destination) {
+  return typeof destination === "string" && /(?:^|[.:/_-])(?:cite|citation)(?:[.:/_-]|$)/i.test(destination);
+}
+
+function ensureCitationPreview() {
+  if (citationPreviewNode) return citationPreviewNode;
+  const node = document.createElement("aside");
+  node.className = "citation-preview";
+  node.hidden = true;
+  node.setAttribute("role", "dialog");
+  node.addEventListener("pointerenter", () => window.clearTimeout(citationPreviewHideTimer));
+  node.addEventListener("pointerleave", scheduleCitationPreviewHide);
+  node.addEventListener("focusin", () => window.clearTimeout(citationPreviewHideTimer));
+  node.addEventListener("focusout", (event) => {
+    if (!node.contains(event.relatedTarget)) scheduleCitationPreviewHide();
+  });
+  document.body.appendChild(node);
+  citationPreviewNode = node;
+  return node;
+}
+
+function setCitationPreviewContent(preview) {
+  const node = ensureCitationPreview();
+  const heading = document.createElement("strong");
+  heading.className = "citation-preview-label";
+  heading.textContent = preview.label;
+  const children = [heading];
+  if (preview.source) {
+    const viewer = document.createElement("div");
+    viewer.className = "pdf-link-preview-viewer";
+    viewer.setAttribute("aria-label", `Interactive preview of linked content on page ${preview.pageNumber}`);
+    const content = document.createElement("div");
+    content.className = "pdf-link-preview-page";
+    preview.source.canvas.className = "pdf-link-preview-canvas";
+    content.appendChild(preview.source.canvas);
+    if (preview.referenceEntries?.length) {
+      renderReferenceActionDotLayer(content, preview.referenceEntries, preview.source.viewport, "pdf-reference-preview-dots");
+    }
+    viewer.appendChild(content);
+    initPdfLinkPreviewPan(viewer);
+    children.push(viewer);
+    requestAnimationFrame(() => centerPdfLinkPreview(viewer, preview.destination, preview.source.viewport));
+  }
+  if (preview.text && !preview.isCitation) {
+    const body = document.createElement("p");
+    body.textContent = preview.text;
+    children.push(body);
+  }
+  node.replaceChildren(...children);
+  return node;
+}
+
+function positionCitationPreview(anchor) {
+  const node = ensureCitationPreview();
+  const rect = anchor.getBoundingClientRect();
+  const margin = 12;
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - node.offsetWidth - margin));
+  const below = rect.bottom + 2;
+  const top = below + node.offsetHeight <= window.innerHeight - margin ? below : Math.max(margin, rect.top - node.offsetHeight - 2);
+  node.style.left = `${left}px`;
+  node.style.top = `${top}px`;
+}
+
+function scheduleCitationPreviewHide() {
+  window.clearTimeout(citationPreviewHideTimer);
+  citationPreviewHideTimer = window.setTimeout(hideCitationPreview, 90);
+}
+
+function hideCitationPreview() {
+  window.clearTimeout(citationPreviewHideTimer);
+  citationPreviewToken += 1;
+  if (citationPreviewNode) citationPreviewNode.hidden = true;
+}
+
+async function showCitationPreview(anchor, pageNumber, annotation, renderId) {
+  window.clearTimeout(citationPreviewHideTimer);
+  const token = ++citationPreviewToken;
+  const loading = setCitationPreviewContent({ label: "Loading linked content...", text: "", pageNumber: 0 });
+  loading.hidden = false;
+  positionCitationPreview(anchor);
+  try {
+    const preview = await getCitationPreview(pageNumber, annotation);
+    if (token !== citationPreviewToken || currentPdfTask !== renderId || !anchor.isConnected || !isCitationPreviewActive(anchor)) return;
+    const node = setCitationPreviewContent(preview);
+    node.hidden = false;
+    positionCitationPreview(anchor);
+  } catch (error) {
+    if (token !== citationPreviewToken || !anchor.isConnected || !isCitationPreviewActive(anchor)) return;
+    const node = setCitationPreviewContent({ label: "Linked content", text: "The linked content could not be read.", pageNumber: 0 });
+    node.hidden = false;
+    positionCitationPreview(anchor);
+  }
+}
+
+function isCitationPreviewActive(anchor) {
+  return anchor.matches(":hover, :focus") || citationPreviewNode?.matches(":hover, :focus-within");
+}
+
+async function getCitationPreview(sourcePageNumber, annotation) {
+  const cacheKey = `${sourcePageNumber}:${annotation.id || JSON.stringify(annotation.dest)}`;
+  if (!citationPreviewCache.has(cacheKey)) citationPreviewCache.set(cacheKey, resolveCitationPreview(annotation));
+  return citationPreviewCache.get(cacheKey);
+}
+
+async function resolveCitationPreview(annotation) {
+  if (!currentPdfDocument) return { label: "Linked content", text: "No paper is open.", pageNumber: 0 };
+  const destination = typeof annotation.dest === "string" ? await currentPdfDocument.getDestination(annotation.dest) : annotation.dest;
+  if (!Array.isArray(destination) || !destination[0]) {
+    return { label: "Linked content", text: "The linked content has no readable destination.", pageNumber: 0 };
+  }
+  const pageNumber = (await currentPdfDocument.getPageIndex(destination[0])) + 1;
+  const page = await currentPdfDocument.getPage(pageNumber);
+  const textContent = await getPdfLinkTextContent(page, pageNumber);
+  const referenceText = extractReferenceText(textContent.items, getCitationDestinationY(destination));
+  const isCitation = isCitationDestination(annotation.dest) || /^\s*\[\s*\d+\s*\]/.test(referenceText);
+  const source = await getPdfLinkPreviewSource(page, pageNumber);
+  const referenceEntries = isCitation && isReferenceListPage(textContent.items)
+    ? await getPdfReferenceEntries(pageNumber, textContent.items)
+    : [];
+  return {
+    label: isCitation ? `Reference · page ${pageNumber}` : `Linked content · page ${pageNumber}`,
+    text: "",
+    pageNumber,
+    destination,
+    source,
+    isCitation,
+    referenceEntries,
+  };
+}
+
+async function getPdfLinkPreviewSource(page, pageNumber) {
+  if (!pdfLinkPageCache.has(pageNumber)) {
+    if (pdfLinkPageCache.size >= 8) pdfLinkPageCache.delete(pdfLinkPageCache.keys().next().value);
+    pdfLinkPageCache.set(pageNumber, (async () => {
+      const viewport = page.getViewport({ scale: 1.35 });
+      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width * outputScale);
+      canvas.height = Math.ceil(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      const context = canvas.getContext("2d", { alpha: false });
+      const transform = outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0];
+      await page.render({ canvasContext: context, viewport, transform }).promise;
+      return { canvas, viewport };
+    })());
+  }
+  return pdfLinkPageCache.get(pageNumber);
+}
+
+async function getPdfLinkTextContent(page, pageNumber) {
+  if (!pdfLinkTextCache.has(pageNumber)) pdfLinkTextCache.set(pageNumber, page.getTextContent());
+  return pdfLinkTextCache.get(pageNumber);
+}
+
+function buildReferenceSearchQuery(referenceText) {
+  const text = String(referenceText || "").replace(/^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s*/, "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const sentences = text.split(/\.\s+(?=[A-Z])/).map((item) => item.trim()).filter(Boolean);
+  const isMetadata = (item) => /(?:arxiv|proceedings|conference|journal|coRR|pages|vol\.?|doi|neural computation|ACL)/i.test(item);
+  const title = sentences.slice(1).find((item) => item.length >= 8 && item.length <= 300 && !isMetadata(item))
+    || sentences.find((item) => item.length >= 18 && item.length <= 300 && !isMetadata(item)) || text;
+  return `${title} ${text}`.slice(0, 1200);
+}
+
+function getArxivUrl(referenceText) {
+  const text = String(referenceText || "");
+  const directUrl = text.match(/https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/([^\s),]+)/i);
+  if (directUrl) return `https://arxiv.org/abs/${directUrl[1].replace(/\.pdf$/i, "")}`;
+  const identifier = text.match(/\barXiv\s*(?:preprint\s*)?(?:arXiv\s*:\s*)?(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+  return identifier ? `https://arxiv.org/abs/${identifier[1]}` : "";
+}
+
+async function renderReferenceActionDots(pageNode, page, viewport, pageNumber, renderId) {
+  const textContent = await getPdfLinkTextContent(page, pageNumber);
+  if (currentPdfTask !== renderId || !isReferenceListPage(textContent.items)) return;
+  const entries = await getPdfReferenceEntries(pageNumber, textContent.items);
+  if (currentPdfTask !== renderId) return;
+  if (entries.length) renderReferenceActionDotLayer(pageNode, entries, viewport);
+}
+
+async function getPdfReferenceEntries(pageNumber, items) {
+  const destinationsByPage = await getPdfCitationDestinationsByPage();
+  const destinations = destinationsByPage.get(pageNumber) || [];
+  const linkedEntries = extractPdfReferenceEntriesFromDestinations(items, destinations);
+  return linkedEntries.length ? linkedEntries : extractPdfReferenceEntriesFromItems(items);
+}
+
+async function getPdfCitationDestinationsByPage() {
+  if (!currentPdfDocument) return new Map();
+  if (!pdfCitationDestinationCache) {
+    const documentAtStart = currentPdfDocument;
+    pdfCitationDestinationCache = (async () => {
+      const byPage = new Map();
+      let destinations = {};
+      try {
+        destinations = await documentAtStart.getDestinations();
+      } catch (error) {
+        console.warn("Unable to read named PDF destinations.", error);
+        return byPage;
+      }
+
+      await Promise.all(Object.entries(destinations).map(async ([name, destination]) => {
+        if (!isCitationDestination(name) || !Array.isArray(destination) || !destination[0]) return;
+        try {
+          const pageNumber = (await documentAtStart.getPageIndex(destination[0])) + 1;
+          const x = Number(destination[2]);
+          const y = getCitationDestinationY(destination);
+          if (!Number.isFinite(y)) return;
+          if (!byPage.has(pageNumber)) byPage.set(pageNumber, []);
+          byPage.get(pageNumber).push({ name, x, y });
+        } catch (error) {
+          console.warn(`Unable to resolve PDF citation destination ${name}.`, error);
+        }
+      }));
+      return byPage;
+    })();
+  }
+  return pdfCitationDestinationCache;
+}
+
+function renderReferenceActionDotLayer(container, entries, viewport, extraClass = "") {
+  const layer = document.createElement("div");
+  layer.className = `pdf-reference-action-dots ${extraClass}`.trim();
+  entries.forEach((entry) => {
+    const detail = { ...entry, searchQuery: buildReferenceSearchQuery(entry.text), arxivUrl: getArxivUrl(entry.text) };
+    if (!detail.searchQuery && !detail.arxivUrl) return;
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "pdf-reference-action-dot";
+    dot.title = "打开此参考文献的 Scholar / arXiv 链接";
+    dot.setAttribute("aria-label", dot.title);
+    positionReferenceActionDot(dot, entry, viewport);
+    dot.addEventListener("pointerenter", () => showReferenceActionPopover(dot, detail));
+    dot.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
+    dot.addEventListener("focus", () => showReferenceActionPopover(dot, detail));
+    dot.addEventListener("blur", scheduleReferenceActionPopoverHide);
+    dot.addEventListener("click", (event) => { event.preventDefault(); showReferenceActionPopover(dot, detail); });
+    layer.appendChild(dot);
+  });
+  if (layer.childElementCount) container.appendChild(layer);
+}
+
+function createReferenceActionControls(reference) {
+  const actions = document.createElement("div");
+  actions.className = "pdf-reference-action-controls";
+  if (reference.searchQuery) {
+    const scholar = document.createElement("a");
+    scholar.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(reference.searchQuery)}`;
+    scholar.target = "_blank";
+    scholar.rel = "noopener noreferrer";
+    scholar.textContent = "Scholar";
+    scholar.title = "在 Google Scholar 中搜索此参考文献";
+    actions.appendChild(scholar);
+  }
+  if (reference.arxivUrl) {
+    const arxiv = document.createElement("a");
+    arxiv.href = reference.arxivUrl;
+    arxiv.target = "_blank";
+    arxiv.rel = "noopener noreferrer";
+    arxiv.textContent = "arXiv";
+    arxiv.title = "打开 arXiv 页面";
+    actions.appendChild(arxiv);
+  }
+  return actions;
+}
+
+function positionReferenceActionDot(dot, entry, viewport) {
+  const [x, y] = viewport.convertToViewportPoint(Number(entry.x || viewport.viewBox[0]), entry.y);
+  dot.style.left = `${Math.max(1, x - 12)}px`;
+  dot.style.top = `${Math.max(1, y + 2)}px`;
+}
+
+function ensureReferenceActionPopover() {
+  if (referenceActionPopover) return referenceActionPopover;
+  const popover = document.createElement("aside");
+  popover.className = "pdf-reference-action-popover";
+  popover.hidden = true;
+  popover.addEventListener("pointerenter", () => window.clearTimeout(referenceActionHideTimer));
+  popover.addEventListener("pointerleave", scheduleReferenceActionPopoverHide);
+  popover.addEventListener("focusin", () => window.clearTimeout(referenceActionHideTimer));
+  popover.addEventListener("focusout", (event) => { if (!popover.contains(event.relatedTarget)) scheduleReferenceActionPopoverHide(); });
+  document.body.appendChild(popover);
+  referenceActionPopover = popover;
+  return popover;
+}
+
+function showReferenceActionPopover(anchor, reference) {
+  window.clearTimeout(referenceActionHideTimer);
+  const popover = ensureReferenceActionPopover();
+  const actions = createReferenceActionControls(reference);
+  actions.classList.add("pdf-reference-popover-actions");
+  popover.replaceChildren(actions);
+  popover.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  const margin = 10;
+  popover.style.left = `${Math.max(margin, Math.min(rect.left - 6, window.innerWidth - popover.offsetWidth - margin))}px`;
+  const below = rect.bottom + 4;
+  popover.style.top = `${below + popover.offsetHeight <= window.innerHeight - margin ? below : Math.max(margin, rect.top - popover.offsetHeight - 4)}px`;
+}
+
+function scheduleReferenceActionPopoverHide() {
+  window.clearTimeout(referenceActionHideTimer);
+  referenceActionHideTimer = window.setTimeout(hideReferenceActionPopover, 100);
+}
+
+function hideReferenceActionPopover() {
+  window.clearTimeout(referenceActionHideTimer);
+  if (referenceActionPopover) referenceActionPopover.hidden = true;
+}
+
+function centerPdfLinkPreview(viewer, destination, viewport) {
+  const point = getPdfDestinationPoint(destination, viewport);
+  viewer.scrollLeft = Math.max(0, point.x - viewer.clientWidth * 0.42);
+  viewer.scrollTop = Math.max(0, point.y - viewer.clientHeight * 0.34);
+}
+
+function initPdfLinkPreviewPan(viewer) {
+  let pan = null;
+  viewer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("a, button")) return;
+    pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: viewer.scrollLeft, top: viewer.scrollTop };
+    viewer.setPointerCapture(event.pointerId);
+    viewer.classList.add("is-panning");
+  });
+  viewer.addEventListener("pointermove", (event) => {
+    if (!pan || event.pointerId !== pan.pointerId) return;
+    viewer.scrollLeft = pan.left - (event.clientX - pan.x);
+    viewer.scrollTop = pan.top - (event.clientY - pan.y);
+  });
+  const finish = (event) => {
+    if (!pan || event.pointerId !== pan.pointerId) return;
+    if (viewer.hasPointerCapture(event.pointerId)) viewer.releasePointerCapture(event.pointerId);
+    pan = null;
+    viewer.classList.remove("is-panning");
+  };
+  viewer.addEventListener("pointerup", finish);
+  viewer.addEventListener("pointercancel", finish);
+}
+
+function getPdfDestinationPoint(destination, viewport) {
+  const mode = destination[1]?.name;
+  const viewBox = viewport.viewBox;
+  let x = (viewBox[0] + viewBox[2]) / 2;
+  let y = (viewBox[1] + viewBox[3]) / 2;
+  if (mode === "XYZ") {
+    if (Number.isFinite(Number(destination[2]))) x = Number(destination[2]);
+    if (Number.isFinite(Number(destination[3]))) y = Number(destination[3]);
+  } else if (mode === "FitH" || mode === "FitBH") {
+    if (Number.isFinite(Number(destination[2]))) y = Number(destination[2]);
+  } else if (mode === "FitR") {
+    if (Number.isFinite(Number(destination[2])) && Number.isFinite(Number(destination[4]))) x = (Number(destination[2]) + Number(destination[4])) / 2;
+    if (Number.isFinite(Number(destination[5]))) y = Number(destination[5]);
+  }
+  const [pointX, pointY] = viewport.convertToViewportPoint(x, y);
+  return { x: pointX, y: pointY };
+}
+
+async function goToPdfLinkDestination(preview) {
+  if (!currentPdfDocument || !preview?.pageNumber) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${preview.pageNumber}"]`);
+  if (!pageNode) return;
+  await renderPdfPageInto(preview.pageNumber, pageNode, currentPdfTask);
+  const page = await currentPdfDocument.getPage(preview.pageNumber);
+  const metrics = pdfPageMetrics[preview.pageNumber] || getPdfPageMetrics(page, renderedPdfZoom);
+  const point = getPdfDestinationPoint(preview.destination, page.getViewport({ scale: metrics.scale }));
+  pdfViewer.scrollTo({
+    left: Math.max(0, point.x - pdfViewer.clientWidth * 0.45),
+    top: Math.max(0, pageNode.offsetTop + point.y - 42),
+    behavior: "smooth",
+  });
+}
+
+function getCitationDestinationY(destination) {
+  const mode = destination[1]?.name;
+  if (mode === "FitH" || mode === "FitBH") return Number(destination[2]);
+  if (mode === "FitR") return Number(destination[5]);
+  return Number(destination[3] ?? destination[2]);
+}
+
+function buildPdfTextLines(items) {
+  const lines = [];
+  items.forEach((item) => {
+    const text = String(item.str || "").trim();
+    const x = Number(item.transform?.[4]);
+    const y = Number(item.transform?.[5]);
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    const tolerance = Math.max(2, Number(item.height || 8) * 0.28);
+    let line = lines.find((candidate) => Math.abs(candidate.y - y) <= tolerance);
+    if (!line) { line = { y, items: [] }; lines.push(line); }
+    line.items.push({ x, width: Number(item.width), text });
+  });
+  lines.sort((left, right) => right.y - left.y);
+  lines.forEach((line) => {
+    line.text = line.items.sort((left, right) => left.x - right.x).map((item) => item.text).join(" ").replace(/\s+/g, " ").trim();
+  });
+  return lines;
+}
+
+function isReferenceStart(text) {
+  return /^\s*(?:\[\s*\d+\s*\]|\d+[.)])\s+/.test(text);
+}
+
+function isBracketReferenceStart(text) {
+  return /^\s*\[\s*\d+\s*\]\s+/.test(text);
+}
+
+function isRawReferenceStart(text) {
+  return /^\s*\[\s*\d+\s*\](?:\s+|$)/.test(text) || /^\s*\d+[.)]\s+/.test(text);
+}
+
+function isReferenceListPage(items) {
+  const lines = buildPdfReferenceLines(items);
+  const hasHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
+  return hasHeading || lines.filter((line) => isBracketReferenceStart(line.text)).length >= 4;
+}
+
+function extractPdfReferenceEntriesFromDestinations(items, destinations) {
+  if (!destinations.length) return [];
+  const textItems = items.map((item) => ({
+    text: String(item.str || "").trim(),
+    x: Number(item.transform?.[4]),
+    y: Number(item.transform?.[5]),
+    width: Number(item.width || 0),
+  })).filter((item) => item.text && Number.isFinite(item.x) && Number.isFinite(item.y));
+  const referenceStarts = textItems.filter((item) => isRawReferenceStart(item.text));
+  if (!referenceStarts.length) return [];
+
+  const matchedStarts = [];
+  const seenStarts = new Set();
+  destinations.forEach((destination) => {
+    const targetX = Number(destination.x);
+    const targetY = Number(destination.y);
+    const candidates = referenceStarts.map((start) => ({
+      start,
+      xDistance: Number.isFinite(targetX) ? Math.abs(start.x - targetX) : 0,
+      yDistance: Math.abs(start.y - targetY),
+    })).filter((candidate) => candidate.yDistance <= 48 && candidate.xDistance <= 72)
+      .sort((left, right) => (left.yDistance + left.xDistance * 0.4) - (right.yDistance + right.xDistance * 0.4));
+    const directionalCandidates = candidates.filter((candidate) => candidate.start.y <= targetY + 3);
+    const match = (directionalCandidates.length ? directionalCandidates : candidates)[0];
+    if (!match) return;
+    const key = `${match.start.x.toFixed(2)}:${match.start.y.toFixed(2)}`;
+    if (seenStarts.has(key)) return;
+    seenStarts.add(key);
+    matchedStarts.push(match.start);
+  });
+
+  const columnStarts = [];
+  referenceStarts.map((start) => start.x).sort((left, right) => left - right).forEach((x) => {
+    if (!columnStarts.some((columnX) => Math.abs(columnX - x) <= 72)) columnStarts.push(x);
+  });
+
+  return matchedStarts.map((start) => {
+    const columnX = columnStarts.reduce((best, x) => Math.abs(x - start.x) < Math.abs(best - start.x) ? x : best, columnStarts[0]);
+    const nextColumnX = columnStarts.find((x) => x > columnX + 72);
+    const sameColumnStarts = referenceStarts.filter((candidate) => Math.abs(candidate.x - columnX) <= 72)
+      .sort((left, right) => right.y - left.y);
+    const nextStart = sameColumnStarts.find((candidate) => candidate.y < start.y - 2);
+    const lowerY = nextStart ? nextStart.y + 2 : -Infinity;
+    const parts = textItems.filter((item) => (
+      item.x >= columnX - 4
+      && (!Number.isFinite(nextColumnX) || item.x < nextColumnX - 4)
+      && item.y <= start.y + 3
+      && item.y > lowerY
+    )).sort((left, right) => Math.abs(left.y - right.y) <= 2 ? left.x - right.x : right.y - left.y);
+    return {
+      x: start.x,
+      y: start.y,
+      text: parts.map((item) => item.text).join(" ").replace(/\s+/g, " ").slice(0, 900).trim(),
+    };
+  }).filter((entry) => entry.text.length >= 18)
+    .sort((left, right) => left.x - right.x || right.y - left.y);
+}
+
+function extractPdfReferenceEntriesFromItems(items) {
+  const entries = [];
+  buildPdfReferenceColumns(buildPdfReferenceLines(items)).forEach((column) => {
+    let current = null;
+    column.forEach((line) => {
+      if (isReferenceStart(line.text)) {
+        if (current) entries.push(current);
+        current = { y: line.y, x: line.x, text: line.text };
+      } else if (current && current.text.length < 900) {
+        current.text = `${current.text} ${line.text}`.trim();
+      }
+    });
+    if (current) entries.push(current);
+  });
+  return entries.filter((entry) => entry.text.length >= 18);
+}
+
+function buildPdfReferenceLines(items) {
+  const gapThreshold = 26;
+  return buildPdfTextLines(items).flatMap((line) => {
+    const segments = [];
+    let segment = null;
+    let previous = null;
+    line.items.forEach((item) => {
+      const previousRight = previous ? previous.x + Math.max(previous.width || 0, 1) : 0;
+      if (!segment || item.x - previousRight > gapThreshold) {
+        segment = { y: line.y, items: [] };
+        segments.push(segment);
+      }
+      segment.items.push(item);
+      previous = item;
+    });
+    return segments.map((part) => ({
+      y: part.y,
+      x: Math.min(...part.items.map((item) => item.x)),
+      items: part.items,
+      text: part.items.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim(),
+    }));
+  });
+}
+
+function buildPdfReferenceColumns(lines) {
+  const columns = [];
+  [...lines].sort((left, right) => left.x - right.x).forEach((line) => {
+    const column = columns.find((candidate) => Math.abs(candidate.x - line.x) <= 56);
+    if (column) column.lines.push(line);
+    else columns.push({ x: line.x, lines: [line] });
+  });
+  return columns.sort((left, right) => left.x - right.x).map((column) => column.lines.sort((left, right) => right.y - left.y));
+}
+
+function extractReferenceText(items, destinationY) {
+  if (!Number.isFinite(destinationY)) return "";
+  const lines = buildPdfTextLines(items);
+  if (!lines.length) return "";
+  let start = lines.findIndex((line) => line.y <= destinationY + 2);
+  if (start < 0) start = lines.reduce((best, line, index) => Math.abs(line.y - destinationY) < Math.abs(lines[best].y - destinationY) ? index : best, 0);
+  for (let index = start; index >= Math.max(0, start - 6); index -= 1) {
+    if (isReferenceStart(lines[index].text)) { start = index; break; }
+  }
+  const parts = [];
+  for (let index = start; index < lines.length && parts.length < 8; index += 1) {
+    const text = lines[index].text;
+    if (!text) continue;
+    if (parts.length && isReferenceStart(text)) break;
+    parts.push(text);
+    if (parts.join(" ").length >= 900) break;
+  }
+  return parts.join(" ").slice(0, 900).trim();
 }
 
 function handlePdfWheel(event) {
@@ -2498,6 +3451,35 @@ function initPdfToolbar() {
   pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
   updatePdfZoomLabel();
   updatePdfSearchUI();
+}
+
+function initPdfShortcuts() {
+  pdfShortcutsButton?.addEventListener("click", () => {
+    if (!pdfShortcutsOverlay) return;
+    pdfShortcutsOverlay.hidden = false;
+    pdfShortcutsCloseButton?.focus();
+  });
+  const close = () => {
+    if (!pdfShortcutsOverlay) return;
+    pdfShortcutsOverlay.hidden = true;
+    pdfShortcutsButton?.focus();
+  };
+  pdfShortcutsCloseButton?.addEventListener("click", close);
+  pdfShortcutsOverlay?.addEventListener("pointerdown", (event) => {
+    if (event.target === pdfShortcutsOverlay) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && pdfShortcutsOverlay && !pdfShortcutsOverlay.hidden) {
+      close();
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
+    if (!(event.ctrlKey || event.metaKey) || !["+", "=", "-", "0"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "0") setPdfZoomTo(1);
+    else zoomPdf(event.key === "-" ? 1 / 1.25 : 1.25);
+  });
 }
 
 function updatePdfZoomLabel() {
@@ -3164,7 +4146,7 @@ function commentSelection() {
   refreshCommentsNavigation();
 }
 
-async function translateSelection() {
+async function translateSelection(withContext = false) {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
 
@@ -3177,13 +4159,20 @@ async function translateSelection() {
   });
   if (!draftHighlights.length) return;
 
-  translateButton.disabled = true;
-  translateButton.textContent = "\u7ffb\u8bd1\u4e2d";
+  const activeTranslateButton = withContext ? translateWithContextButton : translateButton;
+  activeTranslateButton.disabled = true;
+  const previousLabel = activeTranslateButton.textContent;
+  activeTranslateButton.textContent = "\u7ffb\u8bd1\u4e2d";
   try {
     const response = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        withContext,
+        summary: paperToSummary(currentPaper),
+        surroundingContext: withContext ? getTranslationSurroundingContext(text) : "",
+      }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
@@ -3201,9 +4190,94 @@ async function translateSelection() {
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
   } finally {
-    translateButton.disabled = false;
-    translateButton.textContent = "\u7ffb\u8bd1";
+    activeTranslateButton.disabled = false;
+    activeTranslateButton.textContent = previousLabel;
   }
+}
+
+function showDiscussionThreadMenu(thread, anchor) {
+  closeDiscussionThreadMenu();
+  const menu = document.createElement("div");
+  menu.className = "discussion-thread-menu library-menu";
+  const rename = document.createElement("button");
+  rename.type = "button";
+  rename.textContent = "重命名";
+  rename.addEventListener("click", () => {
+    closeDiscussionThreadMenu();
+    beginDiscussionRename(thread);
+  });
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "删除";
+  remove.addEventListener("click", () => {
+    if (!remove.dataset.confirming) {
+      remove.dataset.confirming = "true";
+      remove.textContent = "再次点击确认删除";
+      return;
+    }
+    closeDiscussionThreadMenu();
+    deleteDiscussionThread(thread.id, { skipConfirm: true });
+  });
+  menu.append(rename, remove);
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right - 170, window.innerWidth - 178))}px`;
+  menu.style.top = `${rect.bottom + 4}px`;
+  discussionThreadMenu = menu;
+}
+
+function closeDiscussionThreadMenu() {
+  discussionThreadMenu?.remove();
+  discussionThreadMenu = null;
+}
+
+function beginDiscussionRename(thread) {
+  const host = activeDiscussionId === thread.id
+    ? discussionThreadTitle
+    : discussionThreadList.querySelector(`[data-thread-id="${CSS.escape(thread.id)}"] .discussion-thread-item-title`);
+  if (!host) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "discussion-inline-title-input";
+  input.value = thread.title || "New discussion";
+  host.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const next = input.value.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (save && next) {
+      thread.title = next;
+      thread.updatedAt = new Date().toISOString();
+      thread.hash = await makeDiscussionThreadHash(thread);
+      await saveDiscussionThreads();
+    }
+    renderDiscussionThreadList();
+    if (activeDiscussionId === thread.id) renderDiscussionThreadHeader(thread);
+  };
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function getTranslationSurroundingContext(selectedText) {
+  const source = String(lastExtractedText || "");
+  const selected = String(selectedText || "").trim();
+  if (!source || !selected) return "";
+  const index = source.indexOf(selected);
+  if (index < 0) return source.slice(0, 3000);
+  const radius = 1500;
+  return source.slice(Math.max(0, index - radius), Math.min(source.length, index + selected.length + radius));
 }
 
 async function explainSelection() {
@@ -3342,24 +4416,7 @@ function refreshReferenceCitations() {
 function handlePdfClick(event) {
   const selection = window.getSelection();
   if (selection && selection.toString().trim()) return;
-  if (selectionMenu.contains(event.target) || event.target.closest(".reference-popover")) return;
-
-  const cue = event.target.closest(".pdf-reference-cue");
-  if (cue) {
-    const numbers = (cue.dataset.references || "").split(",").filter(Boolean);
-    if (numbers.length) {
-      event.preventDefault();
-      showReferencePopover(numbers, event.clientX, event.clientY);
-      return;
-    }
-  }
-
-  const clickedReference = getCitationAtPoint(event.clientX, event.clientY);
-  if (clickedReference.length) {
-    event.preventDefault();
-    showReferencePopover(clickedReference, event.clientX, event.clientY);
-    return;
-  }
+  if (selectionMenu.contains(event.target) || event.target.closest(".reference-popover, .citation-preview, .pdf-reference-action-popover")) return;
 
   const hit = findHighlightAtPoint(event.clientX, event.clientY);
   if (!hit) return;
@@ -3700,11 +4757,11 @@ function setAnnotationMode(editor, mode) {
 function scheduleAnnotationAutoSave() {
   window.clearTimeout(annotationAutoSaveTimer);
   annotationAutoSaveTimer = window.setTimeout(() => {
-    saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
+    saveAnnotationEdit({ refreshHighlights: false }).catch((error) => console.error("Failed to auto-save annotation.", error));
   }, 450);
 }
 
-async function saveAnnotationEdit() {
+async function saveAnnotationEdit({ refreshHighlights = true } = {}) {
   if (!activeHighlightGroupId) return;
   const editor = document.querySelector("#annotationEditor");
   const comment = editor?.querySelector(".annotation-comment")?.value.trim() || "";
@@ -3732,7 +4789,7 @@ async function saveAnnotationEdit() {
   if (wasCommentAnnotation && !comment && !translation) {
     savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
   }
-  redrawHighlights();
+  if (refreshHighlights) redrawHighlights();
   await saveCurrentPaper();
 }
 
@@ -3787,7 +4844,7 @@ function hideTranslationBubble() {
 
 function hideAnnotationEditor() {
   window.clearTimeout(annotationAutoSaveTimer);
-  saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
+  saveAnnotationEdit({ refreshHighlights: true }).catch((error) => console.error("Failed to auto-save annotation.", error));
   document.querySelector("#annotationEditor")?.remove();
   activeHighlightGroupId = null;
 }

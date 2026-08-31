@@ -6,6 +6,7 @@
     <title>PaperLantern Paper Reader</title>
     <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
     <link rel="apple-touch-icon" href="./assets/figure.jpg" />
+    <script src="./brand.js" defer></script>
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -57,6 +58,7 @@
               </button>
               <span id="pdfSearchCount" class="pdf-search-count"></span>
               <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+              <button id="pdfShortcutsButton" class="pdf-toolbar-text-button" type="button">查看快捷键</button>
               <button id="readerSettingsButton" class="reader-settings-button pdf-toolbar-button" type="button" aria-label="Settings" title="Settings">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
@@ -77,6 +79,7 @@
             <button id="highlightButton" type="button">高亮</button>
             <button id="commentButton" type="button">评论</button>
             <button id="translateButton" type="button">翻译</button>
+            <button id="translateWithContextButton" type="button">结合上下文翻译</button>
             <button id="explainButton" type="button">解释</button>
           </div>
           <div id="emptyState" class="empty-state">
@@ -86,11 +89,27 @@
         </div>
       </section>
 
+      <div id="pdfShortcutsOverlay" class="pdf-shortcuts-overlay" hidden>
+        <section class="pdf-shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="pdfShortcutsTitle">
+          <div class="pdf-shortcuts-dialog-header">
+            <h2 id="pdfShortcutsTitle">快捷键</h2>
+            <button id="pdfShortcutsCloseButton" class="icon-button drawer-close-button" type="button" aria-label="Close shortcuts"></button>
+          </div>
+          <dl class="pdf-shortcuts-list">
+            <dt>Ctrl/Cmd + / −</dt><dd>缩放 PDF</dd>
+            <dt>Ctrl/Cmd 0</dt><dd>适合页面</dd>
+            <dt>中键拖拽</dt><dd>平移 PDF</dd>
+          </dl>
+        </section>
+      </div>
+
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize reader and summary panes" aria-orientation="vertical" tabindex="0"></div>
 
       <aside class="summary-pane" aria-label="Paper side panel">
         <header class="summary-titlebar">
+          <span id="readerPaperTagIndicators" aria-label="Paper tags"></span>
           <h1 id="fileName" class="paper-title">Loading paper...</h1>
+          <button id="readerPaperMenuButton" class="paper-menu-button menu-button" type="button" aria-label="Paper actions" aria-haspopup="menu" disabled>...</button>
         </header>
         <div class="summary-content-shell">
           <div class="reader-tabs" role="tablist" aria-label="Reader side panel tabs" aria-orientation="vertical">
@@ -208,6 +227,7 @@
                       </svg>
                     </button>
                     <div id="discussionThreadTitle" class="discussion-thread-title"></div>
+                    <button id="discussionThreadMenuButton" class="icon-button discussion-thread-more-button" type="button" aria-label="Discussion 选项" title="Discussion 选项">•••</button>
                   </div>
                   <div id="discussionMessages" class="discussion-messages" aria-live="polite">
                     <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
@@ -218,13 +238,17 @@
           </div>
 
           <form id="discussionForm" class="discussion-form">
-            <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
-            <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="Send" title="Send">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M22 2 11 13"></path>
-                <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
-              </svg>
-            </button>
+            <div id="discussionResizeHandle" class="discussion-resize-handle" role="separator" aria-orientation="horizontal" aria-label="拖拽调整输入框高度" aria-valuemin="74" aria-valuemax="360" tabindex="0"><span aria-hidden="true"></span></div>
+            <div class="discussion-input-area">
+              <div class="discussion-input-target"><span>发送到</span><strong id="discussionInputTarget">新建 Discussion</strong></div>
+              <textarea id="discussionInput" rows="3" placeholder="输入问题后将新建一个 Discussion..." aria-label="Discussion question"></textarea>
+            </div>
+            <div class="discussion-form-actions">
+              <button id="continueInWebButton" class="discussion-web-button" type="button">在 ChatGPT 网页中继续</button>
+              <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="Send" title="Send">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>
+              </button>
+            </div>
           </form>
           </div>
 

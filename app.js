@@ -10,6 +10,8 @@ const paperList = document.querySelector("#paperList");
 const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const librarySearchInput = document.querySelector("#librarySearchInput");
+const tagFilterList = document.querySelector("#tagFilterList");
+const clearTagFiltersButton = document.querySelector("#clearTagFiltersButton");
 const uploadForm = document.querySelector("#uploadForm");
 const libraryPdfInput = document.querySelector("#libraryPdfInput");
 const uploadMenuButton = document.querySelector("#uploadMenuButton");
@@ -32,6 +34,9 @@ const libCitationOutput = document.querySelector("#libCitationOutput");
 const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
 const aiModelInput = document.querySelector("#aiModelInput");
 const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
+const aiExtraParamsInput = document.querySelector("#aiExtraParamsInput");
+const aiTaskConfigSections = Array.from(document.querySelectorAll("[data-ai-task]"));
+const discussionWebUrlInput = document.querySelector("#discussionWebUrlInput");
 const aiApiTestButton = document.querySelector("#aiApiTestButton");
 const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
 const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
@@ -74,6 +79,7 @@ let paperSort = { key: "uploadedAt", dir: "desc" };
 
 function sortPapers(papers) {
   const { key, dir } = paperSort;
+  if (key === "manual") return [...papers];
   const sign = dir === "asc" ? 1 : -1;
   const list = [...papers];
   list.sort((a, b) => {
@@ -94,6 +100,10 @@ function sortPapers(papers) {
   return list;
 }
 let searchQuery = "";
+let selectedTagNames = new Set();
+let draggedCategory = null;
+let draggedPaperId = "";
+let suppressPaperOpenUntil = 0;
 let arxivDownloadOverlayTimer = null;
 let cloudSyncProgressHideTimer = null;
 let cloudSyncProgressPollTimer = null;
@@ -185,6 +195,11 @@ librarySearchInput.addEventListener("input", () => {
   renderLibrary();
 });
 
+clearTagFiltersButton?.addEventListener("click", () => {
+  selectedTagNames = new Set();
+  renderLibrary();
+});
+
 settingsButton.addEventListener("click", () => {
   openCloudConfig();
 });
@@ -202,6 +217,9 @@ cloudConfigForm.addEventListener("submit", (event) => {
   if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
 });
 wireCloudSettingsAutoSave();
+aiTaskConfigSections.forEach((section) => {
+  section.querySelector("[data-ai-task-default]")?.addEventListener("change", () => updateAiTaskSection(section));
+});
 aiApiTestButton.addEventListener("click", async () => {
   await testAiApi();
 });
@@ -221,6 +239,19 @@ uploadForm.addEventListener("drop", async (event) => {
   }
   await handlePdfUpload(file);
   uploadForm.reset();
+});
+
+categoryTree.addEventListener("dragenter", handleLibrarySidebarDrag);
+categoryTree.addEventListener("dragover", handleLibrarySidebarDrag);
+categoryTree.addEventListener("dragleave", (event) => {
+  if (!categoryTree.contains(event.relatedTarget)) categoryTree.classList.remove("file-drag-over");
+});
+categoryTree.addEventListener("drop", async (event) => {
+  const file = getDroppedPdf(event);
+  if (!file) return;
+  event.preventDefault();
+  categoryTree.classList.remove("file-drag-over");
+  await handlePdfUpload(file);
 });
 
 document.addEventListener("pointerdown", (event) => {
@@ -249,8 +280,31 @@ function handleUploadDrag(event) {
   }
 }
 
-async function handlePdfUpload(file) {
-  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), getActiveUploadCategory());
+function getDroppedPdf(event) {
+  return Array.from(event.dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
+}
+
+function isFileDrag(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function handleLibrarySidebarDrag(event) {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  categoryTree.classList.add("file-drag-over");
+}
+
+async function handlePdfUpload(file, category = getActiveUploadCategory()) {
+  await uploadPdfToLibrary(file, file.name.replace(/\.pdf$/i, ""), category);
+}
+
+function clearLibraryDragState() {
+  draggedCategory = null;
+  draggedPaperId = "";
+  document.querySelectorAll(".dragging, .drag-over-reorder, .file-drag-over").forEach((element) => {
+    element.classList.remove("dragging", "drag-over-reorder", "file-drag-over");
+  });
 }
 
 async function uploadPdfToLibrary(file, title, category) {
@@ -377,6 +431,7 @@ function renderLibrary() {
   renderCategoryNode(libraryTree, 0);
 
   const allPapers = collectPapers(libraryTree);
+  renderTagFilters(allPapers);
   let papers = [];
   if (selectedCategoryId === RECENT_CATEGORY_ID) {
     currentCategoryName.textContent = "最近";
@@ -394,7 +449,51 @@ function renderLibrary() {
     // Show the papers of the selected category and all of its subcategories.
     papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
-  renderPaperList(filterPapers(papers, searchQuery));
+  const filteredByTags = selectedTagNames.size
+    ? papers.filter((paper) => normalizePaperTags(paper.tags).some((tag) => selectedTagNames.has(tag.name.toLowerCase())))
+    : papers;
+  renderPaperList(filterPapers(filteredByTags, searchQuery));
+}
+
+function renderTagFilters(papers) {
+  if (!tagFilterList) return;
+  const tags = new Map();
+  papers.forEach((paper) => normalizePaperTags(paper.tags).forEach((tag) => {
+    const key = tag.name.toLowerCase();
+    const current = tags.get(key) || { ...tag, count: 0 };
+    current.count += 1;
+    tags.set(key, current);
+  }));
+  tagFilterList.replaceChildren();
+  [...tags.entries()].sort((left, right) => left[1].name.localeCompare(right[1].name)).forEach(([key, tag]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tag-filter-chip";
+    button.classList.toggle("active", selectedTagNames.has(key));
+    button.append(createTagColorIndicator(tag.color), document.createTextNode(`${tag.name} (${tag.count})`));
+    button.addEventListener("click", () => {
+      selectedTagNames.has(key) ? selectedTagNames.delete(key) : selectedTagNames.add(key);
+      renderLibrary();
+    });
+    tagFilterList.appendChild(button);
+  });
+  if (clearTagFiltersButton) clearTagFiltersButton.hidden = selectedTagNames.size === 0;
+}
+
+function normalizePaperTags(tags) {
+  return Array.isArray(tags)
+    ? tags.map((tag) => typeof tag === "string" ? { name: tag, color: "#2f7f98" } : tag)
+      .filter((tag) => tag && String(tag.name || "").trim())
+      .map((tag) => ({ name: String(tag.name).trim(), color: String(tag.color || "#2f7f98") }))
+    : [];
+}
+
+function createTagColorIndicator(color) {
+  const indicator = document.createElement("span");
+  indicator.className = "tag-color-indicator";
+  indicator.style.backgroundColor = color || "#2f7f98";
+  indicator.setAttribute("aria-hidden", "true");
+  return indicator;
 }
 
 function renderCategoryNode(node, depth = 0) {
@@ -409,6 +508,10 @@ function renderCategoryRow(node, depth = 0) {
   const row = document.createElement("div");
   row.className = "category-row";
   row.style.paddingLeft = `${depth * 18}px`;
+  const parentId = node.id ? node.id.split("/").slice(0, -1).join("/") : "";
+  row.dataset.categoryId = node.id || "";
+  row.dataset.parentId = parentId;
+  row.draggable = Boolean(node.id);
 
   const hasChildren = Boolean(node.folders && node.folders.length);
   const button = document.createElement("button");
@@ -467,6 +570,52 @@ function renderCategoryRow(node, depth = 0) {
     });
     row.append(button, menuButton);
   }
+
+  row.addEventListener("dragstart", (event) => {
+    if (!node.id || event.target.closest("button")) {
+      event.preventDefault();
+      return;
+    }
+    draggedCategory = { id: node.id, parentId };
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", node.id);
+    row.classList.add("dragging");
+  });
+  row.addEventListener("dragend", clearLibraryDragState);
+  row.addEventListener("dragover", (event) => {
+    if (isFileDrag(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      row.classList.add("file-drag-over");
+      return;
+    }
+    if (!draggedCategory || draggedCategory.id === node.id || draggedCategory.parentId !== parentId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    row.classList.add("drag-over-reorder");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drag-over-reorder", "file-drag-over"));
+  row.addEventListener("drop", async (event) => {
+    const file = getDroppedPdf(event);
+    if (file) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearLibraryDragState();
+      await handlePdfUpload(file, node.id || UNCATEGORIZED_LABEL);
+      return;
+    }
+    if (!draggedCategory || draggedCategory.id === node.id || draggedCategory.parentId !== parentId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const after = event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+    const siblings = Array.from(categoryMainRows.querySelectorAll(`.category-row[data-parent-id="${CSS.escape(parentId)}"]`));
+    const orderedIds = siblings.map((item) => item.dataset.categoryId).filter(Boolean).filter((id) => id !== draggedCategory.id);
+    const targetIndex = orderedIds.indexOf(node.id);
+    orderedIds.splice(Math.max(0, targetIndex + (after ? 1 : 0)), 0, draggedCategory.id);
+    clearLibraryDragState();
+    await updateCategory({ action: "reorder", parentId, orderedIds });
+  });
   categoryMainRows.appendChild(row);
 }
 
@@ -570,26 +719,76 @@ function renderPaperList(papers) {
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
+  const canReorder = Boolean(
+    selectedCategoryId
+    && ![RECENT_CATEGORY_ID, TODO_CATEGORY_ID].includes(selectedCategoryId)
+    && !searchQuery
+    && !selectedTagNames.size
+    && papers.every((paper) => paper.category === selectedCategoryId),
+  );
   sortPapers(papers).forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
     tr.tabIndex = 0;
+    tr.dataset.paperId = paper.id;
+    tr.draggable = canReorder;
     tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
     tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
     tr.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openPaperReader(paper.id);
+    });
+    tr.addEventListener("dragstart", (event) => {
+      if (!canReorder || event.target.closest("button, a")) {
+        event.preventDefault();
+        return;
+      }
+      draggedPaperId = paper.id;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", paper.id);
+      tr.classList.add("dragging");
+    });
+    tr.addEventListener("dragend", () => {
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+    });
+    tr.addEventListener("dragover", (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      tr.classList.add("drag-over-reorder");
+    });
+    tr.addEventListener("dragleave", () => tr.classList.remove("drag-over-reorder"));
+    tr.addEventListener("drop", async (event) => {
+      if (!canReorder || !draggedPaperId || draggedPaperId === paper.id) return;
+      event.preventDefault();
+      const after = event.clientY > tr.getBoundingClientRect().top + tr.getBoundingClientRect().height / 2;
+      const orderedIds = Array.from(tbody.querySelectorAll("tr[data-paper-id]"))
+        .map((item) => item.dataset.paperId)
+        .filter((id) => id !== draggedPaperId);
+      const targetIndex = orderedIds.indexOf(paper.id);
+      orderedIds.splice(Math.max(0, targetIndex + (after ? 1 : 0)), 0, draggedPaperId);
+      paperSort = { key: "manual", dir: "asc" };
+      suppressPaperOpenUntil = Date.now() + 180;
+      clearLibraryDragState();
+      await updatePaper({ action: "reorder", category: selectedCategoryId, orderedIds });
     });
 
     const titleTd = document.createElement("td");
     titleTd.className = "paper-title-cell";
     const titleButton = document.createElement("span");
     titleButton.className = "paper-title-button";
-    titleButton.textContent = paper.title;
+    const indicators = document.createElement("span");
+    indicators.className = "paper-tag-indicators";
+    normalizePaperTags(paper.tags).forEach((tag) => indicators.appendChild(createTagColorIndicator(tag.color)));
+    titleButton.append(indicators, document.createTextNode(paper.title));
     titleButton.title = paper.title;
     titleTd.appendChild(titleButton);
     // The whole title cell is clickable.
-    titleTd.addEventListener("click", () => openPaperReader(paper.id));
+    titleTd.addEventListener("click", () => {
+      if (Date.now() < suppressPaperOpenUntil) return;
+      openPaperReader(paper.id);
+    });
 
     const uploadTd = document.createElement("td");
     uploadTd.className = "paper-date-cell";
@@ -1185,6 +1384,22 @@ function showPaperMenu(paper, anchor) {
     link.click();
   });
 
+  const tagButton = document.createElement("button");
+  tagButton.type = "button";
+  tagButton.textContent = "编辑标签";
+  tagButton.addEventListener("click", () => {
+    menu.remove();
+    showPaperTagEditor(paper, anchor);
+  });
+
+  const revealButton = document.createElement("button");
+  revealButton.type = "button";
+  revealButton.textContent = "在文件夹中显示";
+  revealButton.addEventListener("click", async () => {
+    menu.remove();
+    await revealPaperInFolder(paper.id);
+  });
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
@@ -1194,9 +1409,124 @@ function showPaperMenu(paper, anchor) {
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton, exportLink, deleteButton);
+  menu.append(moveButton, tagButton, revealButton, exportLink, deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+function showPaperTagEditor(paper, anchor) {
+  document.querySelector(".library-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu tag-editor-menu library-menu";
+  document.body.appendChild(menu);
+  positionMenu(menu, anchor, 290);
+  renderPaperTagEditor(menu, paper);
+}
+
+function renderPaperTagEditor(menu, paper) {
+  const tags = normalizePaperTags(paper.tags);
+  menu.replaceChildren();
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = "Tags";
+  const list = document.createElement("div");
+  list.className = "tag-editor-list";
+  if (!tags.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-editor-empty";
+    empty.textContent = "No tags yet";
+    list.appendChild(empty);
+  }
+  tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "tag-editor-row";
+    const color = document.createElement("input");
+    color.type = "color";
+    color.value = tag.color;
+    color.setAttribute("aria-label", `${tag.name} color`);
+    color.addEventListener("change", () => savePaperTagsFromEditor(menu, paper, tags.map((item) => item.name === tag.name ? { ...item, color: color.value } : item)));
+    const name = document.createElement("span");
+    name.textContent = tag.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-remove-button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove ${tag.name}`);
+    remove.addEventListener("click", () => savePaperTagsFromEditor(menu, paper, tags.filter((item) => item.name !== tag.name)));
+    row.append(color, name, remove);
+    list.appendChild(row);
+  });
+  const addRow = document.createElement("div");
+  addRow.className = "tag-editor-add-row";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.maxLength = 48;
+  input.placeholder = "New tag";
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = "#2c758c";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add";
+  const submit = async () => {
+    const name = input.value.replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!name) return;
+    const existing = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+    const next = existing ? tags.map((tag) => tag === existing ? { ...tag, color: color.value } : tag) : [...tags, { name, color: color.value }];
+    await savePaperTagsFromEditor(menu, paper, next);
+  };
+  add.addEventListener("click", submit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  });
+  addRow.append(input, color, add);
+  menu.append(heading, list, addRow);
+}
+
+async function savePaperTagsFromEditor(menu, paper, tags) {
+  const saved = await savePaperTags(paper.id, tags);
+  if (!saved) return;
+  paper.tags = normalizePaperTags(saved.tags);
+  renderLibrary();
+  renderPaperTagEditor(menu, paper);
+}
+
+async function savePaperTags(paperId, tags) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paperId, tags: normalizePaperTags(tags) }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to save tags.");
+    if (data.tree) libraryTree = data.tree;
+    reportSyncResult(data.sync);
+    return data.paper;
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Failed to save tags.", true);
+    return null;
+  }
+}
+
+async function revealPaperInFolder(paperId) {
+  try {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reveal", id: paperId }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Failed to show the paper in its folder.");
+    setLibraryStatus("Opened the paper in File Explorer.");
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "Failed to show the paper in its folder.", true);
+  }
 }
 
 function showMovePaperMenu(paper, anchor) {
@@ -1461,7 +1791,8 @@ async function loadCloudSyncStatus() {
 let cloudSettingsSaveTimer = null;
 
 function wireCloudSettingsAutoSave() {
-  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, aiExtraParamsInput, discussionWebUrlInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
+  aiTaskConfigSections.forEach((section) => fields.push(...section.querySelectorAll("input, textarea")));
   fields.forEach((field) => {
     if (!field) return;
     const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
@@ -1497,6 +1828,7 @@ async function loadSettings() {
 async function saveCloudSyncConfig() {
   setCloudSyncBusy(true);
   try {
+    const extraParams = parseApiExtraParams(aiExtraParamsInput?.value || "", "Unified API extra parameters");
     const response = await apiFetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1505,7 +1837,10 @@ async function saveCloudSyncConfig() {
           baseUrl: aiBaseUrlInput.value.trim(),
           model: aiModelInput.value.trim(),
           apiKey: aiApiKeyInput.value,
+          extraParams,
+          tasks: collectAiTaskSettings(),
         },
+        web: { discussionUrl: discussionWebUrlInput?.value.trim() || "https://chatgpt.com/" },
         sync: {
           provider: cloudProviderSelect.value,
           localDir: cloudLocalDirInput.value.trim(),
@@ -1544,6 +1879,7 @@ async function testAiApi() {
           baseUrl: aiBaseUrlInput.value.trim(),
           model: aiModelInput.value.trim(),
           apiKey: aiApiKeyInput.value,
+          extraParams: parseApiExtraParams(aiExtraParamsInput?.value || "", "Unified API extra parameters"),
         },
       }),
     });
@@ -1819,15 +2155,72 @@ function setCloudSyncBusy(isBusy) {
 function renderSettings(settings) {
   const ai = settings?.ai || {};
   const sync = settings?.sync || {};
+  const web = settings?.web || {};
   aiBaseUrlInput.value = ai.baseUrl || "";
   aiModelInput.value = ai.model || "";
   aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
+  if (aiExtraParamsInput) aiExtraParamsInput.value = formatApiExtraParams(ai.extraParams);
+  renderAiTaskSettings(ai.tasks || {});
+  if (discussionWebUrlInput) discussionWebUrlInput.value = web.discussionUrl || "https://chatgpt.com/";
   cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
   cloudLocalDirInput.value = sync.localDir || "";
   cloudWebdavUrlInput.value = sync.webdavUrl || "";
   cloudUsernameInput.value = sync.username || "";
   cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
   cloudAutoPushInput.checked = Boolean(sync.autoSync);
+}
+
+function collectAiTaskSettings() {
+  return Object.fromEntries(aiTaskConfigSections.map((section) => [
+    section.dataset.aiTask,
+    {
+      useDefault: section.querySelector("[data-ai-task-default]").checked,
+      baseUrl: section.querySelector("[data-ai-task-base-url]").value.trim(),
+      model: section.querySelector("[data-ai-task-model]").value.trim(),
+      apiKey: section.querySelector("[data-ai-task-api-key]").value,
+      extraParams: parseApiExtraParams(section.querySelector("[data-ai-task-extra-params]").value, `${section.querySelector("strong").textContent} API extra parameters`),
+    },
+  ]));
+}
+
+function renderAiTaskSettings(tasks) {
+  aiTaskConfigSections.forEach((section) => {
+    const task = tasks?.[section.dataset.aiTask] || {};
+    section.querySelector("[data-ai-task-default]").checked = task.useDefault !== false;
+    section.querySelector("[data-ai-task-base-url]").value = task.baseUrl || "";
+    section.querySelector("[data-ai-task-model]").value = task.model || "";
+    section.querySelector("[data-ai-task-extra-params]").value = formatApiExtraParams(task.extraParams);
+    const apiKeyInput = section.querySelector("[data-ai-task-api-key]");
+    apiKeyInput.placeholder = task.hasApiKey ? maskSecretTail(task.apiKeyTail) : "Leave blank to use unified key";
+    updateAiTaskSection(section);
+  });
+}
+
+function updateAiTaskSection(section) {
+  const useDefault = section.querySelector("[data-ai-task-default]").checked;
+  section.classList.toggle("uses-default", useDefault);
+  section.querySelectorAll("[data-ai-task-base-url], [data-ai-task-model], [data-ai-task-api-key], [data-ai-task-extra-params]").forEach((input) => {
+    input.disabled = useDefault;
+  });
+}
+
+function parseApiExtraParams(value, label) {
+  const text = String(value || "").trim();
+  if (!text) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(`${label} must be a JSON object.`);
+  const reserved = ["model", "messages", "stream", "response_format"].filter((key) => key in parsed);
+  if (reserved.length) throw new Error(`${label} cannot override: ${reserved.join(", ")}.`);
+  return parsed;
+}
+
+function formatApiExtraParams(params) {
+  return params && typeof params === "object" && !Array.isArray(params) && Object.keys(params).length ? JSON.stringify(params, null, 2) : "";
 }
 
 function maskSecretTail(tail) {

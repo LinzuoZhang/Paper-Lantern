@@ -25,6 +25,158 @@
   --reader-pane-width: 62%;
 }
 
+.category-row[draggable="true"],
+.paper-table-row[draggable="true"] { cursor: grab; }
+.category-row.dragging,
+.paper-table-row.dragging { opacity: .5; }
+.category-row.drag-over-reorder,
+.paper-table-row.drag-over-reorder { box-shadow: inset 0 -2px 0 var(--accent); }
+.category-row.file-drag-over,
+.category-tree.file-drag-over { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+/* Local feature integration on top of the upstream visual system. */
+.ai-advanced-settings,
+.ai-task-config,
+.ai-task-fields,
+.tag-filter-panel,
+.tag-editor-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-advanced-settings {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.ai-advanced-settings summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-advanced-settings:not([open]) { display: block; }
+
+.ai-task-config,
+.ai-extra-params-config {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+}
+
+.ai-task-config-header,
+.tag-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-task-default-row {
+  display: flex !important;
+  align-items: center;
+  gap: 7px !important;
+  white-space: nowrap;
+}
+
+.ai-task-default-row input { width: 16px; min-height: 16px; }
+.ai-task-config.uses-default .ai-task-fields { opacity: .52; }
+
+.cloud-config-card textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.tag-filter-panel { margin-top: 14px; gap: 7px; }
+.tag-filter-header { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.tag-filter-header button { min-height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--accent-strong); font: inherit; text-transform: none; }
+.tag-filter-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-filter-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 12px; font-weight: 650; }
+.tag-filter-chip:hover,
+.tag-filter-chip.active { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: var(--soft); color: var(--accent-strong); }
+.tag-filter-empty,
+.tag-editor-empty { color: var(--muted); font-size: 12px; }
+
+.tag-color-indicators { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-right: 7px; vertical-align: middle; }
+.tag-color-dot { display: block; width: 8px; height: 8px; border: 1px solid rgba(18, 35, 30, .18); border-radius: 50%; }
+.tag-color-indicator { display: inline-block; flex: 0 0 auto; width: 8px; height: 8px; border: 1px solid rgba(18, 35, 30, .18); border-radius: 50%; }
+.paper-tag-indicators { display: inline-flex; align-items: center; gap: 4px; margin-right: 7px; }
+.reader-paper-title-wrap { display: flex; min-width: 0; flex: 1; align-items: center; }
+.reader-paper-title-wrap .tag-color-dot { width: 10px; height: 10px; }
+.reader-paper-title-wrap .tag-color-indicators { margin-right: 9px; }
+
+.tag-editor-menu { min-width: 290px; }
+.tag-editor-row,
+.tag-editor-add-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; align-items: center; gap: 6px; min-height: 32px; }
+.tag-editor-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-editor-row input[type="color"],
+.tag-editor-add-row input[type="color"] { width: 28px; height: 28px; padding: 2px; border: 0; background: transparent; cursor: pointer; }
+.tag-editor-add-row { grid-template-columns: minmax(0, 1fr) 28px auto; padding: 6px 4px 2px; border-top: 1px solid var(--line); }
+.tag-editor-add-row input[type="text"] { min-width: 0; min-height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-muted); color: var(--ink); font: inherit; }
+.paper-menu .tag-remove-button { justify-content: center; width: 28px; min-height: 28px; padding: 0; color: var(--muted); font-size: 18px; }
+
+.pdf-shortcuts-overlay { position: fixed; z-index: 180; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(29, 37, 32, .24); }
+.pdf-shortcuts-overlay[hidden] { display: none; }
+.pdf-shortcuts-dialog { width: min(360px, calc(100vw - 32px)); padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-md); }
+.pdf-shortcuts-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pdf-shortcuts-dialog-header h2 { margin: 0; color: var(--ink); font-size: 17px; }
+.pdf-shortcuts-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+.pdf-page canvas,
+.pdf-highlight-layer,
+.pdf-text-layer,
+.pdf-link-layer { position: absolute; inset: 0; }
+.pdf-link-layer { z-index: 4; pointer-events: none; }
+.pdf-internal-link { position: absolute; display: block; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 2px; background: transparent; box-shadow: none; cursor: help; pointer-events: auto; }
+.pdf-internal-link:hover,
+.pdf-internal-link:focus-visible { outline: 1px solid color-mix(in srgb, var(--accent) 72%, transparent); outline-offset: 1px; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: none; }
+
+.citation-preview { position: fixed; z-index: 140; width: min(420px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 24px)); overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink); box-shadow: var(--shadow-lg); font-size: 13px; line-height: 1.55; pointer-events: auto; }
+.citation-preview[hidden] { display: none; }
+.citation-preview-label { display: block; margin-bottom: 4px; color: var(--accent-strong); font-size: 12px; }
+.pdf-link-preview-viewer { height: 270px; margin: 7px 0 0; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #e7eceb; cursor: grab; scrollbar-width: thin; overscroll-behavior: contain; }
+.pdf-link-preview-viewer.is-panning { cursor: grabbing; user-select: none; }
+.pdf-link-preview-page { position: relative; width: max-content; min-width: 100%; min-height: 100%; }
+.pdf-link-preview-canvas { display: block; width: auto; max-width: none; height: auto; margin: 0; border: 0; border-radius: 0; background: #fff; }
+
+.pdf-reference-action-dots { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.pdf-reference-preview-dots { z-index: 2; }
+.pdf-reference-action-dot { position: absolute; width: 14px; min-width: 0; height: 14px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; cursor: pointer; pointer-events: auto; }
+.pdf-reference-action-dot::before { position: absolute; top: 4px; left: 4px; width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 58%, transparent); box-shadow: 0 0 0 1px rgba(255,255,255,.88); content: ""; transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease; }
+.pdf-reference-action-dot:hover::before,
+.pdf-reference-action-dot:focus-visible::before { transform: scale(1.35); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.pdf-reference-action-dot:focus-visible { outline: none; }
+.pdf-reference-action-popover { position: fixed; z-index: 145; padding: 5px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); box-shadow: 0 8px 20px rgba(29,37,32,.16); }
+.pdf-reference-action-popover[hidden] { display: none; }
+.pdf-reference-action-controls { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+.pdf-reference-action-controls a { display: inline-flex; min-height: 22px; align-items: center; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--accent-strong); font-size: 10px; font-weight: 700; line-height: 1; text-decoration: none; }
+.pdf-reference-action-controls a:hover,
+.pdf-reference-action-controls a:focus-visible { border-color: var(--accent); background: var(--accent); color: #fff; outline: none; }
+
+.discussion-resize-handle { display: grid; place-items: center; height: 12px; cursor: ns-resize; touch-action: none; }
+.discussion-resize-handle span { width: 34px; height: 3px; border-radius: 999px; background: var(--line); transition: transform 140ms ease, background 140ms ease; }
+.discussion-resize-handle:hover span,
+.discussion-resize-handle:focus-visible span,
+body.resizing-discussion-input .discussion-resize-handle span { transform: scaleX(1.35); background: var(--accent); }
+body.resizing-discussion-input { cursor: ns-resize; user-select: none; }
+.discussion-input-target { display: flex; min-width: 0; gap: 6px; align-items: center; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.discussion-input-target strong { min-width: 0; overflow: hidden; color: var(--accent-strong); font: inherit; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.discussion-form textarea { resize: none; }
+.discussion-form-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.discussion-web-button { border-color: var(--line); background: var(--panel-muted); color: var(--accent-strong); font-weight: 700; }
+.discussion-thread-title-input { min-width: 0; width: 100%; border: 1px solid var(--accent); border-radius: 5px; padding: 3px 6px; background: #fff; color: var(--ink); font: inherit; font-weight: 800; }
+
 * {
   box-sizing: border-box;
 }
@@ -5436,4 +5588,77 @@ button.ghost:hover,
     flex-direction: column;
   }
 
+}
+
+/* Keep the Discussion composer in one readable column. These rules are kept
+   after the upstream theme so generic form-button sizing cannot compress it. */
+.discussion-form {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 7px;
+  backdrop-filter: none;
+}
+
+.discussion-form .discussion-resize-handle,
+.discussion-form .discussion-input-area,
+.discussion-form .discussion-form-actions {
+  grid-column: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.discussion-form .discussion-input-area {
+  display: grid;
+  gap: 6px;
+}
+
+.discussion-form .discussion-form-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.discussion-form .discussion-web-button {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 12px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.discussion-form .send-discussion-button {
+  flex: 0 0 42px;
+  width: 42px;
+  min-width: 42px;
+  min-height: 38px;
+}
+
+.pdf-toolbar .pdf-toolbar-text-button {
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-strong);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pdf-toolbar .pdf-toolbar-text-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--soft);
+  color: var(--ink);
+  box-shadow: none;
+  transform: none;
 }
