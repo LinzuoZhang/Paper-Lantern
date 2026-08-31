@@ -3242,6 +3242,10 @@ function isBracketReferenceStart(text) {
   return /^\s*\[\s*\d+\s*\]\s+/.test(text);
 }
 
+function isRawReferenceStart(text) {
+  return /^\s*\[\s*\d+\s*\](?:\s+|$)/.test(text) || /^\s*\d+[.)]\s+/.test(text);
+}
+
 function isReferenceListPage(items) {
   const lines = buildPdfReferenceLines(items);
   const hasHeading = lines.some((line) => /^(?:\d+[.)]\s*)?(?:references|bibliography)\s*$/i.test(line.text));
@@ -3256,7 +3260,7 @@ function extractPdfReferenceEntriesFromDestinations(items, destinations) {
     y: Number(item.transform?.[5]),
     width: Number(item.width || 0),
   })).filter((item) => item.text && Number.isFinite(item.x) && Number.isFinite(item.y));
-  const referenceStarts = textItems.filter((item) => isReferenceStart(item.text));
+  const referenceStarts = textItems.filter((item) => isRawReferenceStart(item.text));
   if (!referenceStarts.length) return [];
 
   const matchedStarts = [];
