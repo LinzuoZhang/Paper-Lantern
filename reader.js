@@ -3052,6 +3052,12 @@ function commentSelection() {
   refreshCommentsNavigation();
 }
 
+function setSelectionMenuButtonLabel(button, label) {
+  const labelNode = button?.querySelector("span");
+  if (labelNode) labelNode.textContent = label;
+  else if (button) button.textContent = label;
+}
+
 async function translateSelection() {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
@@ -3066,12 +3072,16 @@ async function translateSelection() {
   if (!draftHighlights.length) return;
 
   translateButton.disabled = true;
-  translateButton.textContent = "\u7ffb\u8bd1\u4e2d";
+  setSelectionMenuButtonLabel(translateButton, "翻译中");
   try {
     const response = await apiFetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        paperText: lastExtractedText.trim(),
+        summary: paperToSummary(currentPaper),
+      }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
@@ -3084,13 +3094,13 @@ async function translateSelection() {
     });
     window.getSelection()?.removeAllRanges();
     await saveCurrentPaper();
-    showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0, { mode: "preview" });
     refreshCommentsNavigation();
   } catch (error) {
     setStatus(error.message || "\u7ffb\u8bd1\u5931\u8d25", true);
   } finally {
     translateButton.disabled = false;
-    translateButton.textContent = "\u7ffb\u8bd1";
+    setSelectionMenuButtonLabel(translateButton, "翻译");
   }
 }
 
@@ -3114,7 +3124,7 @@ async function explainSelection() {
 
   hideTranslationBubble();
   explainButton.disabled = true;
-  explainButton.textContent = "\u89e3\u91ca\u4e2d";
+  setSelectionMenuButtonLabel(explainButton, "解释中");
   try {
     const response = await apiFetch("/api/explain", {
       method: "POST",
@@ -3136,14 +3146,14 @@ async function explainSelection() {
     });
     window.getSelection()?.removeAllRanges();
     hideSelectionMenu();
-    showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0);
+    showAnnotationEditor(draftHighlights[0], lastSelectionRect?.right || 0, lastSelectionRect?.bottom || 0, { mode: "preview" });
     refreshCommentsNavigation();
     saveCurrentPaper().catch((error) => console.error("Failed to save explanation annotation.", error));
   } catch (error) {
     setStatus(error.message || "\u89e3\u91ca\u5931\u8d25", true);
   } finally {
     explainButton.disabled = false;
-    explainButton.textContent = "\u89e3\u91ca";
+    setSelectionMenuButtonLabel(explainButton, "解释");
   }
 }
 
@@ -3616,7 +3626,7 @@ function findHighlightAtPoint(clientX, clientY) {
   return highlight ? { pageNode, highlight } : null;
 }
 
-function showAnnotationEditor(highlight, clientX, clientY) {
+function showAnnotationEditor(highlight, clientX, clientY, options = {}) {
   activeHighlightGroupId = highlight.groupId || getHighlightKey(highlight);
   let editor = document.querySelector("#annotationEditor");
   if (!editor) {
@@ -3700,7 +3710,7 @@ function showAnnotationEditor(highlight, clientX, clientY) {
   renderAnnotationPreview(editor, "comment");
   renderAnnotationPreview(editor, "translation");
   setAnnotationTab(editor, comment || !translation ? "comment" : "translation");
-  setAnnotationMode(editor, "edit");
+  setAnnotationMode(editor, options.mode === "preview" ? "preview" : "edit");
   editor.querySelectorAll(".color-swatch").forEach((button) => {
     button.classList.toggle("active", button.dataset.color === color);
   });

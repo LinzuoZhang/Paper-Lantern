@@ -2886,7 +2886,7 @@ body.selecting-pdf-text .selection-menu {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 92px;
+  min-width: 116px;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2899,8 +2899,9 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .selection-menu button {
+  gap: 10px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-color: transparent;
   border-radius: 6px;
   background: transparent;
@@ -2909,6 +2910,17 @@ body.selecting-pdf-text .selection-menu {
   font-weight: 650;
   justify-content: flex-start;
   white-space: nowrap;
+}
+
+.selection-menu button svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .selection-menu button:hover {

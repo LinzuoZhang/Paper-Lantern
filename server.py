@@ -1151,11 +1151,19 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
         if request_path == "/api/translate":
             selected_text = str(payload.get("text", "")).strip()
+            paper_text = str(payload.get("paperText", "")).strip()
             if not selected_text:
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
             try:
-                translation = translate_text(api_key, model, chat_completions_url, selected_text)
+                translation = translate_text(
+                    api_key,
+                    model,
+                    chat_completions_url,
+                    selected_text,
+                    paper_text,
+                    payload.get("summary", {}),
+                )
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -2057,8 +2065,10 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
     return parsed, raw
 
 
-def translate_text(api_key, model, chat_completions_url, text):
+def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None):
     source_text = text[:MAX_TRANSLATE_CHARS]
+    paper_excerpt = str(paper_text or "")[:MAX_PAPER_CHARS]
+    summary_context = json.dumps(summary or {}, ensure_ascii=False)
     upstream_payload = {
         "model": model,
         "temperature": 0.1,
@@ -2067,7 +2077,17 @@ def translate_text(api_key, model, chat_completions_url, text):
                 "role": "system",
                 "content": render_prompt("translate_system.txt"),
             },
-            {"role": "user", "content": source_text},
+            {
+                "role": "user",
+                "content": (
+                    "Selected text to translate:\n"
+                    f"{source_text}\n\n"
+                    "Existing paper summary JSON:\n"
+                    f"{summary_context}\n\n"
+                    "Paper context:\n"
+                    f"{paper_excerpt}"
+                ),
+            },
         ],
     }
 
