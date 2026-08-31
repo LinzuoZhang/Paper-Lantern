@@ -73,6 +73,8 @@ const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomInButton = document.querySelector("#zoomInButton");
 const fitPageButton = document.querySelector("#fitPageButton");
 const pdfZoomLabel = document.querySelector("#pdfZoomLabel");
+const pdfSearchToggleButton = document.querySelector("#pdfSearchToggleButton");
+const pdfSearchControls = document.querySelector("#pdfSearchControls");
 const pdfSearchInput = document.querySelector("#pdfSearchInput");
 const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
 const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
@@ -148,6 +150,7 @@ let citationFormat = "gbt7714";
 let citationSelectedCandidate = null;
 let appliedCitationDoi = "";
 let commentsNavIndex = 0;
+let commentsColorFilter = "all";
 let citationSearchSummaryVisible = false;
 
 const highlightColors = {
@@ -297,10 +300,11 @@ function renderReaderLibrary() {
   );
 
   // 文献库: all papers, with the existing categories as its sub-list.
+  const shouldShowCurrentCategoryPath = readerCategoryContainsId(readerLibraryTree, currentPaper?.category);
   readerCategoryList.appendChild(
-    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false),
+    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false, shouldShowCurrentCategoryPath),
   );
-  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID)) {
+  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID) || shouldShowCurrentCategoryPath) {
     renderReaderCategoryNode(readerLibraryTree, 0);
   }
 
@@ -351,10 +355,10 @@ function renderReaderLibrary() {
   });
 }
 
-function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false) {
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
   const row = document.createElement("div");
   row.className = "reader-category-row reader-special-row";
-  const collapsed = isReaderCategoryCollapsed(id);
+  const collapsed = isReaderCategoryCollapsed(id) && !forceExpanded;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "reader-category-item reader-special-item";
@@ -403,7 +407,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
 function renderReaderCategoryNode(node, depth) {
   (node.folders || []).forEach((folder) => {
     renderReaderCategoryRow(folder, depth);
-    if (folder.folders && folder.folders.length && !isReaderCategoryCollapsed(folder.id)) {
+    if (folder.folders && folder.folders.length && (!isReaderCategoryCollapsed(folder.id) || readerCategoryContainsId(folder, currentPaper?.category))) {
       renderReaderCategoryNode(folder, depth + 1);
     }
   });
@@ -425,7 +429,7 @@ function renderReaderCategoryRow(node, depth) {
   icon.innerHTML = readerFolderIconSvg;
   button.appendChild(icon);
   if (hasChildren) {
-    const collapsed = isReaderCategoryCollapsed(node.id);
+    const collapsed = isReaderCategoryCollapsed(node.id) && !readerCategoryContainsId(node, currentPaper?.category);
     const toggle = document.createElement("span");
     toggle.className = "reader-category-collapse-toggle";
     toggle.setAttribute("aria-label", "展开/收起");
@@ -545,9 +549,14 @@ async function moveCurrentPaperToCategory(category) {
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "Move failed.");
-    currentPaper = data.paper;
-    readerSelectedCategoryId = currentPaper.category || category.id;
-    await loadReaderLibrary();
+    currentPaper = data.paper || { ...currentPaper, category: targetCategory, categoryName: category.name };
+    readerSelectedCategoryId = currentPaper.category || targetCategory;
+    if (data.tree) {
+      readerLibraryTree = data.tree;
+      renderReaderLibrary();
+    } else {
+      await loadReaderLibrary();
+    }
     setStatus(`Moved to ${category.name}.`);
   } catch (error) {
     console.error(error);
@@ -2336,21 +2345,47 @@ function initPdfToolbar() {
     if (event.target.closest(".pdf-zoom-menu") || event.target.closest(".pdf-zoom-label")) return;
     closePdfZoomMenu();
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !isPdfSearchOpen()) return;
+    event.preventDefault();
+    closePdfSearch();
+  });
+  pdfSearchToggleButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (isPdfSearchOpen()) closePdfSearch();
+    else openPdfSearch();
+  });
   pdfSearchInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
+    if (event.key === "Escape") {
       event.preventDefault();
-      runPdfSearch(pdfSearchInput.value).catch((error) => console.error("PDF search failed.", error));
-    } else if (event.key === "Escape") {
-      clearPdfSearch();
+      closePdfSearch();
     }
   });
   pdfSearchInput?.addEventListener("input", () => {
-    if (!pdfSearchInput.value) clearPdfSearch();
+    runPdfSearch(pdfSearchInput.value).catch((error) => console.error("PDF search failed.", error));
   });
   pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(-1));
   pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
   updatePdfZoomLabel();
   updatePdfSearchUI();
+}
+
+function isPdfSearchOpen() {
+  return Boolean(pdfSearchControls && !pdfSearchControls.hidden);
+}
+
+function openPdfSearch() {
+  if (!pdfSearchControls) return;
+  pdfSearchControls.hidden = false;
+  pdfSearchToggleButton?.setAttribute("aria-expanded", "true");
+  window.requestAnimationFrame(() => pdfSearchInput?.focus());
+}
+
+function closePdfSearch() {
+  clearPdfSearch();
+  if (pdfSearchControls) pdfSearchControls.hidden = true;
+  pdfSearchToggleButton?.setAttribute("aria-expanded", "false");
+  pdfSearchToggleButton?.focus();
 }
 
 function updatePdfZoomLabel() {
@@ -2443,7 +2478,7 @@ async function runPdfSearch(query) {
   clearSearchHighlights();
   pdfSearchMatches = [];
   pdfSearchIndex = -1;
-  if (!q) {
+  if (!q || !currentPdfDocument) {
     updatePdfSearchUI();
     return;
   }
@@ -2922,7 +2957,7 @@ function highlightSelection() {
   if (!selectedPdfRange) return;
 
   const groupId = createAnnotationId();
-  const highlights = createHighlightsFromRange(selectedPdfRange, { groupId, color: "yellow" });
+  const highlights = createHighlightsFromRange(selectedPdfRange, { groupId, color: "yellow", text: selectedPdfText });
   highlights.forEach((highlight) => {
     savedHighlights.push(highlight);
     const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
@@ -3862,7 +3897,6 @@ function buildCommentGroups() {
   const groups = [];
   const seen = new Set();
   for (const highlight of savedHighlights) {
-    if (!highlight.comment && !highlight.translation) continue;
     const groupId = highlight.groupId || getHighlightKey(highlight);
     if (seen.has(groupId)) continue;
     seen.add(groupId);
@@ -3882,19 +3916,75 @@ function buildCommentGroups() {
 
 function refreshCommentsNavigation() {
   const groups = buildCommentGroups();
-  if (commentsNavIndex >= groups.length) commentsNavIndex = 0;
+  const filteredGroups = filterCommentGroupsByColor(groups);
+  if (commentsNavIndex >= filteredGroups.length) commentsNavIndex = 0;
   document.querySelectorAll(".comments-nav-card").forEach((card) => {
-    renderCommentsNavCard(card, groups);
+    renderCommentsFilter(card, groups);
+    renderCommentsNavCard(card, filteredGroups, groups.length);
   });
 }
 
-function renderCommentsNavCard(card, groups) {
+function filterCommentGroupsByColor(groups) {
+  if (commentsColorFilter === "all") return groups;
+  return groups.filter((entry) => entry.color === commentsColorFilter);
+}
+
+function renderCommentsFilter(card, groups) {
+  let filter = card.querySelector(".comments-color-filter");
+  if (!filter) {
+    filter = document.createElement("div");
+    filter.className = "comments-color-filter";
+    const header = card.querySelector(".summary-group-header");
+    if (header) header.after(filter);
+    else card.prepend(filter);
+  }
+  filter.innerHTML = "";
+
+  const options = [{ key: "all", label: "全部", count: groups.length }];
+  Object.keys(commentSwatchColors).forEach((key) => {
+    options.push({
+      key,
+      label: key,
+      count: groups.filter((entry) => entry.color === key).length,
+    });
+  });
+
+  options.forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "comments-color-filter-button";
+    button.classList.toggle("active", commentsColorFilter === option.key);
+    button.disabled = option.key !== "all" && option.count === 0;
+    button.setAttribute("aria-label", option.key === "all" ? "显示全部评论" : `按${option.label}高亮筛选评论`);
+    button.title = option.key === "all" ? "全部" : option.label;
+
+    if (option.key === "all") {
+      button.textContent = `全部 ${option.count}`;
+    } else {
+      const swatch = document.createElement("span");
+      swatch.className = "comments-color-filter-swatch";
+      swatch.style.background = commentSwatchColors[option.key];
+      const count = document.createElement("span");
+      count.textContent = String(option.count);
+      button.append(swatch, count);
+    }
+
+    button.addEventListener("click", () => {
+      commentsColorFilter = option.key;
+      commentsNavIndex = 0;
+      refreshCommentsNavigation();
+    });
+    filter.appendChild(button);
+  });
+}
+
+function renderCommentsNavCard(card, groups, totalCount = groups.length) {
   const list = card.querySelector(".comments-nav-list");
   list.innerHTML = "";
   if (!groups.length) {
     const empty = document.createElement("div");
     empty.className = "comments-nav-empty";
-    empty.textContent = "暂无评论";
+    empty.textContent = totalCount ? "暂无该颜色评论" : "暂无评论";
     list.appendChild(empty);
     return;
   }
@@ -3932,7 +4022,7 @@ function renderCommentsNavCard(card, groups) {
 
     const body = document.createElement("span");
     body.className = "comments-nav-body";
-    const rawText = entry.comment || entry.translation || entry.text || "（无内容）";
+    const rawText = entry.comment || entry.translation || entry.text || "纯高亮";
     const text = rawText.trim();
     body.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
 
@@ -3952,7 +4042,7 @@ async function deleteCommentGroup(groupId) {
 }
 
 function setCommentsNavIndex(index) {
-  const groups = buildCommentGroups();
+  const groups = filterCommentGroupsByColor(buildCommentGroups());
   if (index < 0 || index >= groups.length) return;
   commentsNavIndex = index;
   refreshCommentsNavigation();

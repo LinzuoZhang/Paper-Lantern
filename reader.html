@@ -34,7 +34,7 @@
       <section class="reader-pane" aria-label="Paper reader">
         <div class="paper-frame">
           <div id="pdfToolbar" class="pdf-toolbar">
-            <div class="pdf-toolbar-cluster">
+            <div class="pdf-toolbar-left">
               <button id="zoomOutButton" class="pdf-toolbar-button" type="button" title="缩小" aria-label="缩小">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M8 11h6"></path></svg>
               </button>
@@ -46,17 +46,23 @@
               </button>
               <button id="pdfZoomLabel" class="pdf-zoom-label" type="button" title="缩放">100%</button>
             </div>
+            <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
             <div class="pdf-toolbar-right">
-              <span class="pdf-toolbar-divider"></span>
-              <input id="pdfSearchInput" class="pdf-search-input" type="text" placeholder="全文搜索" aria-label="全文搜索" autocomplete="off" />
-              <button id="pdfSearchPrevButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="上一个匹配" aria-label="上一个匹配" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
-              <button id="pdfSearchNextButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="下一个匹配" aria-label="下一个匹配" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>
-              </button>
-              <span id="pdfSearchCount" class="pdf-search-count"></span>
-              <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+              <div id="pdfSearchGroup" class="pdf-search-group">
+                <button id="pdfSearchToggleButton" class="pdf-toolbar-button" type="button" title="全文搜索" aria-label="全文搜索" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                </button>
+                <div id="pdfSearchControls" class="pdf-search-controls" hidden>
+                  <input id="pdfSearchInput" class="pdf-search-input" type="text" placeholder="全文搜索" aria-label="全文搜索" autocomplete="off" />
+                  <button id="pdfSearchPrevButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="上一个匹配" aria-label="上一个匹配" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>
+                  </button>
+                  <button id="pdfSearchNextButton" class="pdf-toolbar-button pdf-search-nav" type="button" title="下一个匹配" aria-label="下一个匹配" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>
+                  </button>
+                  <span id="pdfSearchCount" class="pdf-search-count"></span>
+                </div>
+              </div>
               <button id="readerSettingsButton" class="reader-settings-button pdf-toolbar-button" type="button" aria-label="Settings" title="Settings">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
