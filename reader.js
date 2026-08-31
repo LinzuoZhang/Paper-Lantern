@@ -3058,6 +3058,16 @@ function setSelectionMenuButtonLabel(button, label) {
   else if (button) button.textContent = label;
 }
 
+function getTranslationSelectionType(text) {
+  const value = String(text || "").trim();
+  const units = value.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?|[\u4e00-\u9fff]/g) || [];
+  const sentenceMarks = value.match(/[.!?;:。！？；：]/g) || [];
+  if (/\n\s*\n/.test(value) || value.length > 160 || sentenceMarks.length > 0 || units.length > 12) {
+    return "sentence_or_paragraph";
+  }
+  return "word_or_phrase";
+}
+
 async function translateSelection() {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
@@ -3079,6 +3089,7 @@ async function translateSelection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
+        selectionType: getTranslationSelectionType(text),
         paperText: lastExtractedText.trim(),
         summary: paperToSummary(currentPaper),
       }),

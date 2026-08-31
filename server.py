@@ -1152,6 +1152,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/translate":
             selected_text = str(payload.get("text", "")).strip()
             paper_text = str(payload.get("paperText", "")).strip()
+            selection_type = str(payload.get("selectionType", "")).strip()
             if not selected_text:
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
@@ -1163,6 +1164,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     selected_text,
                     paper_text,
                     payload.get("summary", {}),
+                    selection_type,
                 )
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
@@ -2065,10 +2067,20 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
     return parsed, raw
 
 
-def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None):
+def classify_translation_selection(text):
+    value = str(text or "").strip()
+    units = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?|[\u4e00-\u9fff]", value)
+    sentence_marks = re.findall(r"[.!?;:\u3002\uff01\uff1f\uff1b\uff1a]", value)
+    if re.search(r"\n\s*\n", value) or len(value) > 160 or sentence_marks or len(units) > 12:
+        return "sentence_or_paragraph"
+    return "word_or_phrase"
+
+
+def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None, selection_type=""):
     source_text = text[:MAX_TRANSLATE_CHARS]
     paper_excerpt = str(paper_text or "")[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
+    normalized_selection_type = selection_type if selection_type in {"word_or_phrase", "sentence_or_paragraph"} else classify_translation_selection(source_text)
     upstream_payload = {
         "model": model,
         "temperature": 0.1,
@@ -2080,6 +2092,8 @@ def translate_text(api_key, model, chat_completions_url, text, paper_text="", su
             {
                 "role": "user",
                 "content": (
+                    "Selection type:\n"
+                    f"{normalized_selection_type}\n\n"
                     "Selected text to translate:\n"
                     f"{source_text}\n\n"
                     "Existing paper summary JSON:\n"
@@ -2105,11 +2119,7 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You are a research paper reading assistant. Use the full paper context to explain only the selected passage's role in the paper. "
-                    "Do not translate the selected passage. Do not include any section except exactly '## 这段话在论文中的作用'. "
-                    "Write concise but specific content suitable for a PDF comment, and do not invent claims beyond the provided paper context."
-                ),
+                "content": render_prompt("explain_system.txt"),
             },
             {
                 "role": "user",
@@ -2118,31 +2128,19 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
                     f"{paper_excerpt}\n\n"
                     "Existing summary JSON:\n"
                     f"{summary_context}\n\n"
-                    "Selected passage to explain:\n"
+                    "Selected text to explain:\n"
                     f"{selected_excerpt}\n\n"
-                    "Output only this section:\n"
-                    "## 这段话在论文中的作用\n"
-                    "Explain how this passage functions in the paper's argument, method, evidence, or conclusion. Do not translate the passage."
+                    "Always answer in Chinese.\n"
+                    "Explain the selected text directly. If it is a specialized term, explain the term's meaning and role in this paper. "
+                    "If it is a sentence or paragraph, explain the key idea or function without repeating where it appears. "
+                    "Do not translate the selected text as the main answer."
                 ),
             },
         ],
     }
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
-    return extract_selected_role_section(raw["choices"][0]["message"]["content"].strip())
-
-
-def extract_selected_role_section(text):
-    content = str(text or "").strip()
-    heading_pattern = r"(?m)^#{1,3}\s+这段话在论文中的作用\s*$"
-    match = re.search(heading_pattern, content)
-    if not match:
-        content = re.sub(r"(?mis)^#{1,3}\s+段落定位与上下文\s*.*?(?=^#{1,3}\s+|\Z)", "", content).strip()
-        return content
-    rest = content[match.end():]
-    next_heading = re.search(r"(?m)^#{1,3}\s+", rest)
-    body = rest[:next_heading.start()].strip() if next_heading else rest.strip()
-    return f"## 这段话在论文中的作用\n{body}".strip()
+    return raw["choices"][0]["message"]["content"].strip()
 
 
 def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, stream=False):
