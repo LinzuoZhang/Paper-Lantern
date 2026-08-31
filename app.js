@@ -1,7 +1,10 @@
+import { initSettingsModal } from "./settings_modal.js";
+
 const libraryRoot = document.querySelector("#libraryRoot");
 const libraryLayout = document.querySelector(".library-layout");
 const categoryPanel = document.querySelector(".category-panel");
 const libraryLayoutResizer = document.querySelector("#libraryLayoutResizer");
+const paperInfoResizer = document.querySelector("#paperInfoResizer");
 const libraryStatus = document.querySelector("#libraryStatus");
 const categoryTree = document.querySelector("#categoryTree");
 const categoryTopRows = document.querySelector("#categoryTopRows");
@@ -19,9 +22,6 @@ const arxivUploadButton = document.querySelector("#arxivUploadButton");
 const cloudSyncStatus = document.querySelector("#cloudSyncStatus");
 const settingsButton = document.querySelector("#settingsButton");
 const cloudSyncButton = document.querySelector("#cloudSyncButton");
-const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
-const cloudConfigForm = document.querySelector("#cloudConfigForm");
-const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
 const libCitationOverlay = document.querySelector("#libCitationOverlay");
 const libCitationOverlayTitle = document.querySelector("#libCitationOverlayTitle");
 const libCitationOverlayMeta = document.querySelector("#libCitationOverlayMeta");
@@ -29,17 +29,6 @@ const libCitationOverlayCloseButton = document.querySelector("#libCitationOverla
 const libCitationFormatSelect = document.querySelector("#libCitationFormatSelect");
 const libCitationCopyButton = document.querySelector("#libCitationCopyButton");
 const libCitationOutput = document.querySelector("#libCitationOutput");
-const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
-const aiModelInput = document.querySelector("#aiModelInput");
-const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
-const aiApiTestButton = document.querySelector("#aiApiTestButton");
-const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
-const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
-const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
-const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
-const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
-const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
-const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
 
 const RECENT_CATEGORY_ID = "__recent";
 const TODO_CATEGORY_ID = "__todo";
@@ -47,6 +36,7 @@ const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
 const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
 const LIBRARY_CATEGORY_PANEL_WIDTH_KEY = "paperLanternLibraryCategoryPanelWidth";
+const LIBRARY_INFO_PANEL_WIDTH_KEY = "paperLanternLibraryInfoPanelWidth";
 
 const recentCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
@@ -104,13 +94,17 @@ let libCitationFormat = "gbt7714";
 
 loadLibrary();
 initLibraryLayoutResize();
+initPaperInfoPanelResize();
 initLibraryCitationOverlay();
 loadCloudSyncStatus();
-loadSettings();
 migrateLegacyRecentPapers();
-if (new URLSearchParams(window.location.search).get("settings") === "1") {
-  openCloudConfig();
-}
+initSettingsModal({
+  openButtons: ["#settingsButton"],
+  autoOpen: { queryParam: "settings" },
+  setBusy: setCloudSyncBusy,
+  setStatus: setLibraryStatus,
+  onSettingsSaved: renderCloudSyncStatus,
+});
 
 function initLibraryLayoutResize() {
   if (!libraryLayout || !categoryPanel || !libraryLayoutResizer) return;
@@ -160,6 +154,52 @@ function setLibraryCategoryPanelWidth(width) {
   categoryPanel.style.flexBasis = `${nextWidth}px`;
 }
 
+function initPaperInfoPanelResize() {
+  if (!libraryLayout || !paperInfoPanel || !paperInfoResizer) return;
+  applySavedPaperInfoPanelWidth();
+  window.addEventListener("resize", applySavedPaperInfoPanelWidth);
+
+  paperInfoResizer.addEventListener("pointerdown", (event) => {
+    if (!isLibraryLayoutResizable()) return;
+    event.preventDefault();
+    const onMove = (moveEvent) => {
+      setPaperInfoPanelWidth(libraryLayout.getBoundingClientRect().right - moveEvent.clientX);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizing-paper-info");
+      const width = Math.round(paperInfoPanel.getBoundingClientRect().width);
+      localStorage.setItem(LIBRARY_INFO_PANEL_WIDTH_KEY, String(width));
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.classList.add("resizing-paper-info");
+  });
+}
+
+function applySavedPaperInfoPanelWidth() {
+  if (!paperInfoPanel) return;
+  if (!isLibraryLayoutResizable()) {
+    paperInfoPanel.style.width = "";
+    paperInfoPanel.style.flexBasis = "";
+    return;
+  }
+  const savedWidth = Number(localStorage.getItem(LIBRARY_INFO_PANEL_WIDTH_KEY));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) setPaperInfoPanelWidth(savedWidth);
+}
+
+function setPaperInfoPanelWidth(width) {
+  if (!libraryLayout || !paperInfoPanel) return;
+  const layoutWidth = libraryLayout.getBoundingClientRect().width || window.innerWidth;
+  const categoryWidth = categoryPanel?.getBoundingClientRect().width || 280;
+  const resizerWidth = (libraryLayoutResizer?.getBoundingClientRect().width || 0) + (paperInfoResizer?.getBoundingClientRect().width || 0);
+  const maxWidth = Math.min(560, Math.max(280, layoutWidth - categoryWidth - resizerWidth - 420));
+  const nextWidth = Math.round(Math.min(Math.max(Number(width) || 340, 280), maxWidth));
+  paperInfoPanel.style.width = `${nextWidth}px`;
+  paperInfoPanel.style.flexBasis = `${nextWidth}px`;
+}
+
 libraryPdfInput.addEventListener("change", async () => {
   const file = libraryPdfInput.files && libraryPdfInput.files[0];
   if (!file) return;
@@ -170,6 +210,10 @@ libraryPdfInput.addEventListener("change", async () => {
 
 uploadMenuButton.addEventListener("click", () => {
   uploadMenu.hidden ? openUploadMenu() : closeUploadMenu();
+});
+
+uploadForm.addEventListener("submit", (event) => {
+  event.preventDefault();
 });
 
 arxivUploadButton.addEventListener("click", async () => {
@@ -185,25 +229,8 @@ librarySearchInput.addEventListener("input", () => {
   renderLibrary();
 });
 
-settingsButton.addEventListener("click", () => {
-  openCloudConfig();
-});
-
 cloudSyncButton.addEventListener("click", async () => {
   await runCloudSync();
-});
-
-cloudConfigCloseButton.addEventListener("click", closeCloudConfig);
-cloudConfigOverlay.addEventListener("pointerdown", (event) => {
-  if (event.target === cloudConfigOverlay) closeCloudConfig();
-});
-cloudConfigForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
-});
-wireCloudSettingsAutoSave();
-aiApiTestButton.addEventListener("click", async () => {
-  await testAiApi();
 });
 
 uploadForm.addEventListener("dragenter", handleUploadDrag);
@@ -370,7 +397,6 @@ function renderLibrary() {
   categoryTopRows.innerHTML = "";
   categoryMainRows.innerHTML = "";
   paperList.innerHTML = "";
-  hidePaperInfoPanel();
   const categories = flattenCategories(libraryTree);
   renderRecentCategory();
   renderTodoCategory();
@@ -394,7 +420,11 @@ function renderLibrary() {
     // Show the papers of the selected category and all of its subcategories.
     papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
-  renderPaperList(filterPapers(papers, searchQuery));
+  const visiblePapers = filterPapers(papers, searchQuery);
+  renderPaperList(visiblePapers);
+  const previewPaper = sortPapers(visiblePapers)[0];
+  if (previewPaper) renderPaperInfoPanel(previewPaper);
+  else renderPaperInfoEmpty();
 }
 
 function renderCategoryNode(node, depth = 0) {
@@ -460,7 +490,7 @@ function renderCategoryRow(node, depth = 0) {
     menuButton.type = "button";
     menuButton.className = "category-menu-button menu-button";
     menuButton.setAttribute("aria-label", `${node.name} category actions`);
-    menuButton.textContent = "...";
+    menuButton.textContent = "⋮";
     menuButton.addEventListener("click", (event) => {
       event.stopPropagation();
       showCategoryMenu(node, menuButton);
@@ -502,7 +532,7 @@ function renderRecentCategory() {
 
 function renderTodoCategory() {
   const row = document.createElement("div");
-  row.className = "category-row category-row-special";
+  row.className = "category-row category-row-special category-row-special-flat";
 
   const button = document.createElement("button");
   button.type = "button";
@@ -780,6 +810,17 @@ function renderPaperInfoPanel(paper) {
   citationCard.addEventListener("click", () => openLibraryCitationOverlay(paper, citationFormats));
 
   paperInfoPanel.append(header, basicSection, summarySection, citationCard);
+}
+
+function renderPaperInfoEmpty() {
+  if (!paperInfoPanel) return;
+  paperInfoPanel.hidden = false;
+  paperInfoPanel.classList.remove("open");
+  paperInfoPanel.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = "paper-info-empty";
+  empty.textContent = searchQuery ? "No matching papers." : "No paper selected.";
+  paperInfoPanel.appendChild(empty);
 }
 
 function buildPaperCitationFormats(paper) {
@@ -1458,125 +1499,6 @@ async function loadCloudSyncStatus() {
   }
 }
 
-let cloudSettingsSaveTimer = null;
-
-function wireCloudSettingsAutoSave() {
-  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
-  fields.forEach((field) => {
-    if (!field) return;
-    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
-    field.addEventListener(eventName, () => {
-      window.clearTimeout(cloudSettingsSaveTimer);
-      cloudSettingsSaveTimer = window.setTimeout(() => {
-        saveCloudSyncConfig().catch((error) => console.error("Failed to auto-save settings.", error));
-      }, 600);
-    });
-  });
-}
-
-function openCloudConfig() {
-  cloudConfigOverlay.hidden = false;
-  aiBaseUrlInput.focus();
-}
-
-function closeCloudConfig() {
-  cloudConfigOverlay.hidden = true;
-}
-
-async function loadSettings() {
-  try {
-    const response = await apiFetch("/api/settings");
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "Failed to load settings.");
-    renderSettings(data);
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-async function saveCloudSyncConfig() {
-  setCloudSyncBusy(true);
-  try {
-    const response = await apiFetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ai: {
-          baseUrl: aiBaseUrlInput.value.trim(),
-          model: aiModelInput.value.trim(),
-          apiKey: aiApiKeyInput.value,
-        },
-        sync: {
-          provider: cloudProviderSelect.value,
-          localDir: cloudLocalDirInput.value.trim(),
-          webdavUrl: cloudWebdavUrlInput.value.trim(),
-          username: cloudUsernameInput.value.trim(),
-          password: cloudPasswordInput.value,
-          autoSync: cloudAutoPushInput.checked,
-        },
-      }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) {
-      setLibraryStatus(data.error || "Settings save failed.", true);
-      return;
-    }
-    renderSettings(data.settings);
-    renderCloudSyncStatus(data.sync);
-    setLibraryStatus("设置已自动保存");
-  } catch (error) {
-    console.error(error);
-    setLibraryStatus(error.message || "设置保存失败。", true);
-  } finally {
-    setCloudSyncBusy(false);
-  }
-}
-
-async function testAiApi() {
-  setAiApiTestStatus("Testing...", false);
-  setAiApiTestBusy(true);
-  try {
-    const response = await apiFetch("/api/settings/test-ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ai: {
-          baseUrl: aiBaseUrlInput.value.trim(),
-          model: aiModelInput.value.trim(),
-          apiKey: aiApiKeyInput.value,
-        },
-      }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) {
-      setAiApiTestStatus(formatAiApiTestError(data), true);
-      return;
-    }
-    const message = data.message ? ` · ${data.message}` : "";
-    setAiApiTestStatus(`Connected: ${data.model || aiModelInput.value.trim() || "model"}${message}`, false);
-  } catch (error) {
-    console.error(error);
-    setAiApiTestStatus(error.message || "AI API test failed.", true);
-  } finally {
-    setAiApiTestBusy(false);
-  }
-}
-
-function setAiApiTestBusy(isBusy) {
-  aiApiTestButton.disabled = isBusy;
-  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
-}
-
-function setAiApiTestStatus(message, isError) {
-  aiApiTestStatus.textContent = message;
-  aiApiTestStatus.classList.toggle("error", Boolean(isError));
-}
-
-function formatAiApiTestError(data) {
-  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
-  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
-}
-
 async function runCloudSync() {
   setCloudSyncBusy(true);
   startCloudSyncProgress();
@@ -1798,10 +1720,6 @@ function renderCloudSyncStatus(status) {
     cloudSyncStatus.textContent = "Not configured";
     return;
   }
-  cloudProviderSelect.value = status.provider === "webdav" ? "webdav" : "local";
-  if (status.provider === "local") cloudLocalDirInput.value = status.target || cloudLocalDirInput.value;
-  if (status.provider === "webdav") cloudWebdavUrlInput.value = status.target || cloudWebdavUrlInput.value;
-  cloudAutoPushInput.checked = Boolean(status.autoPush);
   const provider = status.provider === "webdav" ? "WebDAV" : status.provider === "local" ? "Folder" : status.provider;
   const auto = status.autoPush ? " · Auto" : "";
   cloudSyncStatus.textContent = status.syncedAt
@@ -1814,24 +1732,6 @@ function setCloudSyncBusy(isBusy) {
   cloudSyncButton.classList.toggle("syncing", isBusy);
   cloudSyncButton.setAttribute("aria-busy", String(isBusy));
   settingsButton.disabled = isBusy;
-}
-
-function renderSettings(settings) {
-  const ai = settings?.ai || {};
-  const sync = settings?.sync || {};
-  aiBaseUrlInput.value = ai.baseUrl || "";
-  aiModelInput.value = ai.model || "";
-  aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
-  cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
-  cloudLocalDirInput.value = sync.localDir || "";
-  cloudWebdavUrlInput.value = sync.webdavUrl || "";
-  cloudUsernameInput.value = sync.username || "";
-  cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
-  cloudAutoPushInput.checked = Boolean(sync.autoSync);
-}
-
-function maskSecretTail(tail) {
-  return `****${tail || "****"}`;
 }
 
 function reportSyncResult(sync) {

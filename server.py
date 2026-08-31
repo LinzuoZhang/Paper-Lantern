@@ -66,10 +66,12 @@ def load_env_file(path):
 def get_ai_config():
     config = load_config(BASE_DIR)
     api_key = get_secret(config, "ai", "apiKey").strip()
-    model = str(config.get("ai", {}).get("model", "")).strip() or "gpt-4o-mini"
-    base_url = str(config.get("ai", {}).get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    ai_config = config.get("ai", {})
+    model = str(ai_config.get("model", "")).strip() or "gpt-4o-mini"
+    base_url = str(ai_config.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    think_mode = bool(ai_config.get("thinkMode", False))
     chat_completions_url = build_chat_completions_url(base_url)
-    return api_key, model, chat_completions_url
+    return api_key, model, chat_completions_url, think_mode
 
 
 def build_chat_completions_url(base_url):
@@ -1135,7 +1137,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Not found")
             return
 
-        api_key, model, chat_completions_url = get_ai_config()
+        api_key, model, chat_completions_url, _think_mode = get_ai_config()
         if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
             self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
@@ -1900,6 +1902,7 @@ def test_ai_api(payload):
     api_key = str(ai_payload.get("apiKey", "")).strip() or get_secret(config, "ai", "apiKey").strip()
     model = str(ai_payload.get("model", "")).strip() or str(saved_ai.get("model", "")).strip() or "gpt-4o-mini"
     base_url = str(ai_payload.get("baseUrl", "")).strip() or str(saved_ai.get("baseUrl", "")).strip() or DEFAULT_API_BASE_URL
+    think_mode = bool(ai_payload.get("thinkMode", saved_ai.get("thinkMode", False)))
     if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
         raise ValueError("Missing AI API key. Enter an API key or save one first.")
 
@@ -1914,7 +1917,7 @@ def test_ai_api(payload):
             {"role": "user", "content": "Connection test."},
         ],
     }
-    raw = post_chat_completion(api_key, build_chat_completions_url(base_url), upstream_payload, timeout=30)
+    raw = post_chat_completion(api_key, build_chat_completions_url(base_url), upstream_payload, timeout=30, think_mode=think_mode)
     content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
     return {
         "ok": True,
@@ -2236,7 +2239,8 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
     return json.loads(content), raw
 
 
-def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False):
+def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False, think_mode=None):
+    payload = apply_ai_think_mode(payload, think_mode)
     try:
         return send_chat_completion(api_key, chat_completions_url, payload, timeout)
     except urllib.error.HTTPError as exc:
@@ -2245,6 +2249,18 @@ def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_
         fallback_payload = dict(payload)
         fallback_payload.pop("response_format", None)
         return send_chat_completion(api_key, chat_completions_url, fallback_payload, timeout)
+
+
+def apply_ai_think_mode(payload, think_mode=None):
+    next_payload = dict(payload)
+    enabled = is_ai_think_mode_enabled() if think_mode is None else bool(think_mode)
+    if enabled:
+        next_payload.setdefault("reasoning_effort", "medium")
+    return next_payload
+
+
+def is_ai_think_mode_enabled():
+    return bool(load_config(BASE_DIR).get("ai", {}).get("thinkMode", False))
 
 
 def send_chat_completion(api_key, chat_completions_url, payload, timeout):
@@ -2262,8 +2278,8 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
         return json.loads(response.read().decode("utf-8"))
 
 
-def stream_chat_completion(api_key, chat_completions_url, payload, timeout):
-    stream_payload = dict(payload)
+def stream_chat_completion(api_key, chat_completions_url, payload, timeout, think_mode=None):
+    stream_payload = apply_ai_think_mode(payload, think_mode)
     stream_payload["stream"] = True
     request = urllib.request.Request(
         chat_completions_url,

@@ -1,4 +1,5 @@
 ﻿import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+import { initSettingsModal } from "./settings_modal.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -12,23 +13,7 @@ const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
 const readerSideRail = document.querySelector("#readerSideRail");
-const readerSettingsButton = document.querySelector("#readerSettingsButton");
 const exportPdfButton = document.querySelector("#exportPdfButton");
-const cloudConfigOverlay = document.querySelector("#cloudConfigOverlay");
-const cloudConfigForm = document.querySelector("#cloudConfigForm");
-const cloudConfigCloseButton = document.querySelector("#cloudConfigCloseButton");
-const aiBaseUrlInput = document.querySelector("#aiBaseUrlInput");
-const aiModelInput = document.querySelector("#aiModelInput");
-const aiApiKeyInput = document.querySelector("#aiApiKeyInput");
-const aiApiTestButton = document.querySelector("#aiApiTestButton");
-const aiApiTestStatus = document.querySelector("#aiApiTestStatus");
-const cloudProviderSelect = document.querySelector("#cloudProviderSelect");
-const cloudLocalDirInput = document.querySelector("#cloudLocalDirInput");
-const cloudWebdavUrlInput = document.querySelector("#cloudWebdavUrlInput");
-const cloudUsernameInput = document.querySelector("#cloudUsernameInput");
-const cloudPasswordInput = document.querySelector("#cloudPasswordInput");
-const cloudAutoPushInput = document.querySelector("#cloudAutoPushInput");
-const pdfLinksInput = document.querySelector("#pdfLinksInput");
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "ftp:"]);
 let pdfLinkAnnotationsCache = new Map(); // pageNumber -> Promise<Annotation[]>
 let pdfLinkDestCache = new Map();        // destName(string) -> Promise<{pageIndex, top, left}|null>
@@ -183,7 +168,14 @@ initPaneResizer();
 initReaderSideRail();
 initSummaryPaneToggle();
 initReaderTabs();
-initReaderSettings();
+initSettingsModal({
+  openButtons: ["#readerSettingsButton"],
+  setBusy: (isBusy) => {
+    const button = document.querySelector("#readerSettingsButton");
+    if (button) button.disabled = isBusy;
+  },
+  setStatus,
+});
 initCitationOverlay();
 initBasicInfoEditing();
 initPdfToolbar();
@@ -305,11 +297,10 @@ function renderReaderLibrary() {
   );
 
   // 文献库: all papers, with the existing categories as its sub-list.
-  const shouldShowCurrentCategoryPath = readerCategoryContainsId(readerLibraryTree, currentPaper?.category);
   readerCategoryList.appendChild(
-    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false, shouldShowCurrentCategoryPath),
+    createReaderSpecialRow(READER_LIBRARY_ALL_ID, "文献库", readerLibraryIconSvg, String(collectReaderPapers(readerLibraryTree).length), (button) => startReaderCategoryCreate(null, button), true, readerPlusCircleSvg, "新建分类", false),
   );
-  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID) || shouldShowCurrentCategoryPath) {
+  if (!isReaderCategoryCollapsed(READER_LIBRARY_ALL_ID)) {
     renderReaderCategoryNode(readerLibraryTree, 0);
   }
 
@@ -360,10 +351,10 @@ function renderReaderLibrary() {
   });
 }
 
-function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
+function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false) {
   const row = document.createElement("div");
   row.className = "reader-category-row reader-special-row";
-  const collapsed = isReaderCategoryCollapsed(id) && !forceExpanded;
+  const collapsed = isReaderCategoryCollapsed(id);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "reader-category-item reader-special-item";
@@ -374,7 +365,6 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
   icon.className = "reader-category-folder-icon";
   icon.innerHTML = iconSvg;
   button.appendChild(icon);
-  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
   if (collapsible) {
     const toggle = document.createElement("span");
     toggle.className = "reader-category-collapse-toggle";
@@ -387,6 +377,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
     });
     button.appendChild(toggle);
   }
+  button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
   button.addEventListener("click", () => {
     readerSelectedCategoryId = id;
     renderReaderLibrary();
@@ -412,7 +403,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
 function renderReaderCategoryNode(node, depth) {
   (node.folders || []).forEach((folder) => {
     renderReaderCategoryRow(folder, depth);
-    if (folder.folders && folder.folders.length && (!isReaderCategoryCollapsed(folder.id) || readerCategoryContainsId(folder, currentPaper?.category))) {
+    if (folder.folders && folder.folders.length && !isReaderCategoryCollapsed(folder.id)) {
       renderReaderCategoryNode(folder, depth + 1);
     }
   });
@@ -434,7 +425,7 @@ function renderReaderCategoryRow(node, depth) {
   icon.innerHTML = readerFolderIconSvg;
   button.appendChild(icon);
   if (hasChildren) {
-    const collapsed = isReaderCategoryCollapsed(node.id) && !readerCategoryContainsId(node, currentPaper?.category);
+    const collapsed = isReaderCategoryCollapsed(node.id);
     const toggle = document.createElement("span");
     toggle.className = "reader-category-collapse-toggle";
     toggle.setAttribute("aria-label", "展开/收起");
@@ -454,7 +445,7 @@ function renderReaderCategoryRow(node, depth) {
   const menuButton = document.createElement("button");
   menuButton.type = "button";
   menuButton.className = "reader-category-menu-button menu-button";
-  menuButton.textContent = "...";
+  menuButton.textContent = "⋮";
   menuButton.setAttribute("aria-label", `${node.name} category actions`);
   menuButton.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2014,9 +2005,9 @@ function setReaderPaperTitle(title) {
 }
 
 function initPaneResizer() {
-  const savedWidth = Number(localStorage.getItem("readerPaneWidth"));
+  const savedWidth = Number(localStorage.getItem("readerSummaryPaneWidth"));
   if (Number.isFinite(savedWidth)) {
-    setReaderPaneWidth(savedWidth);
+    setSummaryPaneWidth(savedWidth);
   }
 
   paneResizer.addEventListener("pointerdown", (event) => {
@@ -2046,9 +2037,9 @@ function initPaneResizer() {
   paneResizer.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const currentWidth = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--reader-pane-width")) || 62;
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    setReaderPaneWidth(currentWidth + direction * 2);
+    const currentWidth = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--summary-pane-width")) || 360;
+    const direction = event.key === "ArrowLeft" ? 1 : -1;
+    setSummaryPaneWidth(currentWidth + direction * 24);
     refreshPdfAfterPaneResize();
   });
 }
@@ -2064,178 +2055,20 @@ function setSummaryPaneCollapsed(isCollapsed, shouldRefreshPdf = true) {
   if (shouldRefreshPdf) refreshPdfAfterPaneResize();
 }
 
-let readerSettingsSaveTimer = null;
-
-function initReaderSettings() {
-  readerSettingsButton?.addEventListener("click", openReaderSettings);
-  cloudConfigCloseButton?.addEventListener("click", closeReaderSettings);
-  cloudConfigOverlay?.addEventListener("pointerdown", (event) => {
-    if (event.target === cloudConfigOverlay) closeReaderSettings();
-  });
-  cloudConfigForm?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
-  });
-  aiApiTestButton?.addEventListener("click", testReaderAiApi);
-  wireReaderSettingsAutoSave();
-  pdfLinksInput?.addEventListener("change", () => {
-    localStorage.setItem("paperLanternReaderPdfLinks", pdfLinksInput.checked ? "on" : "off");
-    if (!currentPdfDocument) return;
-    if (pdfLinksInput.checked) {
-      renderPdfPages(Symbol("pdfLinksToggle"), { keepExisting: true }).catch((error) =>
-        console.error("Failed to re-render PDF after enabling links.", error));
-    } else {
-      pdfViewer.querySelectorAll(".pdf-link-layer").forEach((layer) => layer.remove());
-    }
-  });
-  loadReaderSettings().catch((error) => console.error("Failed to load settings.", error));
-}
-
-function wireReaderSettingsAutoSave() {
-  const fields = [aiBaseUrlInput, aiModelInput, aiApiKeyInput, cloudProviderSelect, cloudLocalDirInput, cloudWebdavUrlInput, cloudUsernameInput, cloudPasswordInput, cloudAutoPushInput];
-  fields.forEach((field) => {
-    if (!field) return;
-    const eventName = field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input";
-    field.addEventListener(eventName, () => {
-      window.clearTimeout(readerSettingsSaveTimer);
-      readerSettingsSaveTimer = window.setTimeout(() => {
-        saveReaderSettings().catch((error) => console.error("Failed to auto-save settings.", error));
-      }, 600);
-    });
-  });
-}
-
-function openReaderSettings() {
-  if (!cloudConfigOverlay) return;
-  cloudConfigOverlay.hidden = false;
-  if (pdfLinksInput) pdfLinksInput.checked = arePdfLinksEnabled();
-  aiBaseUrlInput?.focus();
-}
-
-function closeReaderSettings() {
-  if (cloudConfigOverlay) cloudConfigOverlay.hidden = true;
-}
-
-async function loadReaderSettings() {
-  const response = await apiFetch("/api/settings");
-  const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.error || "Failed to load settings.");
-  renderReaderSettings(data);
-}
-
-async function saveReaderSettings() {
-  setReaderSettingsBusy(true);
-  try {
-    const response = await apiFetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ai: {
-          baseUrl: aiBaseUrlInput?.value.trim() || "",
-          model: aiModelInput?.value.trim() || "",
-          apiKey: aiApiKeyInput?.value || "",
-        },
-        sync: {
-          provider: cloudProviderSelect?.value || "local",
-          localDir: cloudLocalDirInput?.value.trim() || "",
-          webdavUrl: cloudWebdavUrlInput?.value.trim() || "",
-          username: cloudUsernameInput?.value.trim() || "",
-          password: cloudPasswordInput?.value || "",
-          autoSync: Boolean(cloudAutoPushInput?.checked),
-        },
-      }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "Settings save failed.");
-    renderReaderSettings(data.settings);
-    setStatus("设置已自动保存");
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || "设置保存失败。", true);
-  } finally {
-    setReaderSettingsBusy(false);
-  }
-}
-
-async function testReaderAiApi() {
-  setReaderAiApiTestStatus("Testing...", false);
-  setReaderAiApiTestBusy(true);
-  try {
-    const response = await apiFetch("/api/settings/test-ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ai: {
-          baseUrl: aiBaseUrlInput?.value.trim() || "",
-          model: aiModelInput?.value.trim() || "",
-          apiKey: aiApiKeyInput?.value || "",
-        },
-      }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) {
-      setReaderAiApiTestStatus(formatReaderAiApiTestError(data), true);
-      return;
-    }
-    const message = data.message ? ` - ${data.message}` : "";
-    setReaderAiApiTestStatus(`Connected: ${data.model || aiModelInput?.value.trim() || "model"}${message}`, false);
-  } catch (error) {
-    console.error(error);
-    setReaderAiApiTestStatus(error.message || "AI API test failed.", true);
-  } finally {
-    setReaderAiApiTestBusy(false);
-  }
-}
-
-function renderReaderSettings(settings) {
-  const ai = settings?.ai || {};
-  const sync = settings?.sync || {};
-  if (aiBaseUrlInput) aiBaseUrlInput.value = ai.baseUrl || "";
-  if (aiModelInput) aiModelInput.value = ai.model || "";
-  if (aiApiKeyInput) aiApiKeyInput.placeholder = ai.hasApiKey ? maskSecretTail(ai.apiKeyTail) : "Paste API key";
-  if (cloudProviderSelect) cloudProviderSelect.value = sync.provider === "webdav" ? "webdav" : "local";
-  if (cloudLocalDirInput) cloudLocalDirInput.value = sync.localDir || "";
-  if (cloudWebdavUrlInput) cloudWebdavUrlInput.value = sync.webdavUrl || "";
-  if (cloudUsernameInput) cloudUsernameInput.value = sync.username || "";
-  if (cloudPasswordInput) cloudPasswordInput.placeholder = sync.hasPassword ? maskSecretTail(sync.passwordTail) : "Paste password / app password";
-  if (cloudAutoPushInput) cloudAutoPushInput.checked = Boolean(sync.autoSync);
-}
-
-function setReaderSettingsBusy(isBusy) {
-  if (readerSettingsButton) readerSettingsButton.disabled = isBusy;
-}
-
-function setReaderAiApiTestBusy(isBusy) {
-  if (!aiApiTestButton) return;
-  aiApiTestButton.disabled = isBusy;
-  aiApiTestButton.setAttribute("aria-busy", String(isBusy));
-}
-
-function setReaderAiApiTestStatus(message, isError) {
-  if (!aiApiTestStatus) return;
-  aiApiTestStatus.textContent = message;
-  aiApiTestStatus.classList.toggle("error", Boolean(isError));
-}
-
-function formatReaderAiApiTestError(data) {
-  const detail = String(data?.detail || "").replace(/\s+/g, " ").trim();
-  return detail ? `${data.error || "AI API test failed."} ${detail.slice(0, 260)}` : data?.error || "AI API test failed.";
-}
-
-function maskSecretTail(tail) {
-  return `****${tail || "****"}`;
-}
-
 function resizePanesToClientX(clientX) {
   const shellRect = appShell.getBoundingClientRect();
-  const width = ((clientX - shellRect.left) / shellRect.width) * 100;
-  setReaderPaneWidth(width);
+  const sideRailWidth = readerSideRail?.getBoundingClientRect().width || 54;
+  const width = shellRect.right - sideRailWidth - clientX - paneResizer.offsetWidth / 2;
+  setSummaryPaneWidth(width);
 }
 
-function setReaderPaneWidth(width) {
-  const clampedWidth = clamp(width, 35, 78);
-  document.documentElement.style.setProperty("--reader-pane-width", `${clampedWidth}%`);
-  localStorage.setItem("readerPaneWidth", String(clampedWidth));
+function setSummaryPaneWidth(width) {
+  const shellWidth = appShell?.getBoundingClientRect().width || window.innerWidth || 1200;
+  const sideRailWidth = readerSideRail?.getBoundingClientRect().width || 54;
+  const maxWidth = Math.max(300, shellWidth - 54 - sideRailWidth - paneResizer.offsetWidth - 360);
+  const clampedWidth = clamp(width, 300, maxWidth);
+  document.documentElement.style.setProperty("--summary-pane-width", `${clampedWidth}px`);
+  localStorage.setItem("readerSummaryPaneWidth", String(clampedWidth));
 }
 
 function finishPaneResize(pointerId) {
@@ -3359,10 +3192,6 @@ function refreshReferenceCitations() {
   });
 }
 
-function arePdfLinksEnabled() {
-  return localStorage.getItem("paperLanternReaderPdfLinks") !== "off";
-}
-
 // 只允许绝对协议的 http/https/mailto/ftp，丢弃 javascript:/data:/file:/相对路径
 function getSafePdfLinkUrl(url) {
   if (typeof url !== "string") return null;
@@ -3452,8 +3281,6 @@ async function detectPdfLinkReferenceNumber(targetPage, destTop, destLeft) {
 }
 
 async function decoratePdfLinks(pageNode, pageNumber, page, viewport) {
-  if (!arePdfLinksEnabled()) return;
-
   let annotations;
   try {
     const cached = pdfLinkAnnotationsCache.get(pageNumber);

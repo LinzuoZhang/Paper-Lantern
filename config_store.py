@@ -18,6 +18,7 @@ def default_config():
         "ai": {
             "baseUrl": os.environ.get("AI_API_BASE_URL", os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")),
             "model": os.environ.get("AI_MODEL", "gpt-4o-mini"),
+            "thinkMode": os.environ.get("AI_THINK_MODE", "").lower() in {"1", "true", "yes", "on"},
             "apiKey": protect_secret(os.environ.get("AI_API_KEY", "")),
             "apiKeyTail": secret_tail(os.environ.get("AI_API_KEY", "")),
         },
@@ -54,6 +55,7 @@ def save_config(base_dir, payload):
         ai = payload["ai"]
         current["ai"]["baseUrl"] = str(ai.get("baseUrl", current["ai"].get("baseUrl", ""))).strip()
         current["ai"]["model"] = str(ai.get("model", current["ai"].get("model", ""))).strip()
+        current["ai"]["thinkMode"] = bool(ai.get("thinkMode", current["ai"].get("thinkMode", False)))
         if "apiKey" in ai and str(ai.get("apiKey", "")).strip():
             api_key = str(ai.get("apiKey", "")).strip()
             current["ai"]["apiKey"] = protect_secret(api_key)
@@ -81,6 +83,7 @@ def public_config(config):
         "ai": {
             "baseUrl": config.get("ai", {}).get("baseUrl", ""),
             "model": config.get("ai", {}).get("model", ""),
+            "thinkMode": bool(config.get("ai", {}).get("thinkMode", False)),
             "hasApiKey": bool(unprotect_secret(config.get("ai", {}).get("apiKey", ""))),
             "apiKeyTail": config.get("ai", {}).get("apiKeyTail", "") or secret_tail(unprotect_secret(config.get("ai", {}).get("apiKey", ""))),
         },

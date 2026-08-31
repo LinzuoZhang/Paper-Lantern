@@ -10,6 +10,8 @@
   --accent: #2c758c;
   --accent-strong: #184f63;
   --accent-warm: #9a6a31;
+  --ok: #2f9e6e;
+  --danger: #c0563f;
   --soft: #eaf5f4;
   --soft-strong: #d7eceb;
   --formula: #f6f8f8;
@@ -22,7 +24,7 @@
   --shadow-sm: 0 8px 20px rgba(23, 33, 29, 0.08);
   --shadow-md: 0 18px 42px rgba(23, 33, 29, 0.12);
   --shadow-lg: 0 28px 70px rgba(23, 33, 29, 0.18);
-  --reader-pane-width: 62%;
+  --summary-pane-width: 360px;
 }
 
 * {
@@ -143,7 +145,7 @@ body {
 .cloud-config-card {
   display: grid;
   gap: 12px;
-  width: min(460px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   padding: 18px;
@@ -173,6 +175,63 @@ body {
   text-transform: uppercase;
 }
 
+.settings-split {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.settings-nav-item {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+
+.settings-nav-item.is-active {
+  background: rgba(23, 33, 29, 0.07);
+  color: var(--ink);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-content {
+  min-width: 0;
+  height: min(420px, calc(100vh - 150px));
+}
+
+.settings-page {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-page[hidden] {
+  display: none;
+}
+
 .cloud-config-card label {
   display: grid;
   gap: 6px;
@@ -194,6 +253,82 @@ body {
   background: #fff;
   color: var(--ink);
   font: inherit;
+}
+
+.model-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.model-input-wrap #aiModelInput {
+  padding-right: 82px;
+}
+
+.think-mode-chip {
+  position: absolute;
+  right: 6px;
+  display: inline-flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: min-width 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.think-mode-chip:hover,
+.think-mode-chip:focus-visible {
+  min-width: 68px;
+  border-color: var(--line);
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.think-mode-chip input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.think-mode-check {
+  width: 16px;
+  height: 16px;
+  border: 1.7px solid currentColor;
+  border-radius: 50%;
+  color: var(--line-strong);
+}
+
+.think-mode-chip input:checked + .think-mode-check {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.think-mode-text {
+  max-width: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  transition: max-width 140ms ease, opacity 140ms ease;
+}
+
+.think-mode-chip:hover .think-mode-text,
+.think-mode-chip:focus-visible .think-mode-text {
+  max-width: 36px;
+  opacity: 1;
 }
 
 .ai-api-test-row {
@@ -242,6 +377,10 @@ body {
   min-height: 16px;
 }
 
+.think-mode-row[hidden] {
+  display: none !important;
+}
+
 .cloud-config-card > button[type="submit"] {
   position: sticky;
   bottom: -18px;
@@ -266,6 +405,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   padding: 0;
   border: 0;
   border-radius: var(--radius);
@@ -284,7 +424,8 @@ body {
   min-height: 0;
 }
 
-.library-layout-resizer {
+.library-layout-resizer,
+.paper-info-resizer {
   flex: 0 0 10px;
   display: flex;
   align-items: stretch;
@@ -293,7 +434,8 @@ body {
   background: transparent;
 }
 
-.library-layout-resizer::after {
+.library-layout-resizer::after,
+.paper-info-resizer::after {
   content: "";
   width: 1px;
   background: var(--line);
@@ -301,13 +443,17 @@ body {
 }
 
 .library-layout-resizer:hover::after,
-body.resizing-library-layout .library-layout-resizer::after {
-  width: 3px;
+.paper-info-resizer:hover::after,
+body.resizing-library-layout .library-layout-resizer::after,
+body.resizing-paper-info .paper-info-resizer::after {
+  width: 1px;
   background: var(--line-strong);
 }
 
 body.resizing-library-layout,
-body.resizing-library-layout * {
+body.resizing-library-layout *,
+body.resizing-paper-info,
+body.resizing-paper-info * {
   cursor: col-resize !important;
   user-select: none;
 }
@@ -375,7 +521,10 @@ body.resizing-library-layout * {
 .category-search {
   display: grid;
   gap: 6px;
-  margin-top: 14px;
+  width: min(280px, 34vw);
+  min-width: 190px;
+  margin: 0;
+  padding: 0;
 }
 
 .category-search span {
@@ -425,6 +574,15 @@ body.resizing-library-layout * {
 
 .category-menu-button {
   flex: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.category-row:hover .category-menu-button,
+.category-menu-button:focus-visible,
+.category-menu-button[aria-expanded="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .category-folder-icon {
@@ -718,6 +876,15 @@ body.resizing-library-layout * {
 
 .paper-info-panel[hidden] {
   display: none;
+}
+
+.paper-info-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .paper-info-header {
@@ -1101,7 +1268,7 @@ body.upload-menu-open .paper-card:hover {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 54px minmax(360px, var(--reader-pane-width)) 10px minmax(320px, 1fr) 54px;
+  grid-template-columns: 54px minmax(360px, 1fr) 10px minmax(300px, var(--summary-pane-width)) 54px;
   height: 100vh;
   min-height: 0;
   overflow: hidden;
@@ -1109,7 +1276,7 @@ body.upload-menu-open .paper-card:hover {
 }
 
 .app-shell.library-open {
-  grid-template-columns: 54px minmax(360px, var(--reader-pane-width)) 10px minmax(320px, 1fr) 54px;
+  grid-template-columns: 54px minmax(360px, 1fr) 10px minmax(300px, var(--summary-pane-width)) 54px;
 }
 
 .app-shell.summary-pane-collapsed {
@@ -1141,7 +1308,7 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-left-rail.library-open {
   align-items: stretch;
-  width: 320px;
+  width: 272px;
   box-shadow: 18px 0 42px rgba(29, 37, 32, 0.16);
 }
 
@@ -1388,6 +1555,15 @@ body.resizing-categories * {
 
 .reader-category-menu-button {
   flex: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-category-row:hover .reader-category-menu-button,
+.reader-category-menu-button:focus-visible,
+.reader-category-menu-button[aria-expanded="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .reader-category-folder-icon {
@@ -1412,16 +1588,8 @@ body.resizing-categories * {
   cursor: pointer;
 }
 
-.reader-special-item.reader-category-has-children .reader-category-collapse-toggle {
-  display: inline-grid;
-}
-
 .reader-category-item.reader-category-has-children:hover .reader-category-folder-icon {
   display: none;
-}
-
-.reader-special-item.reader-category-has-children:hover .reader-category-folder-icon {
-  display: inline-grid;
 }
 
 .reader-category-item.reader-category-has-children:hover .reader-category-collapse-toggle {
@@ -4705,12 +4873,12 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .paper-list-panel {
-  border-right: 1px solid var(--line);
+  border-right: 0;
   padding: 16px;
 }
 
 .paper-info-panel {
-  border-left: 1px solid var(--line);
+  border-left: 0;
 }
 
 .paper-list-header {
@@ -5359,7 +5527,7 @@ button.ghost:hover,
   }
 
   .reader-left-rail.library-open {
-    width: min(320px, 78vw);
+    width: min(272px, 78vw);
   }
 
   .reader-side-rail {
@@ -5406,7 +5574,8 @@ button.ghost:hover,
     flex-direction: column;
   }
 
-  .library-layout-resizer {
+  .library-layout-resizer,
+  .paper-info-resizer {
     display: none;
   }
 
@@ -5425,10 +5594,17 @@ button.ghost:hover,
 
   .upload-form {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .category-search {
+    flex: 1 1 220px;
+    width: min(100%, 360px);
+    min-width: 0;
   }
 
   .upload-menu-wrap {
-    width: 100%;
+    width: auto;
   }
 
   .file-button {
@@ -5437,8 +5613,8 @@ button.ghost:hover,
 
   .upload-menu {
     right: auto;
-    left: 0;
-    width: 100%;
+    left: auto;
+    width: min(326px, calc(100vw - 44px));
     min-width: 0;
   }
 
@@ -5461,4 +5637,95 @@ button.ghost:hover,
     flex-direction: column;
   }
 
+}
+
+/* 共享设置弹窗：测试连接按钮 */
+.ai-api-test-row button.ai-api-test-button {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d8e0dc;
+  border-radius: 9px;
+  background: #eef4f1;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.ai-api-test-row button.ai-api-test-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ai-api-test-row button.ai-api-test-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--soft);
+  color: var(--ink);
+  box-shadow: var(--shadow-xs);
+}
+
+.ai-api-test-row button.ai-api-test-button:disabled {
+  cursor: wait;
+}
+
+/* 共享设置弹窗：AI 连接测试状态（绿/红/灰点 + 主文字 + 次级文字） */
+.ai-api-test-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-api-status-indicator {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.ai-api-test-status.testing .ai-api-status-indicator,
+.ai-api-test-status.ok .ai-api-status-indicator,
+.ai-api-test-status.error .ai-api-status-indicator {
+  opacity: 1;
+}
+
+.ai-api-test-status.testing .ai-api-status-indicator {
+  background: var(--muted);
+  animation: ai-api-status-pulse 1s ease-in-out infinite;
+}
+
+.ai-api-test-status.ok .ai-api-status-indicator {
+  background: var(--ok);
+}
+
+.ai-api-test-status.error .ai-api-status-indicator {
+  background: var(--danger);
+}
+
+.ai-api-status-main {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-api-status-sub {
+  color: var(--muted);
+}
+
+@keyframes ai-api-status-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
