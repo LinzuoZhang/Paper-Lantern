@@ -35,6 +35,16 @@
         <div class="paper-frame">
           <div id="pdfToolbar" class="pdf-toolbar">
             <div class="pdf-toolbar-left">
+              <button id="pdfOutlineToggleButton" class="pdf-toolbar-button" type="button" title="目录" aria-label="目录" aria-expanded="false" aria-controls="pdfOutlinePanel" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M4 5h6"></path>
+                  <path d="M4 12h6"></path>
+                  <path d="M4 19h6"></path>
+                  <path d="M14 5h6"></path>
+                  <path d="M14 12h6"></path>
+                  <path d="M14 19h6"></path>
+                </svg>
+              </button>
               <button id="zoomOutButton" class="pdf-toolbar-button" type="button" title="缩小" aria-label="缩小">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M8 11h6"></path></svg>
               </button>
@@ -78,7 +88,16 @@
               </button>
             </div>
           </div>
-          <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
+          <div class="pdf-reader-body">
+            <aside id="pdfOutlinePanel" class="pdf-outline-panel" aria-label="PDF 目录" hidden>
+              <div class="pdf-outline-header">
+                <h2>目录</h2>
+              </div>
+              <div id="pdfOutlineList" class="pdf-outline-list"></div>
+              <div id="pdfOutlineResizer" class="pdf-outline-resizer" role="separator" aria-label="调整目录宽度" aria-orientation="vertical" tabindex="0"></div>
+            </aside>
+            <div id="pdfViewer" class="pdf-viewer" aria-label="PDF preview"></div>
+          </div>
           <div id="selectionMenu" class="selection-menu" hidden>
             <button id="highlightButton" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 11-6 6v4h4l6-6"></path><path d="m12 4 8 8"></path><path d="m19 13-8-8 2-2 8 8z"></path></svg>
@@ -219,8 +238,8 @@
             <section class="discussion-card collapsible-card" data-collapsible-card>
               <div class="summary-group-header">
                 <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="discussionContent">
-                  <span>Discussion</span>
                   <span class="collapse-icon" aria-hidden="true"></span>
+                  <span>Discussion</span>
                 </button>
                 <button id="newDiscussionButton" class="icon-button discussion-new-button" type="button" aria-label="New discussion" title="New discussion">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

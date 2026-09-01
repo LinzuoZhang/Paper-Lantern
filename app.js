@@ -371,7 +371,7 @@ function openPaperReader(paperId, analyze = false) {
   recordPaperViewed(paperId);
   const params = new URLSearchParams({ id: paperId });
   if (analyze) params.set("analyze", "1");
-  window.location.href = `./reader.html?${params.toString()}`;
+  window.open(`./reader.html?${params.toString()}`, "_blank", "noopener,noreferrer");
 }
 
 async function loadLibrary(focusPaperId = "") {

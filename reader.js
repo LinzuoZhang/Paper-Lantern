@@ -85,11 +85,17 @@ const pdfSearchInput = document.querySelector("#pdfSearchInput");
 const pdfSearchPrevButton = document.querySelector("#pdfSearchPrevButton");
 const pdfSearchNextButton = document.querySelector("#pdfSearchNextButton");
 const pdfSearchCount = document.querySelector("#pdfSearchCount");
+const pdfOutlineToggleButton = document.querySelector("#pdfOutlineToggleButton");
+const pdfOutlinePanel = document.querySelector("#pdfOutlinePanel");
+const pdfOutlineList = document.querySelector("#pdfOutlineList");
+const pdfOutlineResizer = document.querySelector("#pdfOutlineResizer");
 
 const READER_LIBRARY_ALL_ID = "__library";
 const READER_RECENT_ID = "__recent";
 const READER_TODO_ID = "__todo";
 const MAX_DISCUSSION_REFERENCE_CHARS = 4000;
+const PDF_OUTLINE_MIN_WIDTH = 180;
+const PDF_OUTLINE_MAX_WIDTH = 420;
 
 const readerLibraryIconSvg =
   '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
@@ -110,6 +116,8 @@ let readerLibraryHoverTimer = null;
 let readerCategoryInlineEditorActive = false;
 let pdfSearchMatches = [];
 let pdfSearchIndex = -1;
+let pdfOutlineItems = [];
+let isResizingPdfOutline = false;
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -189,6 +197,7 @@ initSettingsModal({
 initCitationOverlay();
 initBasicInfoEditing();
 initPdfToolbar();
+initPdfOutlineResizer();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
@@ -198,7 +207,7 @@ function initReaderLibraryDrawer() {
   openLibraryDrawerButton?.addEventListener("click", () => {
     // Clicking the brand while the drawer is open goes back to the library.
     if (readerLibraryDrawer.classList.contains("open")) {
-      window.location.href = "./index.html";
+      openReaderNavigationInNewTab("./index.html");
       return;
     }
     openReaderLibraryDrawer();
@@ -356,10 +365,14 @@ function renderReaderLibrary() {
     button.textContent = paper.title;
     button.addEventListener("click", () => {
       const params = new URLSearchParams({ id: paper.id });
-      window.location.href = `./reader.html?${params.toString()}`;
+      openReaderNavigationInNewTab(`./reader.html?${params.toString()}`);
     });
     readerPaperList.appendChild(button);
   });
+}
+
+function openReaderNavigationInNewTab(url) {
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
@@ -2210,6 +2223,9 @@ async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
   hideReferencePopover();
+  pdfOutlineItems = [];
+  closePdfOutlinePanel();
+  updatePdfOutlineUI();
   pdfViewer.innerHTML = "";
   if (!currentPaper) savedHighlights = [];
   pdfZoom = 1;
@@ -2234,7 +2250,11 @@ async function renderPdf(file) {
   pdfPageTextCache = new Map();
   pdfLinkAnnotationsCache = new Map();
   pdfLinkDestCache = new Map();
+  pdfOutlineItems = [];
+  closePdfOutlinePanel();
+  updatePdfOutlineUI();
   setPageIndicator(1, pdf.numPages);
+  await loadPdfOutline(pdf);
 
   await renderPdfPages(renderId);
 }
@@ -2470,8 +2490,13 @@ function initPdfToolbar() {
   });
   pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(-1));
   pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
+  pdfOutlineToggleButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePdfOutlinePanel();
+  });
   updatePdfZoomLabel();
   updatePdfSearchUI();
+  updatePdfOutlineUI();
 }
 
 function isPdfSearchOpen() {
@@ -2490,6 +2515,152 @@ function closePdfSearch() {
   if (pdfSearchControls) pdfSearchControls.hidden = true;
   pdfSearchToggleButton?.setAttribute("aria-expanded", "false");
   pdfSearchToggleButton?.focus();
+}
+
+function initPdfOutlineResizer() {
+  const savedWidth = Number(localStorage.getItem("pdfOutlineWidth"));
+  if (Number.isFinite(savedWidth)) setPdfOutlineWidth(savedWidth);
+
+  pdfOutlineResizer?.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    isResizingPdfOutline = true;
+    pdfOutlineResizer.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-pdf-outline");
+  });
+
+  pdfOutlineResizer?.addEventListener("pointermove", (event) => {
+    if (!isResizingPdfOutline || !pdfOutlinePanel) return;
+    const panelRect = pdfOutlinePanel.getBoundingClientRect();
+    setPdfOutlineWidth(event.clientX - panelRect.left);
+  });
+
+  pdfOutlineResizer?.addEventListener("pointerup", (event) => finishPdfOutlineResize(event.pointerId));
+  pdfOutlineResizer?.addEventListener("pointercancel", (event) => finishPdfOutlineResize(event.pointerId));
+
+  pdfOutlineResizer?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const currentWidth = Number.parseFloat(getComputedStyle(pdfOutlinePanel).width) || 280;
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    setPdfOutlineWidth(currentWidth + direction * 16);
+    refreshPdfAfterPaneResize();
+  });
+}
+
+function setPdfOutlineWidth(width) {
+  if (!pdfOutlinePanel) return;
+  const readerBodyWidth = pdfOutlinePanel.parentElement?.getBoundingClientRect().width || window.innerWidth || 900;
+  const maxWidth = Math.min(PDF_OUTLINE_MAX_WIDTH, Math.max(PDF_OUTLINE_MIN_WIDTH, readerBodyWidth * 0.48));
+  const clampedWidth = clamp(width, PDF_OUTLINE_MIN_WIDTH, maxWidth);
+  pdfOutlinePanel.style.setProperty("--pdf-outline-width", `${clampedWidth}px`);
+  localStorage.setItem("pdfOutlineWidth", String(clampedWidth));
+}
+
+function finishPdfOutlineResize(pointerId) {
+  if (!isResizingPdfOutline) return;
+  isResizingPdfOutline = false;
+  document.body.classList.remove("resizing-pdf-outline");
+  if (pdfOutlineResizer?.hasPointerCapture(pointerId)) {
+    pdfOutlineResizer.releasePointerCapture(pointerId);
+  }
+  refreshPdfAfterPaneResize();
+}
+
+async function loadPdfOutline(pdf) {
+  try {
+    const outline = await pdf.getOutline();
+    pdfOutlineItems = Array.isArray(outline) ? outline : [];
+  } catch (error) {
+    console.warn("Failed to read PDF outline.", error);
+    pdfOutlineItems = [];
+  }
+  renderPdfOutline();
+  updatePdfOutlineUI();
+}
+
+function updatePdfOutlineUI() {
+  const hasOutline = pdfOutlineItems.length > 0;
+  if (pdfOutlineToggleButton) {
+    pdfOutlineToggleButton.disabled = !hasOutline;
+    pdfOutlineToggleButton.classList.toggle("active", hasOutline && !pdfOutlinePanel?.hidden);
+    pdfOutlineToggleButton.setAttribute("aria-expanded", String(hasOutline && !pdfOutlinePanel?.hidden));
+  }
+  if (!hasOutline) closePdfOutlinePanel();
+}
+
+function togglePdfOutlinePanel() {
+  if (!pdfOutlinePanel || !pdfOutlineItems.length) return;
+  setPdfOutlinePanelOpen(pdfOutlinePanel.hidden);
+}
+
+function setPdfOutlinePanelOpen(isOpen, shouldRefreshPdf = true) {
+  if (!pdfOutlinePanel) return;
+  pdfOutlinePanel.hidden = !isOpen;
+  updatePdfOutlineUI();
+  if (shouldRefreshPdf) refreshPdfAfterPaneResize();
+}
+
+function closePdfOutlinePanel(shouldRefreshPdf = false) {
+  if (pdfOutlinePanel) pdfOutlinePanel.hidden = true;
+  if (pdfOutlineToggleButton) {
+    pdfOutlineToggleButton.classList.remove("active");
+    pdfOutlineToggleButton.setAttribute("aria-expanded", "false");
+  }
+  if (shouldRefreshPdf) refreshPdfAfterPaneResize();
+}
+
+function renderPdfOutline() {
+  if (!pdfOutlineList) return;
+  pdfOutlineList.innerHTML = "";
+  if (!pdfOutlineItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "pdf-outline-empty";
+    empty.textContent = "当前 PDF 没有目录";
+    pdfOutlineList.appendChild(empty);
+    return;
+  }
+  pdfOutlineList.appendChild(createPdfOutlineList(pdfOutlineItems, 0));
+}
+
+function createPdfOutlineList(items, depth) {
+  const list = document.createElement("div");
+  list.className = "pdf-outline-items";
+  list.dataset.depth = String(depth);
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "pdf-outline-item";
+    const button = document.createElement("button");
+    button.className = "pdf-outline-link";
+    button.type = "button";
+    button.style.paddingLeft = `${8 + depth * 14}px`;
+    button.textContent = String(item?.title || "Untitled").trim() || "Untitled";
+    button.title = button.textContent;
+    button.addEventListener("click", () => jumpToPdfOutlineItem(item));
+    row.appendChild(button);
+    if (Array.isArray(item?.items) && item.items.length) {
+      row.appendChild(createPdfOutlineList(item.items, depth + 1));
+    }
+    list.appendChild(row);
+  });
+  return list;
+}
+
+function jumpToPdfOutlineItem(item) {
+  jumpToPdfOutlineItemAsync(item).catch((error) => console.error("Failed to follow PDF outline item.", error));
+}
+
+async function jumpToPdfOutlineItemAsync(item) {
+  if (!currentPdfDocument || !item) return;
+  const safeUrl = getSafePdfLinkUrl(item.url || "");
+  if (safeUrl) {
+    window.open(safeUrl, "_blank", "noopener,noreferrer");
+    closePdfOutlinePanel(true);
+    return;
+  }
+  const resolved = await resolvePdfLinkDestination(currentPdfDocument, item.dest);
+  if (!resolved) return;
+  await jumpToPdfLinkPageAsync(resolved.pageIndex + 1);
+  closePdfOutlinePanel(true);
 }
 
 function updatePdfZoomLabel() {
@@ -3132,8 +3303,12 @@ function getPdfPageForNode(node) {
   return textSpan?.closest(".pdf-page") || null;
 }
 
+function getPdfFrameElement() {
+  return pdfViewer.closest(".paper-frame") || pdfViewer.parentElement;
+}
+
 function showSelectionMenu(rect) {
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const frameRect = getPdfFrameElement().getBoundingClientRect();
   const left = Math.min(rect.right - frameRect.left + 8, frameRect.width - selectionMenu.offsetWidth - 12);
   const top = Math.max(rect.top - frameRect.top - 4, 12);
   selectionMenu.style.left = `${Math.max(left, 12)}px`;
@@ -3391,12 +3566,12 @@ function showTranslationWindow(text) {
       </header>
       <textarea class="translation-text" spellcheck="false"></textarea>
     `;
-    pdfViewer.parentElement.appendChild(bubble);
+    getPdfFrameElement().appendChild(bubble);
     initTranslationWindow(bubble);
   }
 
   bubble.querySelector(".translation-text").value = text;
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const frameRect = getPdfFrameElement().getBoundingClientRect();
   const rect = lastSelectionRect || frameRect;
   const bubbleWidth = bubble.offsetWidth || 360;
   const bubbleHeight = bubble.offsetHeight || 220;
@@ -3737,7 +3912,7 @@ function showReferencePopover(numbers, clientX, clientY) {
       <div class="reference-popover-body"></div>
     `;
     popover.querySelector(".reference-close").addEventListener("click", hideReferencePopover);
-    pdfViewer.parentElement.appendChild(popover);
+    getPdfFrameElement().appendChild(popover);
   }
 
   popover.querySelector(".reference-copy").onclick = () => copyReferenceEntries(entries, popover);
@@ -3760,7 +3935,7 @@ function showReferencePopover(numbers, clientX, clientY) {
 }
 
 function positionReferencePopover(popover, clientX, clientY) {
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const frameRect = getPdfFrameElement().getBoundingClientRect();
   const width = popover.offsetWidth || 340;
   const height = popover.offsetHeight || 180;
   const placeRight = clientX - frameRect.left + 12 + width <= frameRect.width - 12;
@@ -3890,7 +4065,7 @@ function showAnnotationEditor(highlight, clientX, clientY, options = {}) {
       </div>
       <div class="annotation-colors" aria-label="Highlight color"></div>
     `;
-    pdfViewer.parentElement.appendChild(editor);
+    getPdfFrameElement().appendChild(editor);
     initTranslationWindow(editor, hideAnnotationEditor);
     editor.querySelector(".annotation-comment").addEventListener("input", () => {
       renderAnnotationPreview(editor, "comment");
@@ -3936,7 +4111,7 @@ function showAnnotationEditor(highlight, clientX, clientY, options = {}) {
     button.classList.toggle("active", button.dataset.color === color);
   });
 
-  const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+  const frameRect = getPdfFrameElement().getBoundingClientRect();
   const editorWidth = editor.offsetWidth || 360;
   const editorHeight = editor.offsetHeight || 360;
   const left = Math.max(12, Math.min(clientX - frameRect.left + 10, frameRect.width - editorWidth - 12));
@@ -4055,7 +4230,7 @@ function initTranslationWindow(bubble, closeHandler = hideTranslationBubble) {
     if (event.target.closest("button")) return;
     event.preventDefault();
     const rect = bubble.getBoundingClientRect();
-    const frameRect = pdfViewer.parentElement.getBoundingClientRect();
+    const frameRect = getPdfFrameElement().getBoundingClientRect();
     translationDragState = {
       pointerId: event.pointerId,
       offsetX: event.clientX - rect.left,

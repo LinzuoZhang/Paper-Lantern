@@ -2495,6 +2495,11 @@ select {
   color: var(--ink);
 }
 
+.pdf-toolbar-button.active {
+  background: var(--soft-strong);
+  color: var(--ink);
+}
+
 .pdf-toolbar-button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -2631,6 +2636,123 @@ select {
   pointer-events: none;
 }
 
+.pdf-reader-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.pdf-outline-panel {
+  position: relative;
+  flex: 0 0 var(--pdf-outline-width, 280px);
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  width: var(--pdf-outline-width, 280px);
+  min-width: 180px;
+  max-width: min(48%, 420px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 14px 10px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.pdf-outline-panel[hidden] {
+  display: none;
+}
+
+.pdf-outline-header {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pdf-outline-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.pdf-outline-list {
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.pdf-outline-items {
+  display: grid;
+  gap: 1px;
+}
+
+.pdf-outline-link {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
+}
+
+.pdf-outline-link:hover,
+.pdf-outline-link:focus-visible {
+  background: var(--soft);
+}
+
+.pdf-outline-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pdf-outline-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pdf-outline-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 3px;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+}
+
+.pdf-outline-resizer:hover::before,
+.pdf-outline-resizer:focus-visible::before,
+body.resizing-pdf-outline .pdf-outline-resizer::before {
+  background: rgba(37, 109, 133, 0.42);
+}
+
+body.resizing-pdf-outline {
+  cursor: col-resize;
+  user-select: none;
+}
+
 #pdfViewer {
   display: none;
 }
@@ -2638,6 +2760,7 @@ select {
 .pdf-viewer {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   width: 100%;
   height: auto;
   overflow: auto;
