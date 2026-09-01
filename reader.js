@@ -22,10 +22,13 @@ const highlightButton = document.querySelector("#highlightButton");
 const commentButton = document.querySelector("#commentButton");
 const translateButton = document.querySelector("#translateButton");
 const explainButton = document.querySelector("#explainButton");
+const askSelectionButton = document.querySelector("#askSelectionButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
 const pageIndicator = document.querySelector("#pageIndicator");
-const summarizeButton = document.querySelector("#summarizeButton");
+const regenerateKeywordsButton = document.querySelector("#regenerateKeywordsButton");
+const regenerateThreeLineButton = document.querySelector("#regenerateThreeLineButton");
+const regenerateMethodButton = document.querySelector("#regenerateMethodButton");
 const statusText = document.querySelector("#status");
 const challenges = document.querySelector("#challenges");
 const method = document.querySelector("#method");
@@ -35,10 +38,13 @@ const methodSections = document.querySelector("#methodSections");
 const discussionListView = document.querySelector("#discussionListView");
 const discussionThreadView = document.querySelector("#discussionThreadView");
 const discussionThreadList = document.querySelector("#discussionThreadList");
+const newDiscussionButton = document.querySelector("#newDiscussionButton");
 const backToDiscussionsButton = document.querySelector("#backToDiscussionsButton");
 const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
 const discussionMessages = document.querySelector("#discussionMessages");
 const discussionForm = document.querySelector("#discussionForm");
+const discussionReferenceBox = document.querySelector("#discussionReferenceBox");
+const discussionReferenceText = document.querySelector("#discussionReferenceText");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
@@ -83,6 +89,7 @@ const pdfSearchCount = document.querySelector("#pdfSearchCount");
 const READER_LIBRARY_ALL_ID = "__library";
 const READER_RECENT_ID = "__recent";
 const READER_TODO_ID = "__todo";
+const MAX_DISCUSSION_REFERENCE_CHARS = 4000;
 
 const readerLibraryIconSvg =
   '<svg class="reader-category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
@@ -895,36 +902,22 @@ highlightButton.addEventListener("mousedown", (event) => event.preventDefault())
 commentButton.addEventListener("mousedown", (event) => event.preventDefault());
 translateButton.addEventListener("mousedown", (event) => event.preventDefault());
 explainButton.addEventListener("mousedown", (event) => event.preventDefault());
+askSelectionButton?.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
 explainButton.addEventListener("click", explainSelection);
+askSelectionButton?.addEventListener("click", askSelectionInDiscussion);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
+newDiscussionButton?.addEventListener("click", createBlankDiscussion);
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
 copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
 copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
 
-summarizeButton.addEventListener("click", async () => {
-  const text = lastExtractedText.trim();
-  if (text.length < 80) {
-    setStatus("Upload a PDF first. No extracted text is available for regeneration.", true);
-    return;
-  }
-
-  setBusy(true);
-  clearStatus();
-  renderSummaryLoading("重新生成总结中...");
-  try {
-    await summarizeText(text);
-  } catch (error) {
-    console.error(error);
-    renderSummary(paperToSummary(currentPaper));
-    setStatus(error.message || "Failed to summarize.", true);
-  } finally {
-    setBusy(false);
-  }
-});
+regenerateKeywordsButton?.addEventListener("click", () => regenerateSummarySection("keywords"));
+regenerateThreeLineButton?.addEventListener("click", () => regenerateSummarySection("threeLine"));
+regenerateMethodButton?.addEventListener("click", () => regenerateSummarySection("method"));
 
 basicInfoButton?.addEventListener("click", async () => {
   const text = lastExtractedText.trim();
@@ -1227,6 +1220,7 @@ async function handleDiscussionSubmit(event) {
 
   const paperText = lastExtractedText.trim();
   const thread = ensureActiveDiscussion(question);
+  const selectionReference = normalizeDiscussionReference(thread.reference);
   if (paperText.length < 80) {
     appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再开始讨论。");
     return;
@@ -1245,6 +1239,7 @@ async function handleDiscussionSubmit(event) {
       question,
       summary: paperToSummary(currentPaper),
       history: thread.messages,
+      selectionReference,
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
@@ -1274,11 +1269,13 @@ async function handleDiscussionSubmit(event) {
   }
 }
 
-function createDiscussionThread(initialQuestion = "", shouldSave = false) {
+function createDiscussionThread(initialQuestion = "", shouldSave = false, reference = null) {
+  const normalizedReference = normalizeDiscussionReference(reference);
   const thread = {
     id: makeDiscussionId(),
-    title: initialQuestion ? makeDiscussionTitle(initialQuestion) : "New discussion",
+    title: initialQuestion ? makeDiscussionTitle(initialQuestion) : (normalizedReference ? "引用提问" : "New discussion"),
     messages: [],
+    reference: normalizedReference,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -1288,6 +1285,14 @@ function createDiscussionThread(initialQuestion = "", shouldSave = false) {
   showDiscussionThread(thread.id);
   if (shouldSave) saveDiscussionThreads();
   return thread;
+}
+
+function createBlankDiscussion(event) {
+  event?.stopPropagation();
+  const thread = createDiscussionThread("", true);
+  renderDiscussionReferenceBox(thread.reference);
+  discussionInput.value = "";
+  discussionInput?.focus();
 }
 
 function ensureActiveDiscussion(initialQuestion = "") {
@@ -1301,6 +1306,7 @@ function showDiscussionList() {
   discussionListView.hidden = false;
   discussionThreadView.hidden = true;
   renderDiscussionThreadList();
+  renderDiscussionReferenceBox(null);
 }
 
 function showDiscussionThread(threadId) {
@@ -1311,12 +1317,21 @@ function showDiscussionThread(threadId) {
   discussionThreadView.hidden = false;
   renderDiscussionThreadHeader(thread);
   renderDiscussionMessages(thread.messages);
+  renderDiscussionReferenceBox(thread.reference);
 }
 
 function renderDiscussionThreadHeader(thread) {
   if (!discussionThreadTitle) return;
   discussionThreadTitle.textContent = thread?.title || "New discussion";
   discussionThreadTitle.title = thread?.title || "New discussion";
+}
+
+function renderDiscussionReferenceBox(reference) {
+  const normalized = normalizeDiscussionReference(reference);
+  if (!discussionReferenceBox || !discussionReferenceText) return;
+  discussionReferenceBox.hidden = !normalized;
+  discussionReferenceText.textContent = normalized?.text || "";
+  discussionReferenceText.title = normalized?.text || "";
 }
 
 function renderDiscussionThreadList() {
@@ -1342,18 +1357,92 @@ function renderDiscussionThreadList() {
     title.textContent = thread.title || "New discussion";
     const meta = document.createElement("span");
     meta.className = "discussion-thread-item-meta";
-    const turnCount = Math.ceil((thread.messages || []).length / 2);
-    meta.textContent = `${turnCount || 0} turns`;
+    meta.textContent = formatDiscussionUpdatedAt(thread.updatedAt || thread.createdAt);
     button.append(title, meta);
     button.addEventListener("click", () => showDiscussionThread(thread.id));
+
+    const renameButton = createMessageActionButton("edit", "Rename discussion");
+    renameButton.classList.add("discussion-thread-rename");
+    renameButton.addEventListener("click", () => startDiscussionThreadRename(thread.id));
 
     const deleteButton = createMessageActionButton("delete", "Delete discussion");
     deleteButton.classList.add("discussion-thread-delete");
     deleteButton.addEventListener("click", () => deleteDiscussionThread(thread.id));
 
-    item.append(button, deleteButton);
+    item.append(button, renameButton, deleteButton);
     discussionThreadList.appendChild(item);
   });
+}
+
+function formatDiscussionUpdatedAt(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "No recent activity";
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (diffMs >= 0 && diffMs < minute) return "刚刚";
+  if (diffMs >= 0 && diffMs < hour) return `${Math.floor(diffMs / minute)} 分钟前`;
+  if (diffMs >= 0 && diffMs < day) return `${Math.floor(diffMs / hour)} 小时前`;
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function startDiscussionThreadRename(threadId) {
+  if (discussionIsBusy) return;
+  const thread = discussionThreads.find((item) => item.id === threadId);
+  const item = discussionThreadList?.querySelector(`.discussion-thread-item[data-thread-id="${CSS.escape(threadId)}"]`);
+  if (!thread || !item || item.querySelector(".discussion-thread-rename-form")) return;
+
+  const openButton = item.querySelector(".discussion-thread-open");
+  const renameButton = item.querySelector(".discussion-thread-rename");
+  const deleteButton = item.querySelector(".discussion-thread-delete");
+  const form = document.createElement("form");
+  form.className = "discussion-thread-rename-form";
+  form.innerHTML = `
+    <input class="discussion-thread-rename-input" type="text" maxlength="120" aria-label="Discussion name" />
+    <button class="discussion-thread-rename-save" type="submit">保存</button>
+  `;
+  const input = form.querySelector(".discussion-thread-rename-input");
+  input.value = thread.title || "New discussion";
+
+  const cancel = () => {
+    form.remove();
+    if (openButton) openButton.hidden = false;
+    if (renameButton) renameButton.hidden = false;
+    if (deleteButton) deleteButton.hidden = false;
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancel();
+    }
+  });
+  input.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (!form.contains(document.activeElement)) cancel();
+    }, 0);
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const next = input.value.replace(/\s+/g, " ").trim();
+    if (!next) return;
+    thread.title = next.slice(0, 120);
+    thread.hash = await makeDiscussionThreadHash(thread);
+    renderDiscussionThreadList();
+    renderDiscussionThreadHeader(thread);
+    await saveDiscussionThreads();
+  });
+
+  if (openButton) openButton.hidden = true;
+  if (renameButton) renameButton.hidden = true;
+  if (deleteButton) deleteButton.hidden = true;
+  item.appendChild(form);
+  input.focus();
+  input.select();
 }
 
 function appendDiscussionMessage(role, content, index = -1) {
@@ -1496,6 +1585,7 @@ async function restartDiscussionAfterEdit(thread, index, next) {
       question: next,
       summary: paperToSummary(currentPaper),
       history,
+      selectionReference: normalizeDiscussionReference(thread.reference),
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
@@ -1548,6 +1638,7 @@ async function regenerateDiscussionAnswer(messageNode) {
       question,
       summary: paperToSummary(currentPaper),
       history: thread.messages.slice(0, userIndex),
+      selectionReference: normalizeDiscussionReference(thread.reference),
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(body, answer || "Thinking...", "assistant");
@@ -1572,7 +1663,7 @@ async function regenerateDiscussionAnswer(messageNode) {
   }
 }
 
-async function requestDiscussionAnswer({ paperText, question, summary, history, onDelta }) {
+async function requestDiscussionAnswer({ paperText, question, summary, history, selectionReference, onDelta }) {
   const response = await apiFetch("/api/discuss", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1581,6 +1672,7 @@ async function requestDiscussionAnswer({ paperText, question, summary, history, 
       question,
       summary,
       history,
+      selectionReference: normalizeDiscussionReference(selectionReference),
       stream: true,
     }),
   });
@@ -1729,6 +1821,16 @@ function normalizeDiscussionHistory(history) {
     .filter((message) => message.content);
 }
 
+function normalizeDiscussionReference(reference) {
+  if (!reference || typeof reference !== "object") return null;
+  const text = String(reference.text || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return {
+    text: text.slice(0, MAX_DISCUSSION_REFERENCE_CHARS),
+    paperTitle: String(reference.paperTitle || "").trim().slice(0, 240),
+  };
+}
+
 function normalizeDiscussionThreads(discussion) {
   if (Array.isArray(discussion)) {
     const messages = normalizeDiscussionHistory(discussion);
@@ -1750,6 +1852,7 @@ function normalizeDiscussionThreads(discussion) {
       id: String(thread?.id || makeDiscussionId(index)),
       title: String(thread?.title || "").trim() || "New discussion",
       messages: normalizeDiscussionHistory(thread?.messages || []),
+      reference: normalizeDiscussionReference(thread?.reference),
       hash: String(thread?.hash || ""),
       createdAt: String(thread?.createdAt || new Date().toISOString()),
       updatedAt: String(thread?.updatedAt || thread?.createdAt || new Date().toISOString()),
@@ -1772,6 +1875,7 @@ async function makeDiscussionThreadHash(thread) {
     id: thread.id,
     title: thread.title,
     messages: normalizeDiscussionHistory(thread.messages || []),
+    reference: normalizeDiscussionReference(thread.reference),
     createdAt: thread.createdAt || "",
     updatedAt: thread.updatedAt || "",
   };
@@ -2749,23 +2853,111 @@ async function summarizeText(text) {
   clearStatus();
 }
 
-async function refreshOverviewInfo(text) {
+async function regenerateSummarySection(section) {
+  const text = lastExtractedText.trim();
+  if (text.length < 80) {
+    setStatus("Upload a PDF first. No extracted text is available for regeneration.", true);
+    return;
+  }
+
+  const button = getSummarySectionRefreshButton(section);
+  if (button) button.disabled = true;
+  clearStatus();
+  setSummarySectionLoading(section);
+  try {
+    if (section === "keywords") {
+      const overviewInfo = await fetchOverviewInfo(text);
+      const keywordsValue = overviewInfo.keywords || [];
+      renderKeywords(keywordsValue);
+      await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), keywords: keywordsValue } });
+      return;
+    }
+
+    const summary = await fetchFullSummary(text);
+    if (section === "threeLine") {
+      const threeLineSummary = summary.threeLineSummary || {};
+      challenges.textContent = threeLineSummary.challenges || "No response";
+      method.textContent = threeLineSummary.method || "No response";
+      conclusion.textContent = threeLineSummary.conclusion || "No response";
+      await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), threeLineSummary } });
+      return;
+    }
+
+    if (section === "method") {
+      const methodUpdate = {
+        methodOverview: summary.methodOverview || "",
+        methodSections: summary.methodSections || [],
+        methodConclusion: summary.methodConclusion || "",
+      };
+      renderMethodSections(methodUpdate.methodSections, {
+        fallbackText: summary.threeLineSummary?.method || "",
+        overview: methodUpdate.methodOverview,
+        conclusion: methodUpdate.methodConclusion,
+      });
+      await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), ...methodUpdate } });
+    }
+  } catch (error) {
+    console.error(error);
+    renderSummary(paperToSummary(currentPaper));
+    setStatus(error.message || "Regeneration failed.", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function getSummarySectionRefreshButton(section) {
+  if (section === "keywords") return regenerateKeywordsButton;
+  if (section === "threeLine") return regenerateThreeLineButton;
+  if (section === "method") return regenerateMethodButton;
+  return null;
+}
+
+function setSummarySectionLoading(section) {
+  if (section === "keywords") {
+    renderKeywordsLoading("重新生成关键词中...");
+    return;
+  }
+  if (section === "threeLine") {
+    challenges.textContent = "Loading...";
+    method.textContent = "Loading...";
+    conclusion.textContent = "Loading...";
+    return;
+  }
+  if (section === "method") {
+    renderMethodLoading("重新生成方法解析中...");
+  }
+}
+
+async function fetchFullSummary(text) {
+  const response = await apiFetch("/api/summarize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.detail || data.error || "Summary failed.");
+  return data.summary || {};
+}
+
+async function fetchOverviewInfo(text) {
   const response = await apiFetch("/api/overview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
   });
   const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.detail || data.error || "Overview extraction failed.");
+  return data.overviewInfo || {};
+}
 
-  if (!response.ok) {
-    throw new Error(data.detail || data.error || "Overview extraction failed.");
-  }
+async function refreshOverviewInfo(text) {
+  const overviewInfo = await fetchOverviewInfo(text);
 
-  renderKeywords(data.overviewInfo?.keywords || []);
-  renderBasicInfo(data.overviewInfo?.basicInfo);
-  await saveCurrentPaper({ overviewInfo: data.overviewInfo });
-  if (data.overviewInfo?.paperTitle) {
-    setReaderPaperTitle(data.overviewInfo.paperTitle);
+  renderKeywords(overviewInfo.keywords || []);
+  renderBasicInfo(overviewInfo.basicInfo);
+  await saveCurrentPaper({ overviewInfo });
+  if (overviewInfo.paperTitle) {
+    setReaderPaperTitle(overviewInfo.paperTitle);
   }
 }
 
@@ -3166,6 +3358,24 @@ async function explainSelection() {
     explainButton.disabled = false;
     setSelectionMenuButtonLabel(explainButton, "解释");
   }
+}
+
+function askSelectionInDiscussion() {
+  const text = selectedPdfText.trim();
+  if (!text || !selectedPdfRange) return;
+
+  const reference = {
+    text,
+    paperTitle: currentPaper?.title || fileName?.textContent || "",
+  };
+  const thread = createDiscussionThread("", true, reference);
+  setActiveReaderTab("withAiTab");
+  setSummaryPaneCollapsed(false);
+  renderDiscussionReferenceBox(thread.reference);
+  hideSelectionMenu();
+  hideTranslationBubble();
+  window.getSelection()?.removeAllRanges();
+  discussionInput?.focus();
 }
 
 function showTranslationWindow(text) {
@@ -4976,17 +5186,25 @@ async function applyCandidateBasicInfo(candidate) {
 }
 
 function renderSummaryLoading(message = "Loading...") {
-  keywords.innerHTML = "";
-  methodSections.innerHTML = "";
-  const keywordLoading = document.createElement("div");
-  keywordLoading.className = "summary-loading";
-  keywordLoading.textContent = message;
-  keywords.appendChild(keywordLoading);
+  renderKeywordsLoading(message);
 
   challenges.textContent = "Loading...";
   method.textContent = "Loading...";
   conclusion.textContent = "Loading...";
 
+  renderMethodLoading(message);
+}
+
+function renderKeywordsLoading(message = "Loading...") {
+  keywords.innerHTML = "";
+  const keywordLoading = document.createElement("div");
+  keywordLoading.className = "summary-loading";
+  keywordLoading.textContent = message;
+  keywords.appendChild(keywordLoading);
+}
+
+function renderMethodLoading(message = "Loading...") {
+  methodSections.innerHTML = "";
   const methodLoading = document.createElement("div");
   methodLoading.className = "summary-loading summary-loading-large";
   methodLoading.textContent = message;
@@ -5477,8 +5695,10 @@ function renderFormula(node, source, displayMode = false) {
 }
 
 function setBusy(isBusy) {
-  summarizeButton.disabled = isBusy;
-  basicInfoButton.disabled = isBusy;
+  if (regenerateKeywordsButton) regenerateKeywordsButton.disabled = isBusy;
+  if (regenerateThreeLineButton) regenerateThreeLineButton.disabled = isBusy;
+  if (regenerateMethodButton) regenerateMethodButton.disabled = isBusy;
+  if (basicInfoButton) basicInfoButton.disabled = isBusy;
 }
 
 function setStatus(message, isError = false) {

@@ -96,6 +96,10 @@
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 1 1 5.8 1c-.4.8-1.1 1.2-1.8 1.7-.7.5-1.1 1-1.1 2.3"></path><path d="M12 17h.01"></path></svg>
               <span>解释</span>
             </button>
+            <button id="askSelectionButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path><path d="M9.5 9a2.5 2.5 0 0 1 4.8 1.1c0 1.6-1.8 2-2.3 3"></path><path d="M12 17h.01"></path></svg>
+              <span>提问</span>
+            </button>
           </div>
           <div id="emptyState" class="empty-state">
             <strong>The PDF will appear here</strong>
@@ -141,28 +145,22 @@
 
           <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
           <div class="summary-scroll">
-            <section class="summary-card summary-group ai-summary-panel collapsible-card" data-collapsible-card>
-              <div class="summary-group-header">
-                <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="aiSummaryContent">
-                  <span class="collapse-icon" aria-hidden="true"></span>
-                  <span>AI Summary</span>
-                </button>
-                <button id="summarizeButton" class="icon-button refresh-button" type="button" aria-label="Regenerate summary" title="Regenerate summary">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M20 6v5h-5"></path>
-                    <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
-                  </svg>
-                </button>
-              </div>
-
-              <div id="aiSummaryContent" class="summary-group-content">
+            <div class="ai-summary-panel">
                 <p id="status" class="status" role="status"></p>
 
                 <section class="summary-card collapsible-card" data-collapsible-card>
-                  <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
-                    <span class="collapse-icon" aria-hidden="true"></span>
-                    <span>Keywords</span>
-                  </button>
+                  <div class="summary-card-header">
+                    <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
+                      <span class="collapse-icon" aria-hidden="true"></span>
+                      <span>Keywords</span>
+                    </button>
+                    <button id="regenerateKeywordsButton" class="icon-button refresh-section-button" type="button" aria-label="Regenerate keywords" title="Regenerate keywords">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+                      </svg>
+                    </button>
+                  </div>
                   <div id="keywords" class="keywords"></div>
                 </section>
 
@@ -171,6 +169,12 @@
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
                       <span class="collapse-icon" aria-hidden="true"></span>
                       <span>Three-Line Summary</span>
+                    </button>
+                    <button id="regenerateThreeLineButton" class="icon-button refresh-section-button" type="button" aria-label="Regenerate three-line summary" title="Regenerate three-line summary">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+                      </svg>
                     </button>
                     <button id="copyThreeLineButton" class="icon-button copy-section-button" type="button" aria-label="Copy three-line summary" title="Copy three-line summary">
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -195,6 +199,12 @@
                       <span class="collapse-icon" aria-hidden="true"></span>
                       <span>Method Breakdown</span>
                     </button>
+                    <button id="regenerateMethodButton" class="icon-button refresh-section-button" type="button" aria-label="Regenerate method breakdown" title="Regenerate method breakdown">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M20 6v5h-5"></path>
+                        <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+                      </svg>
+                    </button>
                     <button id="copyMethodButton" class="icon-button copy-section-button" type="button" aria-label="Copy method breakdown" title="Copy method breakdown">
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <rect x="9" y="9" width="11" height="11" rx="2"></rect>
@@ -204,14 +214,20 @@
                   </div>
                   <div id="methodSections" class="method-sections"></div>
                 </section>
-              </div>
-            </section>
+            </div>
 
-            <section class="summary-card discussion-card collapsible-card" data-collapsible-card>
+            <section class="discussion-card collapsible-card" data-collapsible-card>
               <div class="summary-group-header">
                 <button class="summary-card-toggle summary-group-toggle" type="button" aria-expanded="true" aria-controls="discussionContent">
                   <span>Discussion</span>
                   <span class="collapse-icon" aria-hidden="true"></span>
+                </button>
+                <button id="newDiscussionButton" class="icon-button discussion-new-button" type="button" aria-label="New discussion" title="New discussion">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                    <path d="M12 8v6"></path>
+                    <path d="M9 11h6"></path>
+                  </svg>
                 </button>
               </div>
               <div id="discussionContent" class="discussion-content">
@@ -236,6 +252,10 @@
           </div>
 
           <form id="discussionForm" class="discussion-form">
+            <div id="discussionReferenceBox" class="discussion-reference-box" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path></svg>
+              <span id="discussionReferenceText" class="discussion-reference-text"></span>
+            </div>
             <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>
             <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="Send" title="Send">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

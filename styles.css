@@ -3651,27 +3651,11 @@ body.selecting-pdf-text .selection-menu {
   box-shadow: none;
 }
 
-.ai-summary-panel {
-  gap: 12px;
-}
-
-.ai-summary-panel > .summary-group-header {
-  width: 100%;
-  min-height: 42px;
-  margin: 0;
-  padding: 0 0 10px;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-}
-
-.ai-summary-panel > .summary-group-header:hover,
 .ai-summary-panel .summary-card-header:hover,
 .ai-summary-panel .summary-card-toggle:hover {
   background: transparent;
 }
 
-.ai-summary-panel > .summary-group-header .summary-card-toggle,
-.ai-summary-panel > .summary-card-toggle,
 .ai-summary-panel .summary-card-header .summary-card-toggle {
   width: auto;
   margin: 0;
@@ -3679,16 +3663,16 @@ body.selecting-pdf-text .selection-menu {
   border-radius: 0;
 }
 
-.ai-summary-panel .summary-group-content {
-  gap: 0;
+.ai-summary-panel {
+  display: contents;
 }
 
-.ai-summary-panel .summary-group-content > .summary-card {
+.ai-summary-panel > .summary-card {
   padding: 14px 0;
   border-bottom: 1px solid var(--line);
 }
 
-.ai-summary-panel .summary-group-content > .summary-card:last-child {
+.ai-summary-panel > .summary-card:last-child {
   border-bottom: 0;
 }
 
@@ -3708,10 +3692,8 @@ body.selecting-pdf-text .selection-menu {
   border-radius: 0;
 }
 
-.ai-summary-panel.collapsed .summary-card-toggle,
 .ai-summary-panel .collapsible-card.collapsed .summary-card-toggle,
-.ai-summary-panel .collapsible-card.collapsed .summary-card-header,
-.ai-summary-panel.collapsed .summary-group-header {
+.ai-summary-panel .collapsible-card.collapsed .summary-card-header {
   border-radius: 0;
 }
 
@@ -3727,10 +3709,8 @@ body.selecting-pdf-text .selection-menu {
   border-radius: 8px;
 }
 
-.ai-summary-panel.collapsed .summary-card-toggle,
 .ai-summary-panel .collapsible-card.collapsed .summary-card-toggle,
-.ai-summary-panel .collapsible-card.collapsed .summary-card-header,
-.ai-summary-panel.collapsed .summary-group-header {
+.ai-summary-panel .collapsible-card.collapsed .summary-card-header {
   border-radius: 0;
 }
 
@@ -3756,6 +3736,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .copy-section-button,
+.refresh-section-button,
 .message-action-button {
   border-color: transparent;
   background: transparent;
@@ -3764,11 +3745,13 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .copy-section-button:hover,
+.refresh-section-button:hover,
 .message-action-button:hover {
   background: var(--soft);
 }
 
 .copy-section-button svg,
+.refresh-section-button svg,
 .message-action-button svg {
   width: 17px;
   height: 17px;
@@ -3780,6 +3763,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .copy-section-button.copied,
+.refresh-section-button.copied,
 .message-action-button.copied {
   background: var(--soft);
   color: var(--ink);
@@ -3953,7 +3937,72 @@ body.selecting-pdf-text .selection-menu {
 .discussion-card {
   display: grid;
   gap: 12px;
-  padding-bottom: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.discussion-card .summary-group-header {
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.discussion-card .summary-group-header:hover {
+  background: transparent;
+}
+
+.discussion-card .summary-card-toggle {
+  flex: 1;
+  width: auto;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.discussion-card .summary-card-toggle:hover {
+  background: transparent;
+}
+
+.discussion-new-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.discussion-new-button:hover,
+.discussion-new-button:focus-visible {
+  background: var(--soft);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.discussion-new-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
 }
 
 .basic-info-panel {
@@ -4349,19 +4398,68 @@ body.selecting-pdf-text .selection-menu {
   background: var(--soft);
 }
 
+.discussion-thread-rename,
 .discussion-thread-delete {
   width: 28px;
   min-width: 28px;
   height: 28px;
   min-height: 28px;
-  margin-right: 4px;
-  color: #a93d3d;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   opacity: 0;
 }
 
+.discussion-thread-rename {
+  margin-right: 4px;
+  color: var(--muted);
+}
+
+.discussion-thread-delete {
+  color: #a93d3d;
+}
+
+.discussion-thread-item:hover .discussion-thread-rename,
 .discussion-thread-item:hover .discussion-thread-delete,
+.discussion-thread-rename:focus-visible,
 .discussion-thread-delete:focus-visible {
   opacity: 1;
+}
+
+.discussion-thread-rename-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.discussion-thread-rename-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font: inherit;
+}
+
+.discussion-thread-rename-input:focus {
+  border-color: rgba(44, 117, 140, 0.62);
+  outline: 3px solid rgba(44, 117, 140, 0.14);
+}
+
+.discussion-thread-rename-save {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-size: 12px;
 }
 
 .discussion-thread-item-title {
@@ -4710,6 +4808,45 @@ body.selecting-pdf-text .selection-menu {
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 -12px 24px rgba(29, 37, 32, 0.06);
   backdrop-filter: blur(8px);
+}
+
+.discussion-reference-box {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f2f4f3;
+  color: var(--muted);
+}
+
+.discussion-reference-box[hidden] {
+  display: none;
+}
+
+.discussion-reference-box svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.discussion-reference-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .discussion-form textarea {
@@ -5329,6 +5466,29 @@ button.ghost:hover,
 .citation-card .summary-group-header,
 .citation-card .summary-group-header:hover {
   background: transparent;
+}
+
+.discussion-card .summary-group-header,
+.discussion-card .summary-group-header:hover {
+  width: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+.discussion-card .summary-card-toggle,
+.discussion-card .summary-card-toggle:hover,
+.discussion-card.collapsed .summary-card-toggle,
+.discussion-card.collapsed .summary-group-header {
+  width: auto;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.discussion-new-button,
+.discussion-new-button:hover,
+.discussion-new-button:focus-visible {
+  box-shadow: none;
 }
 
 .comments-nav-card {

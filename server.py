@@ -1203,6 +1203,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/discuss":
             paper_text = str(payload.get("paperText", "")).strip()
             question = str(payload.get("question", "")).strip()
+            selection_reference = normalize_selection_reference(payload.get("selectionReference"))
             if len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
@@ -1218,6 +1219,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     question,
                     payload.get("summary", {}),
                     payload.get("history", []),
+                    selection_reference,
                     stream=bool(payload.get("stream")),
                 )
                 if bool(payload.get("stream")):
@@ -2143,8 +2145,8 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, stream=False):
-    upstream_payload = build_discussion_payload(model, paper_text, question, summary, history)
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, selection_reference=None, stream=False):
+    upstream_payload = build_discussion_payload(model, paper_text, question, summary, history, selection_reference)
     if stream:
         return stream_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
 
@@ -2152,18 +2154,15 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def build_discussion_payload(model, paper_text, question, summary=None, history=None):
-    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
+def build_discussion_payload(model, paper_text, question, summary=None, history=None, selection_reference=None):
+    marked_paper_text = mark_selected_text_in_paper(paper_text, selection_reference)
+    paper_excerpt = marked_paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
     history_messages = build_discussion_context_messages(history)
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a research paper discussion assistant. Answer in the user's language, "
-                "ground every claim in the provided paper context, and say when the paper does not provide enough evidence. "
-                "Prefer concise, technical explanations with concrete method details."
-            ),
+            "content": render_prompt("discussion_system.txt"),
         },
         {
             "role": "user",
@@ -2172,6 +2171,8 @@ def build_discussion_payload(model, paper_text, question, summary=None, history=
                 f"{paper_excerpt}\n\n"
                 "Existing AI summary JSON:\n"
                 f"{summary_context}\n\n"
+                "Selected text, if any:\n"
+                f"{selection_reference.get('text', '') if selection_reference else ''}\n\n"
                 "Use this context for the following discussion."
             ),
         },
@@ -2183,6 +2184,44 @@ def build_discussion_payload(model, paper_text, question, summary=None, history=
         "temperature": 0.18,
         "messages": messages,
     }
+
+
+def normalize_selection_reference(reference):
+    if not isinstance(reference, dict):
+        return None
+    text = re.sub(r"\s+", " ", str(reference.get("text", "") or "")).strip()
+    if not text:
+        return None
+    return {
+        "text": text[:MAX_TRANSLATE_CHARS],
+        "paperTitle": str(reference.get("paperTitle", "") or "").strip()[:240],
+    }
+
+
+def mark_selected_text_in_paper(paper_text, selection_reference=None):
+    source = str(paper_text or "")
+    selected = str((selection_reference or {}).get("text", "") or "").strip()
+    if not source or not selected:
+        return source
+
+    start_marker = "<<<USER_SELECTED_TEXT_START>>>"
+    end_marker = "<<<USER_SELECTED_TEXT_END>>>"
+    direct_index = source.find(selected)
+    if direct_index >= 0:
+        return (
+            source[:direct_index]
+            + start_marker
+            + selected
+            + end_marker
+            + source[direct_index + len(selected):]
+        )
+
+    pattern = re.escape(selected)
+    pattern = re.sub(r"\\\s+", r"\\s+", pattern)
+    match = re.search(pattern, source)
+    if not match:
+        return source
+    return source[:match.start()] + start_marker + source[match.start():match.end()] + end_marker + source[match.end():]
 
 
 def build_discussion_context_messages(history):
@@ -2401,6 +2440,7 @@ def normalize_discussion_payload(discussion):
             "id": thread_id,
             "title": title,
             "messages": messages,
+            "reference": normalize_selection_reference(item.get("reference")),
             "createdAt": created_at,
             "updatedAt": updated_at,
         }
