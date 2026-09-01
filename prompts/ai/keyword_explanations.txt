@@ -1,0 +1,14 @@
+Explain each research paper keyword.
+
+Keywords JSON:
+{keywords_json}
+
+Requirements:
+- Do not ask for or infer from the paper body. Only explain the general meaning of each keyword.
+- Output Chinese.
+- Write an explanatory introduction, not a one-sentence summary.
+- Keep each explanation within five sentences.
+- Briefly cover what the term means and why it matters in research papers.
+- Preserve every keyword exactly as provided.
+- Return exactly one JSON object in this shape:
+{{"keywords":{{"keyword":"中文解析介绍"}}}}

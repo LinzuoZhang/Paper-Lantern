@@ -1020,7 +1020,6 @@ async function exportCurrentPaperPdf() {
 function initNotesPanel() {
   notesEditor?.addEventListener("input", () => {
     renderNotesPreview(notesEditor.value);
-    setNotesStatus("Unsaved");
     window.clearTimeout(notesAutoSaveTimer);
     notesAutoSaveTimer = window.setTimeout(() => {
       saveNotes().catch((error) => console.error("Failed to auto-save notes.", error));
@@ -1038,7 +1037,6 @@ function renderNotes(value) {
   notesLastSavedValue = notes;
   renderNotesPreview(notes);
   setNotesMode("edit");
-  setNotesStatus(notes ? "Saved" : "");
 }
 
 function renderNotesPreview(value) {
@@ -1080,14 +1078,7 @@ async function copyNotes() {
     showCopiedFeedback(copyNotesButton);
   } catch (error) {
     console.error("Failed to copy notes.", error);
-    setNotesStatus("复制失败。", true);
   }
-}
-
-function setNotesStatus(message, isError = false) {
-  if (!notesStatus) return;
-  notesStatus.textContent = message || "";
-  notesStatus.classList.toggle("error", Boolean(isError));
 }
 
 async function saveNotes() {
@@ -1095,18 +1086,14 @@ async function saveNotes() {
   const notes = notesEditor.value;
   window.clearTimeout(notesAutoSaveTimer);
   if (notes === notesLastSavedValue) {
-    setNotesStatus(notes ? "Saved" : "");
     return;
   }
   notesIsSaving = true;
-  setNotesStatus("Saving...");
   try {
     await saveCurrentPaper({ notes });
     notesLastSavedValue = String(currentPaper?.notes || notes);
-    setNotesStatus("Saved");
   } catch (error) {
     console.error(error);
-    setNotesStatus(error.message || "Notes save failed.", true);
   } finally {
     notesIsSaving = false;
   }
@@ -1114,12 +1101,10 @@ async function saveNotes() {
 
 async function exportNotesPdf() {
   if (!currentPaper?.id) {
-    setNotesStatus("No paper is open.", true);
     return;
   }
   await saveNotes();
   if (exportNotesPdfButton) exportNotesPdfButton.disabled = true;
-  setNotesStatus("Downloading...");
   try {
     const notes = notesEditor?.value || "";
     renderNotesPreview(notes);
@@ -1134,10 +1119,8 @@ async function exportNotesPdf() {
       throw new Error(detail || "Notes export failed.");
     }
     triggerBlobDownload(blob, `${currentPaper.title || "paper"}-notes.pdf`);
-    setNotesStatus("Exported");
   } catch (error) {
     console.error(error);
-    setNotesStatus(error.message || "Notes export failed.", true);
   } finally {
     if (exportNotesPdfButton) exportNotesPdfButton.disabled = false;
   }
@@ -1210,6 +1193,7 @@ function paperToSummary(paper) {
   return {
     paperTitle: paper.title,
     keywords: paper.keywords || [],
+    keywordExplanations: paper.keywordExplanations || {},
     basicInfo: paper.basicInfo || {},
     threeLineSummary: paper.threeLineSummary || {},
     methodOverview: paper.methodOverview || "",
@@ -2698,13 +2682,23 @@ async function jumpToPdfOutlineItemAsync(item) {
   const safeUrl = getSafePdfLinkUrl(item.url || "");
   if (safeUrl) {
     window.open(safeUrl, "_blank", "noopener,noreferrer");
-    closePdfOutlinePanel(true);
     return;
   }
   const resolved = await resolvePdfLinkDestination(currentPdfDocument, item.dest);
   if (!resolved) return;
-  await jumpToPdfLinkPageAsync(resolved.pageIndex + 1);
-  closePdfOutlinePanel(true);
+  await jumpToPdfOutlinePageAsync(resolved.pageIndex + 1);
+}
+
+async function jumpToPdfOutlinePageAsync(pageNumber) {
+  if (!currentPdfDocument || !currentPdfTask) return;
+  window.clearTimeout(paneRenderTimer);
+  window.clearTimeout(zoomRenderTimer);
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+  if (!pageNode) return;
+  pageNode.scrollIntoView({ block: "center", behavior: "auto" });
+  updatePageIndicator();
+  await renderPdfPageInto(pageNumber, pageNode, currentPdfTask);
+  scheduleVisiblePdfRender();
 }
 
 function updatePdfZoomLabel() {
@@ -3083,8 +3077,9 @@ async function regenerateSummarySection(section) {
     if (section === "keywords") {
       const overviewInfo = await fetchOverviewInfo(text);
       const keywordsValue = overviewInfo.keywords || [];
-      renderKeywords(keywordsValue);
-      await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), keywords: keywordsValue } });
+      const keywordExplanations = overviewInfo.keywordExplanations || {};
+      renderKeywords(keywordsValue, keywordExplanations);
+      await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), keywords: keywordsValue, keywordExplanations } });
       return;
     }
 
@@ -3168,7 +3163,7 @@ async function fetchOverviewInfo(text) {
 async function refreshOverviewInfo(text) {
   const overviewInfo = await fetchOverviewInfo(text);
 
-  renderKeywords(overviewInfo.keywords || []);
+  renderKeywords(overviewInfo.keywords || [], overviewInfo.keywordExplanations || {});
   renderBasicInfo(overviewInfo.basicInfo);
   await saveCurrentPaper({ overviewInfo });
   if (overviewInfo.paperTitle) {
@@ -4817,7 +4812,7 @@ function renderSummary(summary) {
   keywords.innerHTML = "";
   methodSections.innerHTML = "";
 
-  renderKeywords(summary.keywords || []);
+  renderKeywords(summary.keywords || [], summary.keywordExplanations || {});
 
   renderMethodSections(summary.methodSections || [], {
     fallbackText: summary.threeLineSummary?.method || "",
@@ -4826,9 +4821,10 @@ function renderSummary(summary) {
   });
 }
 
-function renderKeywords(items) {
+function renderKeywords(items, explanations = {}) {
   keywords.innerHTML = "";
   const normalized = Array.isArray(items) ? items : [];
+  const normalizedExplanations = explanations && typeof explanations === "object" ? explanations : {};
   if (!normalized.length) {
     keywords.textContent = "No keywords returned.";
     return;
@@ -4838,10 +4834,77 @@ function renderKeywords(items) {
   normalized.forEach((item) => {
     const node = document.createElement("span");
     node.className = "keyword-chip";
-    node.textContent = typeof item === "string" ? item : item.term || "Unnamed term";
+    const term = typeof item === "string" ? item : item.term || "Unnamed term";
+    const explanation = findKeywordExplanation(term, normalizedExplanations);
+    node.textContent = term;
+    if (explanation) {
+      node.dataset.keywordTerm = term;
+      node.dataset.keywordExplanation = explanation;
+      node.setAttribute("aria-label", `${term}: ${explanation}`);
+      node.tabIndex = 0;
+      node.addEventListener("mouseenter", (event) => showKeywordTooltip(node, event));
+      node.addEventListener("mousemove", (event) => positionKeywordTooltip(event.clientX, event.clientY));
+      node.addEventListener("mouseleave", hideKeywordTooltip);
+      node.addEventListener("focus", () => showKeywordTooltip(node));
+      node.addEventListener("blur", hideKeywordTooltip);
+    }
     fragment.appendChild(node);
   });
   keywords.appendChild(fragment);
+}
+
+function showKeywordTooltip(node, event = null) {
+  const term = String(node?.dataset.keywordTerm || node?.textContent || "").trim();
+  const explanation = String(node?.dataset.keywordExplanation || "").trim();
+  if (!term || !explanation) return;
+
+  let tooltip = document.querySelector("#keywordTooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "keywordTooltip";
+    tooltip.className = "keyword-tooltip";
+    tooltip.innerHTML = '<strong class="keyword-tooltip-title"></strong><div class="keyword-tooltip-body"></div>';
+    document.body.appendChild(tooltip);
+  }
+  tooltip.querySelector(".keyword-tooltip-title").textContent = term;
+  tooltip.querySelector(".keyword-tooltip-body").textContent = explanation;
+  tooltip.classList.add("show");
+
+  if (event) {
+    positionKeywordTooltip(event.clientX, event.clientY);
+    return;
+  }
+  const rect = node.getBoundingClientRect();
+  positionKeywordTooltip(rect.left + rect.width / 2, rect.bottom);
+}
+
+function positionKeywordTooltip(clientX, clientY) {
+  const tooltip = document.querySelector("#keywordTooltip");
+  if (!tooltip?.classList.contains("show")) return;
+  const gap = 12;
+  const margin = 8;
+  const rect = tooltip.getBoundingClientRect();
+  const left = Math.min(Math.max(clientX - rect.width / 2, margin), window.innerWidth - rect.width - margin);
+  let top = clientY + gap;
+  if (top + rect.height > window.innerHeight - margin) top = Math.max(margin, clientY - rect.height - gap);
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideKeywordTooltip() {
+  document.querySelector("#keywordTooltip")?.classList.remove("show");
+}
+
+function findKeywordExplanation(term, explanations) {
+  const direct = String(explanations?.[term] || "").trim();
+  if (direct) return direct;
+  const normalizedTerm = normalizeKeywordKey(term);
+  const matchKey = Object.keys(explanations || {}).find((key) => normalizeKeywordKey(key) === normalizedTerm);
+  return matchKey ? String(explanations[matchKey] || "").trim() : "";
+}
+
+function normalizeKeywordKey(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function renderBasicInfo(info) {

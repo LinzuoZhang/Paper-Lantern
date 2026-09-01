@@ -34,6 +34,7 @@ DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
 MAX_METHOD_POINT_WORKERS = 5
+KEYWORD_EXPLANATION_CACHE_VERSION = 2
 MAX_EXTRACTED_TEXT_CHARS = 40_000_000
 MAX_NOTES_CHARS = 300_000
 EXTRACTED_TEXT_FILE = "extracted_text.txt"
@@ -41,6 +42,7 @@ AI_RUNS_DIR = "ai_runs"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
 FLAGS_FILE = LIBRARY_DIR / "paperlantern-flags.json"
+KEYWORD_EXPLANATIONS_FILE = LIBRARY_DIR / "keyword_explanations.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
@@ -603,6 +605,7 @@ def default_metadata(title, category):
         "category": str(category).replace("\\", "/"),
         "uploadedAt": datetime.now(timezone.utc).isoformat(),
         "keywords": [],
+        "keywordExplanations": {},
         "threeLineSummary": {},
         "methodOverview": "",
         "methodSections": [],
@@ -655,6 +658,7 @@ def read_paper(paper_id):
         "pdfUrl": f"/api/library/pdf?id={path_to_id(paper_dir)}",
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
+        "keywordExplanations": normalize_keyword_explanations(metadata.get("keywordExplanations", {}), metadata.get("keywords", [])),
         "threeLineSummary": metadata.get("threeLineSummary", {}),
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
@@ -912,6 +916,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "pdfUrl": f"/api/library/pdf?id={record['id']}",
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
+        "keywordExplanations": normalize_keyword_explanations(metadata.get("keywordExplanations", {}), metadata.get("keywords", [])),
         "threeLineSummary": metadata.get("threeLineSummary", {}),
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
@@ -1538,6 +1543,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata["title"] = summary.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
             record["title"] = metadata["title"]
             metadata["keywords"] = normalize_keywords(summary.get("keywords", []))
+            metadata["keywordExplanations"] = normalize_keyword_explanations(summary.get("keywordExplanations", {}), metadata["keywords"])
             metadata["threeLineSummary"] = summary.get("threeLineSummary", {})
             metadata["methodOverview"] = str(summary.get("methodOverview", "")).strip()
             metadata["methodSections"] = normalize_method_sections(summary.get("methodSections", []))
@@ -1549,6 +1555,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata["title"] = overview_info.get("paperTitle") or metadata.get("title") or record.get("title") or record["id"]
             record["title"] = metadata["title"]
             metadata["keywords"] = normalize_keywords(overview_info.get("keywords", metadata.get("keywords", [])))
+            metadata["keywordExplanations"] = normalize_keyword_explanations(overview_info.get("keywordExplanations", metadata.get("keywordExplanations", {})), metadata["keywords"])
             metadata["basicInfo"] = normalize_basic_info(overview_info.get("basicInfo", metadata.get("basicInfo", {})))
             sync_relevant_changed = True
         if isinstance(payload.get("basicInfo"), dict):
@@ -1886,10 +1893,15 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=No
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir)
     method_points = normalize_method_points(overview.get("methodPoints", []))
+    keyword_list = normalize_keywords(overview.get("keywords", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
-    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=run_dir)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        keyword_future = executor.submit(explain_keywords, api_key, model, chat_completions_url, keyword_list, run_dir)
+        point_future = executor.submit(summarize_method_points, api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir)
+        point_results = point_future.result()
+        keyword_explanations = keyword_future.result()
     point_details = [item["detail"] for item in point_results]
     point_raws = [item["raw"] for item in point_results]
 
@@ -1909,7 +1921,8 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=No
     method_text = formatted.get("method", "") or sections_to_text(method_sections)
     summary = {
         "paperTitle": str(overview.get("paperTitle", "")).strip(),
-        "keywords": normalize_keywords(overview.get("keywords", [])),
+        "keywords": keyword_list,
+        "keywordExplanations": keyword_explanations,
         "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
         "threeLineSummary": {
             "challenges": three_line.get("challenges", ""),
@@ -2089,6 +2102,7 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
             "conclusion": str(three_line.get("conclusion", "")).strip(),
         },
     }
+    parsed["keywordExplanations"] = explain_keywords(api_key, model, chat_completions_url, parsed["keywords"], run_dir)
     write_ai_stage(run_dir, "overview", {"prompt": prompt, "parsed": parsed, "raw": raw})
     return parsed, raw
 
@@ -2198,6 +2212,54 @@ def generate_discussion_title(api_key, model, chat_completions_url, paper_title,
     title = re.sub(r"\s+", " ", title)
     title = title.strip(" \t\r\n\"'“”‘’")
     return title[:42] or make_discussion_title([{"role": "user", "content": question}])
+
+
+def explain_keywords(api_key, model, chat_completions_url, keywords, run_dir=None):
+    keyword_list = normalize_keywords(keywords)
+    if not keyword_list:
+        return {}
+
+    cache = load_keyword_explanation_cache()
+    result = {}
+    missing = []
+    for keyword in keyword_list:
+        key = normalize_keyword_cache_key(keyword)
+        cached = normalize_cached_keyword_explanation(cache.get(key))
+        if cached:
+            result[keyword] = cached
+        else:
+            missing.append(keyword)
+
+    if not missing:
+        write_ai_stage(run_dir, "keyword_explanations", {"keywords": keyword_list, "cacheHit": True, "explanations": result})
+        return result
+
+    try:
+        prompt = build_keyword_explanations_prompt(missing)
+        parsed, raw = call_chat_completions(
+            api_key,
+            model,
+            chat_completions_url,
+            prompt,
+            system_prompt="You explain research paper keywords in concise Chinese. Return only JSON.",
+            temperature=0,
+        )
+        explanations = normalize_keyword_explanations(parsed.get("keywords", parsed), missing)
+        for keyword, explanation in explanations.items():
+            cache[normalize_keyword_cache_key(keyword)] = {
+                "version": KEYWORD_EXPLANATION_CACHE_VERSION,
+                "explanation": explanation,
+            }
+            result[keyword] = explanation
+        save_keyword_explanation_cache(cache)
+        write_ai_stage(
+            run_dir,
+            "keyword_explanations",
+            {"prompt": prompt, "parsed": explanations, "raw": raw, "cacheHit": False, "explanations": result},
+        )
+    except Exception as exc:
+        write_ai_error(run_dir, "keyword_explanations", exc)
+    return normalize_keyword_explanations(result, keyword_list)
 
 
 def build_discussion_payload(model, paper_text, question, summary=None, history=None, selection_reference=None):
@@ -2517,6 +2579,73 @@ def normalize_keywords(keywords):
     return normalized[:14]
 
 
+def normalize_keyword_explanations(explanations, keywords=None):
+    keyword_list = normalize_keywords(keywords or [])
+    allowed = {normalize_keyword_cache_key(keyword): keyword for keyword in keyword_list}
+    normalized = {}
+    if isinstance(explanations, list):
+        iterable = []
+        for item in explanations:
+            if isinstance(item, dict):
+                term = str(item.get("term") or item.get("keyword") or "").strip()
+                explanation = str(item.get("meaning") or item.get("explanation") or item.get("description") or "").strip()
+                iterable.append((term, explanation))
+    elif isinstance(explanations, dict):
+        raw = explanations.get("items") if isinstance(explanations.get("items"), list) else explanations
+        if isinstance(raw, list):
+            return normalize_keyword_explanations(raw, keyword_list)
+        iterable = [(str(key), str(value)) for key, value in raw.items()]
+    else:
+        iterable = []
+
+    for term, explanation in iterable:
+        clean_term = re.sub(r"\s+", " ", str(term or "")).strip()
+        clean_explanation = re.sub(r"\s+", " ", str(explanation or "")).strip()
+        if not clean_term or not clean_explanation:
+            continue
+        cache_key = normalize_keyword_cache_key(clean_term)
+        display_term = allowed.get(cache_key, clean_term)
+        if allowed and cache_key not in allowed:
+            continue
+        normalized[display_term] = clean_explanation[:600]
+
+    if keyword_list:
+        return {keyword: normalized[keyword] for keyword in keyword_list if normalized.get(keyword)}
+    return normalized
+
+
+def normalize_keyword_cache_key(keyword):
+    return re.sub(r"\s+", " ", str(keyword or "").strip()).casefold()
+
+
+def load_keyword_explanation_cache():
+    return read_json(KEYWORD_EXPLANATIONS_FILE, {})
+
+
+def save_keyword_explanation_cache(cache):
+    KEYWORD_EXPLANATIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    normalized = {}
+    for key, value in (cache or {}).items():
+        clean_key = normalize_keyword_cache_key(key)
+        clean_value = normalize_cached_keyword_explanation(value)
+        if clean_key and clean_value:
+            normalized[clean_key] = {
+                "version": KEYWORD_EXPLANATION_CACHE_VERSION,
+                "explanation": clean_value[:600],
+            }
+    write_json(KEYWORD_EXPLANATIONS_FILE, normalized)
+
+
+def normalize_cached_keyword_explanation(value):
+    if isinstance(value, dict):
+        if value.get("version") != KEYWORD_EXPLANATION_CACHE_VERSION:
+            return ""
+        raw = value.get("explanation", "")
+    else:
+        return ""
+    return re.sub(r"\s+", " ", str(raw or "")).strip()[:600]
+
+
 def normalize_method_points(points):
     normalized = []
     for item in points:
@@ -2616,6 +2745,13 @@ def build_method_format_prompt(method_json):
     return render_prompt(
         "method_format.txt",
         method_json=json.dumps(method_json, ensure_ascii=False),
+    )
+
+
+def build_keyword_explanations_prompt(keywords):
+    return render_prompt(
+        "keyword_explanations.txt",
+        keywords_json=json.dumps(normalize_keywords(keywords), ensure_ascii=False),
     )
 
 

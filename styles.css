@@ -3940,6 +3940,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .keyword-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   min-height: 30px;
@@ -3949,6 +3950,45 @@ body.selecting-pdf-text .selection-menu {
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+}
+
+.keyword-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: min(320px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 35, 30, 0.12);
+  border-radius: 6px;
+  background: #eef1ef;
+  color: #1e2b26;
+  box-shadow: 0 10px 24px rgba(20, 35, 30, 0.16);
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.keyword-tooltip.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.keyword-tooltip-title {
+  display: block;
+  margin-bottom: 6px;
+  color: #111d18;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.keyword-tooltip-body {
+  color: #33413b;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .method-card {
