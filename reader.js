@@ -1234,6 +1234,7 @@ async function handleDiscussionSubmit(event) {
   const paperText = lastExtractedText.trim();
   const thread = ensureActiveDiscussion(question);
   const selectionReference = normalizeDiscussionReference(thread.reference);
+  const isFirstDiscussionTurn = normalizeDiscussionHistory(thread.messages).length === 0;
   if (paperText.length < 80) {
     appendDiscussionMessage("assistant", "请先打开并解析一篇论文，再开始讨论。");
     return;
@@ -1262,7 +1263,20 @@ async function handleDiscussionSubmit(event) {
     pending.classList.remove("pending");
     thread.messages.push({ role: "user", content: question }, { role: "assistant", content: answer || "" });
     thread.updatedAt = new Date().toISOString();
-    if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
+    if (isFirstDiscussionTurn) {
+      thread.title = makeDiscussionTitle(question);
+      renderDiscussionThreadList();
+      renderDiscussionThreadHeader(thread);
+      const generatedTitle = await requestDiscussionTitle({
+        paperTitle: currentPaper?.title || fileName?.textContent || "",
+        question,
+        answer,
+        selectionReference,
+      });
+      if (generatedTitle) thread.title = generatedTitle;
+    } else if (!thread.title || thread.title === "New discussion") {
+      thread.title = makeDiscussionTitle(question);
+    }
     thread.hash = await makeDiscussionThreadHash(thread);
     renderDiscussionMessages(thread.messages);
     renderDiscussionThreadList();
@@ -1279,6 +1293,27 @@ async function handleDiscussionSubmit(event) {
     );
   } finally {
     setDiscussionBusy(false);
+  }
+}
+
+async function requestDiscussionTitle({ paperTitle, question, answer, selectionReference }) {
+  try {
+    const response = await apiFetch("/api/discussion-title", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperTitle,
+        question,
+        answer,
+        selectionReference: normalizeDiscussionReference(selectionReference),
+      }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.detail || data.error || "Failed to generate discussion title.");
+    return sanitizeDiscussionTitle(data.title);
+  } catch (error) {
+    console.warn("Failed to generate discussion title.", error);
+    return "";
   }
 }
 
@@ -1880,6 +1915,15 @@ function makeDiscussionId(seed = "") {
 
 function makeDiscussionTitle(text) {
   const title = String(text || "Discussion").replace(/\s+/g, " ").trim();
+  return title.length > 42 ? `${title.slice(0, 39)}...` : title;
+}
+
+function sanitizeDiscussionTitle(value) {
+  const title = String(value || "")
+    .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title || title.toLowerCase() === "undefined" || title.toLowerCase() === "null") return "";
   return title.length > 42 ? `${title.slice(0, 39)}...` : title;
 }
 

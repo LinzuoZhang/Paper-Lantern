@@ -1133,7 +1133,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_citation_apply()
             return
 
-        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss"}:
+        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss", "/api/discussion-title"}:
             self.send_error(404, "Not found")
             return
 
@@ -1232,6 +1232,30 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
             except Exception as exc:
                 self._send_json(500, {"error": "Failed to discuss paper.", "detail": str(exc)})
+            return
+
+        if request_path == "/api/discussion-title":
+            question = str(payload.get("question", "")).strip()
+            answer = str(payload.get("answer", "")).strip()
+            if not question:
+                self._send_json(400, {"error": "Please provide a discussion question."})
+                return
+            try:
+                title = generate_discussion_title(
+                    api_key,
+                    model,
+                    chat_completions_url,
+                    str(payload.get("paperTitle", "")).strip(),
+                    question,
+                    answer,
+                    normalize_selection_reference(payload.get("selectionReference")),
+                )
+                self._send_json(200, {"title": title})
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(exc.code, {"error": "AI API request failed.", "detail": detail})
+            except Exception as exc:
+                self._send_json(500, {"error": "Failed to generate discussion title.", "detail": str(exc)})
             return
 
         if request_path == "/api/overview":
@@ -2152,6 +2176,28 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
 
     raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
     return raw["choices"][0]["message"]["content"].strip()
+
+
+def generate_discussion_title(api_key, model, chat_completions_url, paper_title, question, answer="", selection_reference=None):
+    prompt = render_prompt(
+        "discussion_title.txt",
+        paper_title=str(paper_title or "")[:240],
+        selected_text=str((selection_reference or {}).get("text", "") or "")[:800],
+        question=str(question or "")[:1200],
+        answer=str(answer or "")[:1600],
+    )
+    result, _raw = call_chat_completions(
+        api_key,
+        model,
+        chat_completions_url,
+        prompt,
+        system_prompt="You generate concise Chinese titles for research-paper discussion threads. Return only JSON.",
+        temperature=0,
+    )
+    title = str(result.get("title", "") if isinstance(result, dict) else "").strip()
+    title = re.sub(r"\s+", " ", title)
+    title = title.strip(" \t\r\n\"'“”‘’")
+    return title[:42] or make_discussion_title([{"role": "user", "content": question}])
 
 
 def build_discussion_payload(model, paper_text, question, summary=None, history=None, selection_reference=None):

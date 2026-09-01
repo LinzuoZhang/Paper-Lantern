@@ -1,0 +1,21 @@
+Create a concise title for the first turn of a research paper discussion.
+
+Paper title:
+{paper_title}
+
+Selected text, if any:
+{selected_text}
+
+User question:
+{question}
+
+Assistant answer:
+{answer}
+
+Requirements:
+- Output Chinese.
+- The title must summarize the discussion topic, not the whole paper.
+- Keep it short: preferably 6 to 14 Chinese characters, maximum 24 Chinese characters.
+- Do not include quotation marks, markdown, punctuation decorations, or labels.
+- Return exactly one JSON object:
+{{"title":"凝练标题"}}
