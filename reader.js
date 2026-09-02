@@ -865,6 +865,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
 
     if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
       await summarizeText(extractedText);
+      if (shouldAnalyze) clearReaderAnalyzeFlag();
     }
   } catch (error) {
     console.error(error);
@@ -873,6 +874,13 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   } finally {
     setBusy(false);
   }
+}
+
+function clearReaderAnalyzeFlag() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("analyze")) return;
+  url.searchParams.delete("analyze");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 document.addEventListener("selectionchange", handlePdfSelectionChange);
@@ -2679,7 +2687,7 @@ function jumpToPdfOutlineItem(item) {
 
 async function jumpToPdfOutlineItemAsync(item) {
   if (!currentPdfDocument || !item) return;
-  const safeUrl = getSafePdfLinkUrl(item.url || "");
+  const safeUrl = getPdfAnnotationExternalUrl(item);
   if (safeUrl) {
     window.open(safeUrl, "_blank", "noopener,noreferrer");
     return;
@@ -3672,13 +3680,45 @@ function refreshReferenceCitations() {
   });
 }
 
-// 只允许绝对协议的 http/https/mailto/ftp，丢弃 javascript:/data:/file:/相对路径
+// Allow common external PDF links while still rejecting javascript:/data:/file:/relative paths.
 function getSafePdfLinkUrl(url) {
   if (typeof url !== "string") return null;
-  const trimmed = url.trim();
-  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
-  if (!match) return null;
-  return SAFE_LINK_PROTOCOLS.has(match[1].toLowerCase()) ? trimmed : null;
+  const trimmed = url.trim().replace(/^<|>$/g, "");
+  if (!trimmed) return null;
+
+  let candidate = trimmed;
+  if (/^\/\//.test(candidate)) {
+    candidate = `https:${candidate}`;
+  } else if (/^www\./i.test(candidate) || /^doi\.org\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  } else if (/^10\.\d{4,9}\//.test(candidate)) {
+    candidate = `https://doi.org/${candidate}`;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return SAFE_LINK_PROTOCOLS.has(parsed.protocol.toLowerCase()) ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function getPdfAnnotationExternalUrl(annotation) {
+  if (!annotation || typeof annotation !== "object") return null;
+  const action = annotation.action && typeof annotation.action === "object" ? annotation.action : {};
+  const candidates = [
+    annotation.url,
+    annotation.unsafeUrl,
+    action.url,
+    action.uri,
+    action.URI,
+    typeof annotation.action === "string" ? annotation.action : "",
+  ];
+  for (const candidate of candidates) {
+    const safeUrl = getSafePdfLinkUrl(candidate);
+    if (safeUrl) return safeUrl;
+  }
+  return null;
 }
 
 // dest 解析为 { pageIndex(0-based), top, left }；top/left 仅 /XYZ、/FitH、/FitBH 有值，否则 null
@@ -3782,7 +3822,7 @@ async function decoratePdfLinks(pageNode, pageNumber, page, viewport) {
 
   for (const annotation of annotations) {
     if (annotation.subtype !== "Link") continue;
-    const url = getSafePdfLinkUrl(annotation.url);
+    const url = getPdfAnnotationExternalUrl(annotation);
     const isInternal = url == null && annotation.dest != null;
     if (!url && !isInternal) continue;
 
