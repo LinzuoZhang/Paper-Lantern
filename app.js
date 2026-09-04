@@ -482,7 +482,8 @@ function renderLibrary() {
   }
   const visiblePapers = filterPapers(papers, searchQuery);
   renderPaperList(visiblePapers);
-  const previewPaper = sortPapers(visiblePapers)[0];
+  // In "最近", the list is always ordered by reading time, so the preview follows that order too.
+  const previewPaper = selectedCategoryId === RECENT_CATEGORY_ID ? visiblePapers[0] : sortPapers(visiblePapers)[0];
   if (previewPaper) renderPaperInfoPanel(previewPaper);
   else renderPaperInfoEmpty();
 }
@@ -724,6 +725,11 @@ function renderPaperList(papers) {
     return;
   }
 
+  const isRecent = selectedCategoryId === RECENT_CATEGORY_ID;
+  // In "最近", only reading time matters: always newest-viewed first.
+  const sortKeyShown = isRecent ? "lastRead" : paperSort.key;
+  const sortDirShown = isRecent ? "desc" : paperSort.dir;
+
   const wrap = document.createElement("div");
   wrap.className = "paper-table-wrap";
   const table = document.createElement("table");
@@ -739,10 +745,11 @@ function renderPaperList(papers) {
       th.classList.add("paper-sortable");
       const button = document.createElement("span");
       button.className = "paper-sort-button";
-      button.textContent = paperSort.key === sortKey ? `${label} ${paperSort.dir === "asc" ? "↑" : "↓"}` : label;
+      button.textContent = sortKeyShown === sortKey ? `${label} ${sortDirShown === "asc" ? "↑" : "↓"}` : label;
       th.appendChild(button);
-      // The whole header cell is clickable.
+      // The whole header cell is clickable, except in "最近" where the order is fixed.
       th.addEventListener("click", () => {
+        if (isRecent) return;
         if (paperSort.key === sortKey) {
           paperSort.dir = paperSort.dir === "asc" ? "desc" : "asc";
         } else {
@@ -760,7 +767,7 @@ function renderPaperList(papers) {
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  sortPapers(papers).forEach((paper) => {
+  (isRecent ? papers : sortPapers(papers)).forEach((paper) => {
     const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
