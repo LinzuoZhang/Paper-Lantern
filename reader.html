@@ -59,7 +59,9 @@
                 <label for="readerArxivUploadInput">PDF URL or arXiv</label>
                 <div class="arxiv-upload-row">
                   <input id="readerArxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
-                  <button id="readerArxivUploadButton" type="button">Import</button>
+                  <button id="readerArxivUploadButton" type="button" aria-label="上传" title="上传">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 16V4"></path><path d="m6 9 6-6 6 6"></path><path d="M5 20h14"></path></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -344,8 +346,27 @@
           </div>
 
           <form id="discussionForm" class="discussion-form">
+            <div id="discussionCompactBar" class="discussion-compact-bar" aria-hidden="true">
+              <span id="discussionCompactTitle" class="discussion-compact-title" title=""></span>
+              <button id="discussionCompactNewButton" class="icon-button discussion-compact-button" type="button" aria-label="New discussion" title="New discussion">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                  <path d="M12 8v6"></path>
+                  <path d="M9 11h6"></path>
+                </svg>
+              </button>
+              <button id="discussionCompactHistoryButton" class="icon-button discussion-compact-button" type="button" aria-label="Discussion history" title="历史对话">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M3 12a9 9 0 1 0 9-9"></path>
+                  <path d="M3 4v5h5"></path>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+              </button>
+            </div>
             <div id="discussionReferenceBox" class="discussion-reference-box" hidden>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path></svg>
+              <span class="discussion-reference-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8 12 4 16l4 4"></path><path d="M4 16h10a4 4 0 0 0 4-4V4"></path></svg>
+              </span>
               <span id="discussionReferenceText" class="discussion-reference-text"></span>
             </div>
             <textarea id="discussionInput" rows="3" placeholder="Ask about this paper..." aria-label="Discussion question"></textarea>

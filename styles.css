@@ -2335,13 +2335,37 @@ button {
 }
 
 .arxiv-upload-row button {
-  min-height: 34px;
-  padding: 0 10px;
-  border-color: var(--ink);
-  background: var(--accent);
-  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  box-shadow: none;
   font-size: 12px;
   font-weight: 800;
+}
+
+.arxiv-upload-row button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.arxiv-upload-row button:hover,
+.arxiv-upload-row button:focus-visible {
+  background: #fff;
+  color: #000;
 }
 
 .arxiv-download-overlay {
@@ -3161,15 +3185,11 @@ body.resizing-pdf-outline {
   background: rgba(120, 196, 162, 0.36);
 }
 
-.pdf-comment-pin {
+.pdf-reference-mark {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  margin-left: 4px;
-  border: 1px solid #ffffff;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 1px 4px rgba(29, 37, 32, 0.18);
+  border-radius: 2px;
+  background: rgba(244, 170, 60, 0.34);
+  mix-blend-mode: multiply;
 }
 
 .pdf-text-layer {
@@ -3203,9 +3223,10 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .pdf-search-hit {
-  color: transparent;
+  position: absolute;
   background: rgba(255, 200, 40, 0.55);
   border-radius: 2px;
+  mix-blend-mode: multiply;
 }
 
 .pdf-reference-cue {
@@ -5146,11 +5167,11 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .discussion-history-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  width: min(320px, calc(100vw - 24px));
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  width: min(320px, calc(100vw - 16px));
   display: grid;
   gap: 8px;
   padding: 8px;
@@ -5574,6 +5595,11 @@ body.selecting-pdf-text .selection-menu {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.discussion-thread-title:hover {
+  color: var(--ink);
 }
 
 /* Edit pencil for the title: revealed on hover over the title text */
@@ -5662,7 +5688,7 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .discussion-message-header {
-  display: block;
+  display: none;
 }
 
 .discussion-message.user {
@@ -5708,18 +5734,31 @@ body.selecting-pdf-text .selection-menu {
   text-align: right;
 }
 
-.discussion-reference-quote {
+.discussion-reference-card {
   justify-self: end;
-  max-width: 100%;
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 78%;
+  min-width: 0;
+  padding: 5px 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid rgba(37, 109, 133, 0.5);
-  border-radius: 6px;
-  background: rgba(44, 117, 140, 0.06);
+  border-radius: 8px;
+  background: #eef0ef;
   color: var(--muted);
+  font: inherit;
   font-size: 12px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.discussion-reference-card:hover,
+.discussion-reference-card:focus-visible {
+  background: #e6e9e7;
+  border-color: var(--line-strong);
+  color: var(--ink);
 }
 
 .discussion-message-body {
@@ -5735,6 +5774,9 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .discussion-message.user .discussion-message-body {
+  justify-self: end;
+  width: fit-content;
+  max-width: 100%;
   border-color: rgba(37, 109, 133, 0.32);
   background: var(--soft);
   color: var(--ink);
@@ -5937,39 +5979,124 @@ body.selecting-pdf-text .selection-menu {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  min-height: 34px;
-  padding: 7px 10px;
+  min-height: 32px;
+  padding: 5px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f2f4f3;
+  background: #eef0ef;
   color: var(--muted);
+  cursor: pointer;
+}
+
+.discussion-reference-box:hover {
+  background: #e6e9e7;
+  color: var(--ink);
 }
 
 .discussion-reference-box[hidden] {
   display: none;
 }
 
-.discussion-reference-box svg {
+.discussion-reference-icon {
   flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--muted);
+  line-height: 0;
+}
+
+.discussion-reference-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.discussion-reference-box .discussion-reference-text,
+.discussion-reference-card .discussion-reference-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discussion-reference-text {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discussion-compact-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-height: 0;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease, margin 180ms ease;
+}
+
+.discussion-compact-bar.discussion-compact-visible {
+  max-height: 38px;
+  margin: 0 0 4px;
+  opacity: 1;
+}
+
+.discussion-compact-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.discussion-compact-title:hover {
+  color: var(--ink);
+}
+
+.discussion-compact-button {
+  flex: 0 0 auto;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.discussion-compact-button svg {
   width: 16px;
   height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2;
+  stroke-width: 1.8;
 }
 
-.discussion-reference-text {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.discussion-compact-button:hover,
+.discussion-compact-button:focus-visible {
+  background: transparent;
+  color: var(--ink);
 }
 
 .discussion-form textarea {
@@ -7030,6 +7157,44 @@ button.ghost:hover,
 
 .reader-left-rail:not(.library-open) .reader-pin-button {
   display: none;
+}
+
+/* URL-import button: white square with a black-line upload icon */
+.arxiv-upload-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  box-shadow: none;
+}
+
+.arxiv-upload-row button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.arxiv-upload-row button:hover:not(:disabled),
+.arxiv-upload-row button:focus-visible {
+  background: #fff;
+  color: #000;
+  box-shadow: none;
+}
+
+.arxiv-upload-row button:disabled {
+  opacity: 0.5;
 }
 
 @media (max-width: 900px) {

@@ -61,6 +61,10 @@ const discussionReferenceBox = document.querySelector("#discussionReferenceBox")
 const discussionReferenceText = document.querySelector("#discussionReferenceText");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
+const discussionCompactBar = document.querySelector("#discussionCompactBar");
+const discussionCompactTitle = document.querySelector("#discussionCompactTitle");
+const discussionCompactNewButton = document.querySelector("#discussionCompactNewButton");
+const discussionCompactHistoryButton = document.querySelector("#discussionCompactHistoryButton");
 const newDiscussionFromThreadButton = document.querySelector("#newDiscussionFromThreadButton");
 const discussionHistoryButton = document.querySelector("#discussionHistoryButton");
 const discussionTitleEditButton = document.querySelector("#discussionTitleEditButton");
@@ -181,6 +185,8 @@ let activeDiscussionId = null;
 let discussionIsBusy = false;
 let discussionMarkdownRenderer = null;
 let discussionTitleRenaming = false;
+let discussionHeaderVisible = true;
+let discussionCompactInitDone = false;
 let annotationAutoSaveTimer = null;
 let notesAutoSaveTimer = null;
 let copiedToastTimer = null;
@@ -686,11 +692,10 @@ async function uploadReaderRemotePaper(source) {
   const value = String(source || "").trim();
   if (!value) return;
 
-  const previousText = readerArxivUploadButton?.textContent || "";
   try {
     if (readerArxivUploadButton) {
       readerArxivUploadButton.disabled = true;
-      readerArxivUploadButton.textContent = "Importing";
+      readerArxivUploadButton.setAttribute("aria-label", "正在导入…");
     }
     showReaderUploadOverlay("正在导入论文...", value);
     const response = await apiFetch("/api/library/remote-pdf", {
@@ -710,7 +715,7 @@ async function uploadReaderRemotePaper(source) {
   } finally {
     if (readerArxivUploadButton) {
       readerArxivUploadButton.disabled = false;
-      readerArxivUploadButton.textContent = previousText || "Import";
+      readerArxivUploadButton.setAttribute("aria-label", "上传");
     }
   }
 }
@@ -1289,9 +1294,11 @@ discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
 newDiscussionListButton?.addEventListener("click", createBlankDiscussion);
 newDiscussionFromThreadButton?.addEventListener("click", createBlankDiscussion);
-discussionHistoryButton?.addEventListener("click", () => toggleDiscussionHistoryDropdown());
+discussionHistoryButton?.addEventListener("click", () => toggleDiscussionHistoryDropdown(discussionHistoryButton));
 discussionTitleEditButton?.addEventListener("click", startThreadTitleRename);
+discussionThreadTitle?.addEventListener("click", scrollActiveDiscussionToBottom);
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
+initDiscussionCompactBar();
 copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
 copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
 
@@ -1711,6 +1718,8 @@ function showDiscussionList() {
   discussionThreadView.hidden = true;
   renderDiscussionThreadList();
   renderDiscussionReferenceBox(null);
+  clearDiscussionReferenceHighlights();
+  syncDiscussionCompactBar();
 }
 
 function showDiscussionThread(threadId) {
@@ -1727,17 +1736,19 @@ function showDiscussionThread(threadId) {
   // first question; once the conversation has messages it lives in the first
   // user message instead.
   renderDiscussionReferenceBox(hasMessages ? null : thread.reference);
+  syncDiscussionCompactBar();
+  retryApplyReferenceHighlight(14);
 }
 
 let discussionHistoryPopover = null;
 
-function toggleDiscussionHistoryDropdown() {
-  const header = document.querySelector(".discussion-thread-header");
-  if (!header || !discussionHistoryButton) return;
+function toggleDiscussionHistoryDropdown(anchorButton = null) {
   if (discussionHistoryPopover) {
     closeDiscussionHistoryDropdown();
     return;
   }
+  const anchor = anchorButton || discussionHistoryButton;
+  if (!anchor) return;
 
   const popover = document.createElement("div");
   popover.className = "discussion-history-popover";
@@ -1874,11 +1885,24 @@ function toggleDiscussionHistoryDropdown() {
     }
   });
 
-  header.appendChild(popover);
+  document.body.appendChild(popover);
   discussionHistoryPopover = popover;
 
+  // Position the popover near the anchor (header button or compact bar).
+  popover.style.visibility = "hidden";
+  const rect = anchor.getBoundingClientRect();
+  const margin = 8;
+  const popWidth = popover.offsetWidth || Math.min(320, window.innerWidth - margin * 2);
+  const popHeight = popover.offsetHeight || 320;
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - popWidth - margin));
+  const below = rect.bottom + 6;
+  const top = below + popHeight > window.innerHeight - margin ? Math.max(margin, rect.top - popHeight - 6) : below;
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+  popover.style.visibility = "";
+
   const closeOnOutside = (event) => {
-    if (!popover.contains(event.target) && event.target !== discussionHistoryButton) {
+    if (!popover.contains(event.target) && event.target !== anchor) {
       closeDiscussionHistoryDropdown();
     }
   };
@@ -1898,6 +1922,50 @@ function closeDiscussionHistoryDropdown() {
   discussionHistoryPopover = null;
 }
 
+function initDiscussionCompactBar() {
+  if (discussionCompactInitDone || !discussionCompactBar) return;
+  discussionCompactInitDone = true;
+
+  const header = document.querySelector(".discussion-thread-header");
+  if (header && "IntersectionObserver" in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry) {
+          discussionHeaderVisible = entry.isIntersecting;
+          syncDiscussionCompactBar();
+        }
+      },
+      { threshold: 0 },
+    );
+    observer.observe(header);
+  }
+
+  discussionCompactNewButton?.addEventListener("click", createBlankDiscussion);
+  discussionCompactHistoryButton?.addEventListener("click", () => toggleDiscussionHistoryDropdown(discussionCompactHistoryButton));
+  discussionCompactTitle?.addEventListener("click", scrollActiveDiscussionToBottom);
+  discussionReferenceBox?.addEventListener("click", openActiveDiscussionReference);
+}
+
+function scrollActiveDiscussionToBottom() {
+  if (!discussionMessages) return;
+  const last = discussionMessages.lastElementChild;
+  if (last) last.scrollIntoView({ block: "end", behavior: "smooth" });
+  else discussionThreadView?.scrollIntoView({ block: "end", behavior: "smooth" });
+}
+
+function syncDiscussionCompactBar() {
+  if (!discussionCompactBar || !discussionCompactTitle) return;
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  // Show the bar whenever no conversation is selected (it then reads "新讨论"),
+  // or when the selected conversation's header has scrolled out of view.
+  const show = !thread || !discussionHeaderVisible;
+  discussionCompactBar.classList.toggle("discussion-compact-visible", show);
+  discussionCompactBar.setAttribute("aria-hidden", String(!show));
+  discussionCompactTitle.textContent = thread?.title || "新讨论";
+  discussionCompactTitle.title = thread?.title || "新讨论";
+}
+
 function renderDiscussionThreadHeader(thread) {
   if (!discussionThreadTitle) return;
   if (discussionTitleRenaming) {
@@ -1908,6 +1976,7 @@ function renderDiscussionThreadHeader(thread) {
   discussionThreadTitle.textContent = thread?.title || "New discussion";
   discussionThreadTitle.title = thread?.title || "New discussion";
   if (discussionTitleEditButton) discussionTitleEditButton.hidden = false;
+  syncDiscussionCompactBar();
 }
 
 function startThreadTitleRename() {
@@ -2119,10 +2188,21 @@ function appendDiscussionMessage(role, content, index = -1, referenceText = null
 
   message.append(header);
   if (role === "user" && referenceText) {
-    const quote = document.createElement("div");
-    quote.className = "discussion-reference-quote";
-    quote.textContent = String(referenceText).trim();
-    message.appendChild(quote);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "discussion-reference-card";
+    card.title = "点击查看原文";
+    const icon = document.createElement("span");
+    icon.className = "discussion-reference-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="M8 12 4 16l4 4"></path><path d="M4 16h10a4 4 0 0 0 4-4V4"></path></svg>';
+    const cardText = document.createElement("span");
+    cardText.className = "discussion-reference-text";
+    cardText.textContent = String(referenceText).trim();
+    card.append(icon, cardText);
+    card.addEventListener("click", openActiveDiscussionReference);
+    message.appendChild(card);
   }
 
   const body = document.createElement("div");
@@ -2473,7 +2553,17 @@ function clearDiscussionMessages() {
 }
 
 function renderDiscussionHistory(discussion) {
-  discussionThreads = normalizeDiscussionThreads(discussion);
+  const normalized = normalizeDiscussionThreads(discussion);
+  // Restore quoted selections from the local mirror when the server copy lacks
+  // the thread reference (e.g., older server normalization dropped it).
+  const cachedById = new Map(loadDiscussionLocalCache().map((thread) => [thread?.id, thread]));
+  discussionThreads = normalized.map((thread) => {
+    if (!thread.reference) {
+      const cached = cachedById.get(thread.id);
+      if (cached?.reference) thread.reference = normalizeDiscussionReference(cached.reference);
+    }
+    return thread;
+  });
   activeDiscussionId = null;
   renderDiscussionThreadList();
   showDiscussionList();
@@ -2579,8 +2669,32 @@ async function makeDiscussionThreadHash(thread) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function getDiscussionLocalCacheKey() {
+  return `paperLanternDiscussion:${currentPaper?.id || ""}`;
+}
+
+function persistDiscussionLocalCache() {
+  try {
+    localStorage.setItem(getDiscussionLocalCacheKey(), JSON.stringify(discussionThreads));
+  } catch (error) {
+    console.warn("Failed to cache discussion locally.", error);
+  }
+}
+
+function loadDiscussionLocalCache() {
+  try {
+    const value = JSON.parse(localStorage.getItem(getDiscussionLocalCacheKey()) || "null");
+    return Array.isArray(value) ? value : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 async function saveDiscussionThreads() {
   if (!currentPaper) return;
+  // Keep a local mirror so the quoted selection survives a refresh even if the
+  // running server's older normalization drops the thread reference.
+  persistDiscussionLocalCache();
   try {
     await saveCurrentPaper({ discussion: { threads: discussionThreads } });
   } catch (error) {
@@ -3094,6 +3208,7 @@ async function renderPdfPageInto(pageNumber, pageNode, renderId = currentPdfTask
   pageNode.classList.remove("pdf-page-placeholder");
   pdfRenderedPages.set(pageNumber, { zoom: renderedPdfZoom });
   restoreHighlightsForPage(pageNode);
+  maybeApplyDiscussionReferenceHighlight(pageNode, pageNumber);
   if (pageNode.isConnected) decorateReferenceCitations(pageNode, textLayer);
   })();
 
@@ -3536,45 +3651,31 @@ function clearPdfSearch() {
 }
 
 function clearSearchHighlights(root = pdfViewer) {
-  root.querySelectorAll(".pdf-search-hit").forEach((mark) => {
-    const parent = mark.parentNode;
-    const fragment = document.createDocumentFragment();
-    while (mark.firstChild) fragment.appendChild(mark.firstChild);
-    mark.replaceWith(fragment);
-  });
+  root.querySelectorAll(".pdf-search-hit").forEach((mark) => mark.remove());
 }
 
 function highlightInTextLayer(pageNode, query) {
   clearSearchHighlights(pageNode);
-  const textLayer = pageNode.querySelector(".pdf-text-layer");
-  if (!textLayer) return 0;
-  const lower = query.toLowerCase();
-  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode);
+  const layer = pageNode.querySelector(".pdf-highlight-layer");
+  const range = findTextRangeInPage(pageNode, query, true);
+  if (!layer || !range) return 0;
 
-  let count = 0;
-  nodes.forEach((node) => {
-    const text = node.nodeValue || "";
-    const lowerText = text.toLowerCase();
-    let idx = lowerText.indexOf(lower);
-    if (idx === -1) return;
-    const fragment = document.createDocumentFragment();
-    let pos = 0;
-    while (idx !== -1) {
-      if (idx > pos) fragment.appendChild(document.createTextNode(text.slice(pos, idx)));
-      const mark = document.createElement("mark");
-      mark.className = "pdf-search-hit";
-      mark.textContent = text.slice(idx, idx + query.length);
-      fragment.appendChild(mark);
-      pos = idx + query.length;
-      idx = lowerText.indexOf(lower, pos);
-      count += 1;
-    }
-    if (pos < text.length) fragment.appendChild(document.createTextNode(text.slice(pos)));
-    node.replaceWith(fragment);
-  });
-  return count;
+  const pageRect = pageNode.getBoundingClientRect();
+  if (pageRect.width && pageRect.height) {
+    Array.from(range.getClientRects())
+      .filter((rect) => rect.width > 0 && rect.height > 0)
+      .forEach((rect) => {
+        const mark = document.createElement("span");
+        mark.className = "pdf-search-hit";
+        mark.style.left = `${((rect.left - pageRect.left) / pageRect.width) * 100}%`;
+        mark.style.top = `${((rect.top - pageRect.top) / pageRect.height) * 100}%`;
+        mark.style.width = `${(rect.width / pageRect.width) * 100}%`;
+        mark.style.height = `${(rect.height / pageRect.height) * 100}%`;
+        layer.appendChild(mark);
+      });
+  }
+  range.detach();
+  return 1;
 }
 
 async function getPdfPagePlainText(pageNumber) {
@@ -4942,7 +5043,11 @@ function showAnnotationEditor(highlight, clientX, clientY, options = {}) {
   renderAnnotationPreview(editor, "comment");
   renderAnnotationPreview(editor, "translation");
   setAnnotationTab(editor, comment || !translation ? "comment" : "translation");
-  setAnnotationMode(editor, options.mode === "preview" ? "preview" : "edit");
+  // Opening an existing comment defaults to preview; composing a fresh
+  // comment (no content yet) starts in edit mode.
+  const hasContent = Boolean(comment.trim() || translation.trim());
+  const defaultMode = hasContent ? "preview" : "edit";
+  setAnnotationMode(editor, options.mode === "preview" || options.mode === "edit" ? options.mode : defaultMode);
   editor.querySelectorAll(".color-swatch").forEach((button) => {
     button.classList.toggle("active", button.dataset.color === color);
   });
@@ -5381,15 +5486,150 @@ function drawHighlight(pageNode, highlight) {
   mark.style.width = `${highlight.width * pageNode.offsetWidth}px`;
   mark.style.height = `${highlight.height * pageNode.offsetHeight}px`;
   layer.appendChild(mark);
-  if (highlight.comment || highlight.translation) {
-    const pin = document.createElement("span");
-    pin.className = "pdf-comment-pin";
-    pin.dataset.groupId = highlight.groupId || getHighlightKey(highlight);
-    pin.title = noteTitle;
-    pin.style.left = `${(highlight.left + highlight.width) * pageNode.offsetWidth}px`;
-    pin.style.top = `${highlight.top * pageNode.offsetHeight}px`;
-    layer.appendChild(pin);
+}
+
+function getActiveDiscussionReference() {
+  if (!activeDiscussionId) return null;
+  const thread = discussionThreads.find((item) => item.id === activeDiscussionId);
+  return thread?.reference || null;
+}
+
+function clearDiscussionReferenceHighlights() {
+  document.querySelectorAll(".pdf-reference-mark").forEach((node) => node.remove());
+}
+
+function openActiveDiscussionReference() {
+  const reference = getActiveDiscussionReference();
+  if (!reference) return;
+  if (reference.page) jumpToPdfPage(Number(reference.page), "auto");
+  retryApplyReferenceHighlight(14);
+}
+
+function retryApplyReferenceHighlight(remaining = 12) {
+  if (!getActiveDiscussionReference()) return;
+  refreshDiscussionReferenceHighlights();
+  if (remaining > 0) {
+    window.setTimeout(() => retryApplyReferenceHighlight(remaining - 1), 220);
   }
+}
+
+function refreshDiscussionReferenceHighlights() {
+  clearDiscussionReferenceHighlights();
+  const reference = getActiveDiscussionReference();
+  if (!reference || !reference.text || !reference.page) return;
+  document.querySelectorAll("[data-page-number]").forEach((pageNode) => {
+    if (Number(pageNode.dataset.pageNumber) === Number(reference.page)) {
+      applyReferenceHighlightToPage(pageNode, reference);
+    }
+  });
+}
+
+function maybeApplyDiscussionReferenceHighlight(pageNode, pageNumber) {
+  const reference = getActiveDiscussionReference();
+  if (!reference || !reference.text || Number(reference.page) !== Number(pageNumber)) return;
+  applyReferenceHighlightToPage(pageNode, reference);
+}
+
+function applyReferenceHighlightToPage(pageNode, reference) {
+  const layer = pageNode.querySelector(".pdf-highlight-layer");
+  const range = findTextRangeInPage(pageNode, reference.text);
+  if (!layer || !range) return;
+  layer.querySelectorAll(".pdf-reference-mark").forEach((node) => node.remove());
+  const pageRect = pageNode.getBoundingClientRect();
+  if (!pageRect.width || !pageRect.height) {
+    range.detach();
+    return;
+  }
+  Array.from(range.getClientRects())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .forEach((rect) => {
+      const mark = document.createElement("span");
+      mark.className = "pdf-reference-mark";
+      mark.style.left = `${((rect.left - pageRect.left) / pageRect.width) * 100}%`;
+      mark.style.top = `${((rect.top - pageRect.top) / pageRect.height) * 100}%`;
+      mark.style.width = `${(rect.width / pageRect.width) * 100}%`;
+      mark.style.height = `${(rect.height / pageRect.height) * 100}%`;
+      layer.appendChild(mark);
+    });
+  range.detach();
+}
+
+function findTextRangeInPage(pageNode, needle, ignoreCase = false) {
+  const layer = pageNode.querySelector(".pdf-text-layer");
+  const wanted = String(needle || "").trim().split(/\s+/).filter(Boolean);
+  if (!layer || !wanted.length) return null;
+
+  const normalize = (value) => (ignoreCase ? String(value).toLowerCase() : String(value));
+
+  // Build a flat list of non-whitespace tokens with their source node/offsets.
+  const tokens = [];
+  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const value = walker.currentNode.nodeValue || "";
+    const pattern = /[^\s]+/g;
+    let match;
+    while ((match = pattern.exec(value))) {
+      tokens.push({
+        node: walker.currentNode,
+        start: match.index,
+        end: match.index + match[0].length,
+        text: normalize(match[0]),
+      });
+    }
+  }
+  if (tokens.length < wanted.length) return null;
+
+  // A wanted token matches a word when they are equal, or when the word simply
+  // starts with it (searching an incomplete word still highlights the prefix).
+  const matches = (tokenText, wantedToken) => {
+    const want = normalize(wantedToken);
+    return tokenText === want || tokenText.startsWith(want);
+  };
+  const endOffsetFor = (token, wantedToken) => {
+    return matches(token.text, wantedToken) && token.text.length > wantedToken.length
+      ? token.start + normalize(wantedToken).length
+      : token.end;
+  };
+
+  for (let startIndex = 0; startIndex <= tokens.length - wanted.length; startIndex += 1) {
+    let ok = true;
+    for (let k = 0; k < wanted.length; k += 1) {
+      if (!matches(tokens[startIndex + k].text, wanted[k])) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const first = tokens[startIndex];
+    const last = tokens[startIndex + wanted.length - 1];
+    const range = document.createRange();
+    range.setStart(first.node, first.start);
+    range.setEnd(last.node, endOffsetFor(last, wanted[wanted.length - 1]));
+    return range;
+  }
+
+  // Fallback: tolerate extra words or line-split fragments in between — find the
+  // wanted words in order and highlight from the first to the last found.
+  for (let s = 0; s < tokens.length; s += 1) {
+    if (!matches(tokens[s].text, wanted[0])) continue;
+    let lastIndex = s;
+    let matched = 1;
+    for (let scan = s + 1; scan < tokens.length && matched < wanted.length; scan += 1) {
+      if (matches(tokens[scan].text, wanted[matched])) {
+        lastIndex = scan;
+        matched += 1;
+      }
+    }
+    if (matched === wanted.length) {
+      const first = tokens[s];
+      const last = tokens[lastIndex];
+      const range = document.createRange();
+      range.setStart(first.node, first.start);
+      range.setEnd(last.node, endOffsetFor(last, wanted[wanted.length - 1]));
+      return range;
+    }
+  }
+  return null;
 }
 
 function getHighlightGroup(groupId) {
