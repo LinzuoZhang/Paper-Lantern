@@ -2460,12 +2460,36 @@ def normalize_selection_reference(reference):
         page_number = 0
     before = re.sub(r"\s+", " ", str(reference.get("before", "") or "")).strip()
     after = re.sub(r"\s+", " ", str(reference.get("after", "") or "")).strip()
+    ranges = []
+    raw_ranges = reference.get("ranges")
+    if isinstance(raw_ranges, list):
+        for item in raw_ranges[:60]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                left = float(item.get("left"))
+                top = float(item.get("top"))
+                width = float(item.get("width"))
+                height = float(item.get("height"))
+                range_page = int(item.get("pageNumber"))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= left <= 1 and 0 <= top <= 1 and 0 < width <= 1 and 0 < height <= 1 and 1 <= range_page <= 9999):
+                continue
+            ranges.append({
+                "pageNumber": range_page,
+                "left": left,
+                "top": top,
+                "width": width,
+                "height": height,
+            })
     return {
         "text": text[:MAX_TRANSLATE_CHARS],
         "paperTitle": str(reference.get("paperTitle", "") or "").strip()[:240],
         "page": page_number if 1 <= page_number <= 9999 else 0,
         "before": before[:240],
         "after": after[:240],
+        "ranges": ranges,
     }
 
 

@@ -5724,9 +5724,10 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-message-actions {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 4px;
   min-height: 24px;
+  margin-top: -4px;
 }
 
 .message-action-button {
@@ -5812,14 +5813,24 @@ body.selecting-pdf-text .selection-menu {
   white-space: normal;
 }
 
+.discussion-message.user:has(.discussion-edit-form) {
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
+}
+
 .discussion-edit-form {
   display: grid;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .discussion-edit-input {
-  width: min(360px, 100%);
+  width: 100%;
   min-height: 92px;
+  box-sizing: border-box;
   resize: vertical;
   padding: 10px 12px;
   border: 1px solid rgba(37, 109, 133, 0.32);
@@ -5832,20 +5843,34 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-edit-actions {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .discussion-edit-actions button {
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: 6px;
   font-size: 13px;
+  font-weight: 700;
+  box-shadow: none;
 }
 
 .discussion-edit-cancel {
-  background: transparent;
+  border: 1px solid var(--line);
+  background: #fff;
   color: var(--ink);
+}
+
+.discussion-edit-save {
+  border: 1px solid rgba(37, 109, 133, 0.45);
+  background: #d9ecf2;
+  color: #174f63;
+}
+
+.discussion-edit-cancel:hover,
+.discussion-edit-save:hover {
+  filter: brightness(0.97);
 }
 
 .markdown-body p,

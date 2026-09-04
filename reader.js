@@ -62,6 +62,10 @@ const discussionReferenceBox = document.querySelector("#discussionReferenceBox")
 const discussionReferenceText = document.querySelector("#discussionReferenceText");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
+const discussionSendIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>';
+const discussionStopIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>';
 const discussionCompactBar = document.querySelector("#discussionCompactBar");
 const discussionCompactTitle = document.querySelector("#discussionCompactTitle");
 const discussionCompactNewButton = document.querySelector("#discussionCompactNewButton");
@@ -190,6 +194,7 @@ let discussionMarkdownRenderer = null;
 let discussionTitleRenaming = false;
 let discussionHeaderVisible = true;
 let discussionCompactInitDone = false;
+let activeDiscussionAbortController = null;
 let annotationAutoSaveTimer = null;
 let notesAutoSaveTimer = null;
 let copiedToastTimer = null;
@@ -1410,6 +1415,13 @@ translateButton.addEventListener("click", translateSelection);
 explainButton.addEventListener("click", explainSelection);
 askSelectionButton?.addEventListener("click", askSelectionInDiscussion);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
+sendDiscussionButton?.addEventListener("click", (event) => {
+  if (discussionIsBusy) {
+    event.preventDefault();
+    event.stopPropagation();
+    stopActiveDiscussionGeneration();
+  }
+});
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
 newDiscussionListButton?.addEventListener("click", createBlankDiscussion);
 newDiscussionFromThreadButton?.addEventListener("click", createBlankDiscussion);
@@ -1722,18 +1734,21 @@ async function handleDiscussionSubmit(event) {
   const firstTurnQuote = isFirstDiscussionTurn && selectionReference?.text ? selectionReference.text : null;
   appendDiscussionMessage("user", question, -1, firstTurnQuote);
   discussionInput.value = "";
+  const abortController = new AbortController();
+  activeDiscussionAbortController = abortController;
   setDiscussionBusy(true);
   const pending = appendDiscussionMessage("assistant", "Thinking...");
   pending.classList.add("pending");
+  let answer = "";
 
   try {
-    let answer = "";
     await requestDiscussionAnswer({
       paperText,
       question,
       summary: paperToSummary(currentPaper),
       history: thread.messages,
       selectionReference,
+      signal: abortController.signal,
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
@@ -1764,6 +1779,22 @@ async function handleDiscussionSubmit(event) {
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
   } catch (error) {
+    if (abortController.signal.aborted) {
+      // Stopped by the user — keep whatever has been generated so far.
+      const partial = typeof answer !== "undefined" && answer ? answer : "";
+      pending.classList.remove("pending");
+      thread.messages.push({ role: "user", content: question });
+      if (partial) thread.messages.push({ role: "assistant", content: partial });
+      thread.updatedAt = new Date().toISOString();
+      if (!thread.title || thread.title === "New discussion") thread.title = makeDiscussionTitle(question);
+      thread.hash = await makeDiscussionThreadHash(thread);
+      renderDiscussionMessages(thread.messages, thread.reference);
+      renderDiscussionReferenceBox(null);
+      renderDiscussionThreadList();
+      renderDiscussionThreadHeader(thread);
+      await saveDiscussionThreads();
+      return;
+    }
     console.error(error);
     pending.classList.remove("pending");
     pending.classList.add("error");
@@ -2420,6 +2451,7 @@ function editDiscussionMessage(messageNode) {
   const body = messageNode.querySelector(".discussion-message-body");
   const actions = messageNode.querySelector(".discussion-message-actions");
   const original = thread.messages[index].content || "";
+  const originalBodyHeight = body.getBoundingClientRect().height;
   body.hidden = true;
   if (actions) actions.hidden = true;
 
@@ -2428,12 +2460,15 @@ function editDiscussionMessage(messageNode) {
   form.innerHTML = `
     <textarea class="discussion-edit-input" rows="3" aria-label="Edit question"></textarea>
     <div class="discussion-edit-actions">
-      <button class="discussion-edit-cancel" type="button">Cancel</button>
-      <button class="discussion-edit-save" type="submit">Save</button>
+      <button class="discussion-edit-cancel" type="button">取消</button>
+      <button class="discussion-edit-save" type="submit">发送</button>
     </div>
   `;
   const input = form.querySelector(".discussion-edit-input");
   input.value = original;
+  if (Number.isFinite(originalBodyHeight) && originalBodyHeight > 0) {
+    input.style.minHeight = `${Math.max(96, originalBodyHeight)}px`;
+  }
   form.querySelector(".discussion-edit-cancel").addEventListener("click", () => {
     form.remove();
     body.hidden = false;
@@ -2469,17 +2504,20 @@ async function restartDiscussionAfterEdit(thread, index, next) {
     return;
   }
 
+  const abortController = new AbortController();
+  activeDiscussionAbortController = abortController;
   setDiscussionBusy(true);
   const pending = appendDiscussionMessage("assistant", "Thinking...");
   pending.classList.add("pending");
+  let answer = "";
   try {
-    let answer = "";
     await requestDiscussionAnswer({
       paperText,
       question: next,
       summary: paperToSummary(currentPaper),
       history,
       selectionReference: normalizeDiscussionReference(thread.reference),
+      signal: abortController.signal,
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(pending.querySelector(".discussion-message-body"), answer || "Thinking...", "assistant");
@@ -2494,6 +2532,17 @@ async function restartDiscussionAfterEdit(thread, index, next) {
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
   } catch (error) {
+    if (abortController.signal.aborted) {
+      pending.classList.remove("pending");
+      if (answer) thread.messages.push({ role: "assistant", content: answer });
+      thread.updatedAt = new Date().toISOString();
+      thread.hash = await makeDiscussionThreadHash(thread);
+      renderDiscussionMessages(thread.messages, thread.reference);
+      renderDiscussionThreadList();
+      renderDiscussionThreadHeader(thread);
+      await saveDiscussionThreads();
+      return;
+    }
     console.error(error);
     pending.classList.remove("pending");
     pending.classList.add("error");
@@ -2521,6 +2570,9 @@ async function regenerateDiscussionAnswer(messageNode) {
 
   const question = thread.messages[userIndex].content || "";
   const body = messageNode.querySelector(".discussion-message-body");
+  const originalAnswer = thread.messages[assistantIndex].content || "";
+  const abortController = new AbortController();
+  activeDiscussionAbortController = abortController;
   setDiscussionBusy(true);
   messageNode.classList.add("pending");
   setDiscussionMessageContent(body, "Thinking...", "assistant");
@@ -2533,6 +2585,7 @@ async function regenerateDiscussionAnswer(messageNode) {
       summary: paperToSummary(currentPaper),
       history: thread.messages.slice(0, userIndex),
       selectionReference: normalizeDiscussionReference(thread.reference),
+      signal: abortController.signal,
       onDelta: (delta) => {
         answer += delta;
         setDiscussionMessageContent(body, answer || "Thinking...", "assistant");
@@ -2548,6 +2601,18 @@ async function regenerateDiscussionAnswer(messageNode) {
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
   } catch (error) {
+    if (abortController.signal.aborted) {
+      const partial = answer || originalAnswer;
+      thread.messages[assistantIndex].content = partial;
+      thread.updatedAt = new Date().toISOString();
+      thread.hash = await makeDiscussionThreadHash(thread);
+      messageNode.classList.remove("pending", "error");
+      setDiscussionMessageContent(body, partial || "已停止生成。", "assistant");
+      renderDiscussionThreadList();
+      renderDiscussionThreadHeader(thread);
+      await saveDiscussionThreads();
+      return;
+    }
     console.error(error);
     messageNode.classList.remove("pending");
     messageNode.classList.add("error");
@@ -2557,7 +2622,7 @@ async function regenerateDiscussionAnswer(messageNode) {
   }
 }
 
-async function requestDiscussionAnswer({ paperText, question, summary, history, selectionReference, onDelta }) {
+async function requestDiscussionAnswer({ paperText, question, summary, history, selectionReference, onDelta, signal }) {
   const response = await apiFetch("/api/discuss", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2569,6 +2634,7 @@ async function requestDiscussionAnswer({ paperText, question, summary, history, 
       selectionReference: normalizeDiscussionReference(selectionReference),
       stream: true,
     }),
+    signal,
   });
 
   const contentType = response.headers.get("content-type") || "";
@@ -2737,12 +2803,35 @@ function normalizeDiscussionReference(reference) {
   const page = Number(reference.page);
   const before = cleanCopiedText(reference.before);
   const after = cleanCopiedText(reference.after);
+  const ranges = Array.isArray(reference.ranges)
+    ? reference.ranges
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const left = Number(item.left);
+          const top = Number(item.top);
+          const width = Number(item.width);
+          const height = Number(item.height);
+          const rangePage = Number(item.pageNumber);
+          if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+          if (!Number.isInteger(rangePage) || rangePage < 1 || rangePage > 9999) return null;
+          return {
+            pageNumber: rangePage,
+            left: Math.min(1, Math.max(0, left)),
+            top: Math.min(1, Math.max(0, top)),
+            width: Math.min(1, Math.max(0.001, width)),
+            height: Math.min(1, Math.max(0.001, height)),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 60)
+    : [];
   return {
     text: text.slice(0, MAX_DISCUSSION_REFERENCE_CHARS),
     paperTitle: String(reference.paperTitle || "").trim().slice(0, 240),
     page: Number.isInteger(page) && page >= 1 && page <= 9999 ? page : 0,
     before: before.slice(0, 240),
     after: after.slice(0, 240),
+    ranges,
   };
 }
 
@@ -2856,8 +2945,25 @@ async function saveExtractedTextCache(extractedText) {
 
 function setDiscussionBusy(isBusy) {
   discussionIsBusy = isBusy;
-  sendDiscussionButton.disabled = isBusy;
   discussionInput.disabled = isBusy;
+  if (sendDiscussionButton) {
+    sendDiscussionButton.disabled = false;
+    sendDiscussionButton.classList.toggle("discussion-stop-mode", isBusy);
+    sendDiscussionButton.innerHTML = isBusy ? discussionStopIcon : discussionSendIcon;
+    sendDiscussionButton.setAttribute("aria-label", isBusy ? "停止生成" : "发送");
+    sendDiscussionButton.title = isBusy ? "停止生成" : "发送";
+  }
+  if (!isBusy) activeDiscussionAbortController = null;
+}
+
+function stopActiveDiscussionGeneration() {
+  if (activeDiscussionAbortController) {
+    try {
+      activeDiscussionAbortController.abort();
+    } catch (error) {
+      console.warn("Failed to abort discussion generation.", error);
+    }
+  }
 }
 
 function createMessageActionButton(icon, label) {
@@ -4545,12 +4651,20 @@ function askSelectionInDiscussion() {
   if (!text || !selectedPdfRange) return;
 
   const context = buildPdfSelectionContext(selectedPdfRange);
+  const ranges = createHighlightsFromRange(selectedPdfRange).map((item) => ({
+    pageNumber: item.pageNumber,
+    left: item.left,
+    top: item.top,
+    width: item.width,
+    height: item.height,
+  }));
   const reference = {
     text,
     paperTitle: currentPaper?.title || fileName?.textContent || "",
     page: context.page || 0,
     before: context.before,
     after: context.after,
+    ranges,
   };
   const thread = createDiscussionThread("", true, reference);
   setActiveReaderTab("withAiTab");
@@ -5671,28 +5785,25 @@ function maybeApplyDiscussionReferenceHighlight(pageNode, pageNumber) {
   applyReferenceHighlightToPage(pageNode, reference);
 }
 
+function addReferenceMark(layer, rect) {
+  const mark = document.createElement("span");
+  mark.className = "pdf-reference-mark";
+  mark.style.left = `${rect.left * 100}%`;
+  mark.style.top = `${rect.top * 100}%`;
+  mark.style.width = `${rect.width * 100}%`;
+  mark.style.height = `${rect.height * 100}%`;
+  layer.appendChild(mark);
+}
+
 function applyReferenceHighlightToPage(pageNode, reference) {
   const layer = pageNode.querySelector(".pdf-highlight-layer");
-  const range = findTextRangeInPage(pageNode, reference.text);
-  if (!layer || !range) return;
+  if (!layer) return;
   layer.querySelectorAll(".pdf-reference-mark").forEach((node) => node.remove());
-  const pageRect = pageNode.getBoundingClientRect();
-  if (!pageRect.width || !pageRect.height) {
-    range.detach();
-    return;
-  }
-  Array.from(range.getClientRects())
-    .filter((rect) => rect.width > 0 && rect.height > 0)
-    .forEach((rect) => {
-      const mark = document.createElement("span");
-      mark.className = "pdf-reference-mark";
-      mark.style.left = `${((rect.left - pageRect.left) / pageRect.width) * 100}%`;
-      mark.style.top = `${((rect.top - pageRect.top) / pageRect.height) * 100}%`;
-      mark.style.width = `${(rect.width / pageRect.width) * 100}%`;
-      mark.style.height = `${(rect.height / pageRect.height) * 100}%`;
-      layer.appendChild(mark);
-    });
-  range.detach();
+  const pageNumber = Number(pageNode.dataset.pageNumber);
+
+  // Only recorded selection geometry is used — no text matching.
+  const geometry = (reference.ranges || []).filter((item) => Number(item.pageNumber) === pageNumber);
+  geometry.forEach((rect) => addReferenceMark(layer, rect));
 }
 
 function findTextRangeInPage(pageNode, needle, ignoreCase = false) {
