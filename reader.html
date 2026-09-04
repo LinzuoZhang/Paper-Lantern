@@ -75,6 +75,13 @@
               <span id="readerLocationCurrentCount" class="reader-location-count"></span>
             </span>
             <h2 id="readerLibraryTitle" class="reader-location-title">文献库</h2>
+            <button id="readerSortButton" class="reader-sort-button" type="button" aria-label="排序" title="排序" hidden>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M1 4h12"></path>
+                <path d="M1 9h8"></path>
+                <path d="M1 14h4"></path>
+              </svg>
+            </button>
           </div>
           <div id="readerLibraryBody" class="reader-library-body">
             <div id="readerCategoryList" class="reader-category-list" aria-label="选择目录"></div>
@@ -186,6 +193,7 @@
 
       <aside class="summary-pane" aria-label="Paper side panel">
         <header class="summary-titlebar">
+          <svg class="summary-titlebar-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h5"></path></svg>
           <h1 id="fileName" class="paper-title">Loading paper...</h1>
         </header>
         <div class="summary-content-shell">

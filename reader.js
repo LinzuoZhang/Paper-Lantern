@@ -20,6 +20,7 @@ const readerLocationCurrentButton = document.querySelector("#readerLocationCurre
 const readerLocationCurrentName = document.querySelector("#readerLocationCurrentName");
 const readerLocationCurrentCount = document.querySelector("#readerLocationCurrentCount");
 const readerLibraryBody = document.querySelector("#readerLibraryBody");
+const readerSortButton = document.querySelector("#readerSortButton");
 const readerLeftRail = document.querySelector("#readerLeftRail");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
@@ -144,6 +145,8 @@ let readerCategoryInlineEditorActive = false;
 let readerPickerOpen = false;
 let readerSearchQuery = "";
 let readerPinned = false;
+let readerPaperSortKey = "uploadedAt";
+let readerPaperSortDir = "desc";
 let pdfSearchMatches = [];
 let pdfSearchIndex = -1;
 let pdfOutlineItems = [];
@@ -315,6 +318,10 @@ function initReaderLibraryDrawer() {
   readerLocationBackButton?.addEventListener("click", () => {
     if (!readerPickerOpen) setReaderPickerMode(true);
   });
+  readerSortButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleReaderSortMenu();
+  });
   initReaderLibraryResize();
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
 }
@@ -362,6 +369,7 @@ async function openReaderLibraryDrawer() {
 
 function closeReaderLibraryDrawer() {
   if (readerPinned) return;
+  closeReaderSortMenu();
   readerLibraryDrawer.classList.remove("open");
   readerLeftRail?.classList.remove("library-open");
   appShell?.classList.remove("library-open");
@@ -382,6 +390,112 @@ function setReaderPinned(pinned) {
   } else {
     closeReaderLibraryDrawer();
   }
+}
+
+function readerViewedAtMap() {
+  try {
+    const records = JSON.parse(localStorage.getItem("paperLanternRecentPapers") || "[]");
+    return new Map((Array.isArray(records) ? records : []).map((record) => [record?.id, record?.viewedAt || ""]));
+  } catch (error) {
+    return new Map();
+  }
+}
+
+function readerPaperTimeValue(paper) {
+  const map = readerViewedAtMap();
+  return map.get(paper?.id) || paper?.viewedAt || "";
+}
+
+function sortReaderPapers(list) {
+  const arr = [...(list || [])];
+  const isRecent = readerSelectedCategoryId === READER_RECENT_ID;
+  const key = isRecent ? "lastRead" : readerPaperSortKey;
+  const direction = readerPaperSortDir === "asc" ? 1 : -1;
+  const viewedMap = readerViewedAtMap();
+
+  arr.sort((a, b) => {
+    if (key === "title") {
+      return (
+        direction *
+        String(a.title || "").localeCompare(String(b.title || ""), undefined, { numeric: true, sensitivity: "base" })
+      );
+    }
+    const rawA = key === "lastRead" ? viewedMap.get(a?.id) || a?.viewedAt || "" : a.uploadedAt;
+    const rawB = key === "lastRead" ? viewedMap.get(b?.id) || b?.viewedAt || "" : b.uploadedAt;
+    const timeA = rawA ? new Date(rawA).getTime() : NaN;
+    const timeB = rawB ? new Date(rawB).getTime() : NaN;
+    if (Number.isNaN(timeA) && Number.isNaN(timeB)) return 0;
+    if (Number.isNaN(timeA)) return 1;
+    if (Number.isNaN(timeB)) return -1;
+    return direction * (timeA - timeB);
+  });
+  return arr;
+}
+
+let readerSortMenuElement = null;
+
+function toggleReaderSortMenu() {
+  closeReaderSortMenu();
+  if (!readerSortButton) return;
+  const options = [
+    { key: "title", label: "标题" },
+    { key: "uploadedAt", label: "上传时间" },
+    { key: "lastRead", label: "阅读时间" },
+  ];
+  const menu = document.createElement("div");
+  menu.className = "reader-sort-menu";
+  options.forEach((option) => {
+    const isActive = readerPaperSortKey === option.key;
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "reader-sort-option";
+    row.classList.toggle("active", isActive);
+    const label = document.createElement("span");
+    label.textContent = option.label;
+    row.appendChild(label);
+    if (isActive) {
+      const arrow = document.createElement("span");
+      arrow.className = "reader-sort-arrow";
+      arrow.textContent = readerPaperSortDir === "asc" ? "↑" : "↓";
+      row.appendChild(arrow);
+    }
+    row.addEventListener("click", () => {
+      if (readerPaperSortKey === option.key) {
+        readerPaperSortDir = readerPaperSortDir === "asc" ? "desc" : "asc";
+      } else {
+        readerPaperSortKey = option.key;
+        readerPaperSortDir = option.key === "title" ? "asc" : "desc";
+      }
+      closeReaderSortMenu();
+      renderReaderLibrary();
+    });
+    menu.appendChild(row);
+  });
+  document.body.appendChild(menu);
+  readerSortMenuElement = menu;
+
+  const rect = readerSortButton.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const margin = 8;
+  const left = Math.max(margin, Math.min(rect.right - menuRect.width, window.innerWidth - menuRect.width - margin));
+  const top = rect.bottom + 6;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  const closeOnOutside = (event) => {
+    if (!menu.contains(event.target) && event.target !== readerSortButton) closeReaderSortMenu();
+  };
+  menu._closeOnOutside = closeOnOutside;
+  document.addEventListener("pointerdown", closeOnOutside);
+}
+
+function closeReaderSortMenu() {
+  if (!readerSortMenuElement) return;
+  if (readerSortMenuElement._closeOnOutside) {
+    document.removeEventListener("pointerdown", readerSortMenuElement._closeOnOutside);
+  }
+  readerSortMenuElement.remove();
+  readerSortMenuElement = null;
 }
 
 function setReaderPickerMode(open) {
@@ -448,6 +562,11 @@ function renderReaderLibrary() {
     const selected = categories.find((category) => category.id === readerSelectedCategoryId);
     // Include papers from the selected category and all of its subcategories.
     papers = collectReaderPapers(findReaderCategoryNode(readerLibraryTree, readerSelectedCategoryId) || selected);
+  }
+
+  papers = sortReaderPapers(papers);
+  if (readerSortButton) {
+    readerSortButton.hidden = readerSelectedCategoryId === READER_RECENT_ID || !papers.length;
   }
 
   const isRoot = readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId;
@@ -1887,18 +2006,41 @@ function toggleDiscussionHistoryDropdown(anchorButton = null) {
 
   document.body.appendChild(popover);
   discussionHistoryPopover = popover;
+  renderItems();
 
   // Position the popover near the anchor (header button or compact bar).
+  // The compact bar above the input opens upward; the header history opens below.
   popover.style.visibility = "hidden";
   const rect = anchor.getBoundingClientRect();
   const margin = 8;
   const popWidth = popover.offsetWidth || Math.min(320, window.innerWidth - margin * 2);
   const popHeight = popover.offsetHeight || 320;
   const left = Math.max(margin, Math.min(rect.left, window.innerWidth - popWidth - margin));
-  const below = rect.bottom + 6;
-  const top = below + popHeight > window.innerHeight - margin ? Math.max(margin, rect.top - popHeight - 6) : below;
+  const openUpward = anchor === discussionCompactHistoryButton;
+  let top;
+  if (openUpward) {
+    const availableAbove = rect.top - margin;
+    if (availableAbove < popHeight) {
+      const list = popover.querySelector(".discussion-history-list");
+      if (list) list.style.maxHeight = `${Math.max(70, availableAbove - 44)}px`;
+    }
+    // Bottom edge of the menu is aligned with the mini bar (button top).
+    top = Math.max(margin, rect.top - popHeight);
+    if (rect.top - popHeight < margin) {
+      top = Math.min(rect.bottom + 6, window.innerHeight - popHeight - margin);
+    }
+  } else {
+    const below = rect.bottom + 6;
+    top = below + popHeight > window.innerHeight - margin ? Math.max(margin, rect.top - popHeight - 6) : below;
+  }
+  if (top + popHeight > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - popHeight - margin);
   popover.style.left = `${left}px`;
   popover.style.top = `${top}px`;
+  // Never let the popover exceed the visible viewport (scroll internally if needed).
+  const remainingSpace = window.innerHeight - margin - top;
+  if (remainingSpace < popHeight) {
+    popover.style.maxHeight = `${Math.max(80, remainingSpace)}px`;
+  }
   popover.style.visibility = "";
 
   const closeOnOutside = (event) => {
@@ -1909,7 +2051,6 @@ function toggleDiscussionHistoryDropdown(anchorButton = null) {
   popover._closeOnOutside = closeOnOutside;
   document.addEventListener("pointerdown", closeOnOutside);
 
-  renderItems();
   window.requestAnimationFrame(() => search.focus());
 }
 
@@ -3310,8 +3451,8 @@ function initPdfToolbar() {
   pdfSearchInput?.addEventListener("input", () => {
     runPdfSearch(pdfSearchInput.value).catch((error) => console.error("PDF search failed.", error));
   });
-  pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(-1));
-  pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(1));
+  pdfSearchPrevButton?.addEventListener("click", () => stepPdfSearch(1));
+  pdfSearchNextButton?.addEventListener("click", () => stepPdfSearch(-1));
   pdfOutlineToggleButton?.addEventListener("click", (event) => {
     event.stopPropagation();
     togglePdfOutlinePanel();
