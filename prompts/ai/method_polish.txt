@@ -3,6 +3,8 @@ Combine the per-point method analyses into the final structured method explanati
 
 Write each section as clean, connected prose that keeps the draft's technical detail and specificity. Where it reads naturally, open a section with a short transition connecting it to the previous one (for example, "承接上一步", "在此基础上", "进而"); do not force a transition into every section. Compare the points against each other: if the same fact or detail would appear in more than one place, keep it once, in the most fitting spot.
 
+For formulas, follow the system prompt's formatting rules exactly: any formula whose LaTeX source is longer than 8 characters must be written as a block formula on its own line ($$...$$ with blank lines around it), and you should lightly adjust the surrounding Chinese so the sentence reads naturally around it.
+
 Ordered method points:
 {method_points_json}
 

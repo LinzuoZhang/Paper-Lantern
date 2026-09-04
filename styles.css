@@ -2402,6 +2402,88 @@ button {
   color: var(--warn);
 }
 
+.reader-floating-confirm-overlay {
+  position: fixed;
+  z-index: 130;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(23, 33, 29, 0.3);
+  backdrop-filter: blur(2px);
+}
+
+.reader-floating-confirm-card {
+  display: grid;
+  gap: 10px;
+  width: min(340px, calc(100vw - 36px));
+  padding: 16px 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgba(23, 33, 29, 0.22);
+  color: var(--ink);
+}
+
+.reader-floating-confirm-title {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.reader-floating-confirm-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.reader-floating-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.reader-floating-confirm-actions button {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reader-floating-confirm-cancel {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.reader-floating-confirm-cancel:hover {
+  background: var(--soft);
+}
+
+.reader-floating-confirm-ok {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.reader-floating-confirm-ok:hover {
+  background: var(--accent-strong);
+}
+
+.reader-floating-confirm-ok.danger {
+  border-color: #a93d3d;
+  background: #a93d3d;
+}
+
+.reader-floating-confirm-ok.danger:hover {
+  background: #8f2f2f;
+}
+
 .cloud-sync-progress-overlay {
   position: fixed;
   right: 22px;
@@ -4935,6 +5017,7 @@ body.selecting-pdf-text .selection-menu {
   color: var(--ink);
   text-align: left;
   box-shadow: none;
+  cursor: pointer;
 }
 
 .discussion-thread-item:hover,
@@ -5013,87 +5096,290 @@ body.selecting-pdf-text .selection-menu {
   font-size: 12px;
 }
 
+.discussion-thread-item-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.discussion-thread-item-title-wrap > .discussion-thread-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discussion-thread-item-edit {
+  flex: 0 0 auto;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.discussion-thread-item-title-wrap:hover .discussion-thread-item-edit,
+.discussion-thread-item-edit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.discussion-thread-item-edit:hover,
+.discussion-thread-item-edit:focus-visible {
+  color: var(--accent);
+}
+
+.discussion-thread-item-edit svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.discussion-history-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, calc(100vw - 24px));
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(29, 37, 32, 0.12);
+}
+
+.discussion-history-search-wrap {
+  position: relative;
+}
+
+.discussion-history-search-wrap svg {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.discussion-history-search {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px 5px 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.discussion-history-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(46vh, 280px);
+  overflow-y: auto;
+}
+
+.discussion-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.discussion-history-item:hover {
+  background: var(--soft);
+}
+
+.discussion-history-item.active {
+  background: #d8dde0;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.discussion-history-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discussion-history-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discussion-history-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.discussion-history-edit {
+  flex: 0 0 auto;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.discussion-history-title-wrap:hover .discussion-history-edit,
+.discussion-history-edit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.discussion-history-edit:hover,
+.discussion-history-edit:focus-visible {
+  color: var(--accent);
+}
+
+.discussion-history-edit svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.discussion-history-empty {
+  padding: 8px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+
+.discussion-history-rename-form {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discussion-history-rename-input {
+  width: 100%;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.discussion-history-rename-input:focus {
+  border-color: rgba(44, 117, 140, 0.62);
+  outline: 3px solid rgba(44, 117, 140, 0.14);
+}
+
 .discussion-thread-header {
   position: sticky;
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 4px;
   align-items: center;
   padding: 4px 0 6px;
   background: var(--panel);
 }
 
-.discussion-new-thread-button {
+/* Flat, light icon buttons in the thread header */
+.discussion-back-button,
+.discussion-new-thread-button,
+.discussion-history-button {
   width: 28px;
   min-width: 28px;
   height: 28px;
   min-height: 28px;
   padding: 0;
-  margin-left: 4px;
   border: 0;
   background: transparent;
-  color: var(--ink);
+  color: var(--muted);
   box-shadow: none;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 120ms ease, visibility 120ms ease;
-}
-
-.discussion-thread-header:hover .discussion-new-thread-button,
-.discussion-thread-header:focus-within .discussion-new-thread-button,
-.discussion-new-thread-button:focus-visible {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-
-.discussion-new-thread-button:hover,
-.discussion-new-thread-button:focus-visible {
-  background: transparent;
-  color: var(--accent);
-}
-
-.discussion-new-thread-button svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.4;
 }
 
 .discussion-back-button {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0;
-  margin-right: 6px;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--ink);
-  box-shadow: 0 2px 8px rgba(29, 37, 32, 0.08);
+  margin-right: 2px;
+}
+
+.discussion-new-thread-button,
+.discussion-history-button {
+  margin-left: 2px;
 }
 
 .discussion-back-button:hover,
-.discussion-back-button:focus-visible {
-  background: #fff;
+.discussion-back-button:focus-visible,
+.discussion-new-thread-button:hover,
+.discussion-new-thread-button:focus-visible,
+.discussion-history-button:hover,
+.discussion-history-button:focus-visible {
+  background: transparent;
   color: var(--ink);
-  border-color: rgba(45, 125, 96, 0.32);
 }
 
-.discussion-back-button svg {
+.discussion-back-button svg,
+.discussion-new-thread-button svg,
+.discussion-history-button svg {
   width: 18px;
   height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.4;
+  stroke-width: 1.8;
+}
+
+.discussion-thread-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.discussion-thread-title-group .discussion-thread-title {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .discussion-thread-title {
@@ -5104,6 +5390,66 @@ body.selecting-pdf-text .selection-menu {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Edit pencil for the title: revealed on hover over the title text */
+.discussion-title-edit {
+  flex: 0 0 auto;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.discussion-thread-title-group:hover .discussion-title-edit,
+.discussion-title-edit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.discussion-title-edit:hover,
+.discussion-title-edit:focus-visible {
+  color: var(--accent);
+}
+
+.discussion-title-edit svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.discussion-title-rename-form {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discussion-title-rename-input {
+  width: 100%;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.discussion-title-rename-input:focus {
+  border-color: rgba(44, 117, 140, 0.62);
+  outline: 3px solid rgba(44, 117, 140, 0.14);
 }
 
 .discussion-messages {
