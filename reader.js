@@ -4,6 +4,7 @@ import { initSettingsModal } from "./settings_modal.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
 const openLibraryDrawerButton = document.querySelector("#openLibraryDrawerButton");
+const readerPinButton = document.querySelector("#readerPinButton");
 const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const readerPaperList = document.querySelector("#readerPaperList");
@@ -13,6 +14,12 @@ const readerPaperUploadInput = document.querySelector("#readerPaperUploadInput")
 const readerUploadMenu = document.querySelector("#readerUploadMenu");
 const readerArxivUploadInput = document.querySelector("#readerArxivUploadInput");
 const readerArxivUploadButton = document.querySelector("#readerArxivUploadButton");
+const readerSearchInput = document.querySelector("#readerSearchInput");
+const readerLocationBackButton = document.querySelector("#readerLocationBackButton");
+const readerLocationCurrentButton = document.querySelector("#readerLocationCurrentButton");
+const readerLocationCurrentName = document.querySelector("#readerLocationCurrentName");
+const readerLocationCurrentCount = document.querySelector("#readerLocationCurrentCount");
+const readerLibraryBody = document.querySelector("#readerLibraryBody");
 const readerLeftRail = document.querySelector("#readerLeftRail");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
@@ -130,6 +137,9 @@ const readerBookmarkCheckedSvg =
 
 let readerLibraryHoverTimer = null;
 let readerCategoryInlineEditorActive = false;
+let readerPickerOpen = false;
+let readerSearchQuery = "";
+let readerPinned = false;
 let pdfSearchMatches = [];
 let pdfSearchIndex = -1;
 let pdfOutlineItems = [];
@@ -231,12 +241,15 @@ function initReaderLibraryDrawer() {
     }
     openReaderLibraryDrawer();
   });
-  // Hover the left rail to expand, leave to auto-collapse.
+  readerPinButton?.addEventListener("click", () => setReaderPinned(!readerPinned));
+  if (localStorage.getItem("paperLanternReaderPinned") === "1") setReaderPinned(true);
+  // Hover the left rail to expand, leave to auto-collapse (not while pinned).
   readerLeftRail?.addEventListener("pointerenter", () => {
     window.clearTimeout(readerLibraryHoverTimer);
-    openReaderLibraryDrawer();
+    if (!readerPinned) openReaderLibraryDrawer();
   });
   readerLeftRail?.addEventListener("pointerleave", () => {
+    if (readerPinned) return;
     window.clearTimeout(readerLibraryHoverTimer);
     readerLibraryHoverTimer = window.setTimeout(() => {
       if (document.querySelector(".library-menu")) return;
@@ -247,7 +260,7 @@ function initReaderLibraryDrawer() {
   });
   document.addEventListener("keydown", (event) => {
     if (readerCategoryInlineEditorActive) return;
-    if (event.key === "Escape") closeReaderLibraryDrawer();
+    if (event.key === "Escape" && !readerPinned) closeReaderLibraryDrawer();
   });
   readerPaperUploadButton?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -287,6 +300,15 @@ function initReaderLibraryDrawer() {
     uploadReaderLibraryPaper(file);
   });
   window.addEventListener("resize", positionReaderUploadMenu);
+  readerSearchInput?.addEventListener("input", () => {
+    readerSearchQuery = String(readerSearchInput.value || "").trim().toLowerCase();
+    renderReaderLibrary();
+  });
+  // The current-directory text is informational only; the light back arrow
+  // opens the category picker from the paper list.
+  readerLocationBackButton?.addEventListener("click", () => {
+    if (!readerPickerOpen) setReaderPickerMode(true);
+  });
   initReaderLibraryResize();
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
 }
@@ -333,6 +355,7 @@ async function openReaderLibraryDrawer() {
 }
 
 function closeReaderLibraryDrawer() {
+  if (readerPinned) return;
   readerLibraryDrawer.classList.remove("open");
   readerLeftRail?.classList.remove("library-open");
   appShell?.classList.remove("library-open");
@@ -340,6 +363,31 @@ function closeReaderLibraryDrawer() {
   openLibraryDrawerButton.classList.remove("open");
   openLibraryDrawerButton.setAttribute("aria-expanded", "false");
   openLibraryDrawerButton.setAttribute("aria-label", "Open library");
+}
+
+function setReaderPinned(pinned) {
+  readerPinned = Boolean(pinned);
+  localStorage.setItem("paperLanternReaderPinned", readerPinned ? "1" : "0");
+  readerLeftRail?.classList.toggle("reader-pinned", readerPinned);
+  appShell?.classList.toggle("reader-pinned", readerPinned);
+  readerPinButton?.setAttribute("aria-pressed", String(readerPinned));
+  if (readerPinned) {
+    openReaderLibraryDrawer();
+  } else {
+    closeReaderLibraryDrawer();
+  }
+}
+
+function setReaderPickerMode(open) {
+  readerPickerOpen = Boolean(open);
+  readerLibraryDrawer?.classList.toggle("reader-show-picker", readerPickerOpen);
+  if (!readerPickerOpen) readerSearchInput?.focus();
+}
+
+function selectReaderLibraryCategory(categoryId) {
+  readerSelectedCategoryId = categoryId;
+  setReaderPickerMode(false);
+  renderReaderLibrary();
 }
 
 async function loadReaderLibrary() {
@@ -396,23 +444,39 @@ function renderReaderLibrary() {
     papers = collectReaderPapers(findReaderCategoryNode(readerLibraryTree, readerSelectedCategoryId) || selected);
   }
 
-  const titleNode = document.querySelector("#readerLibraryTitle");
-  if (titleNode) {
-    const selectedCategory = categories.find((category) => category.id === readerSelectedCategoryId);
-    titleNode.textContent =
-      readerSelectedCategoryId === READER_RECENT_ID
-        ? "最近"
-        : readerSelectedCategoryId === READER_TODO_ID
-          ? "待办"
-          : readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId
-            ? "文献库"
-            : selectedCategory?.name || "文献库";
+  const isRoot = readerSelectedCategoryId === READER_LIBRARY_ALL_ID || !readerSelectedCategoryId;
+  const selectedCategory = categories.find((category) => category.id === readerSelectedCategoryId);
+  const currentName =
+    readerSelectedCategoryId === READER_RECENT_ID
+      ? "最近"
+      : readerSelectedCategoryId === READER_TODO_ID
+        ? "待办"
+        : isRoot
+          ? "文献库"
+          : selectedCategory?.name || "文献库";
+  if (readerLocationCurrentName) {
+    readerLocationCurrentName.textContent = currentName;
   }
+  if (readerLocationCurrentCount) {
+    readerLocationCurrentCount.textContent = papers.length ? String(papers.length) : "";
+  }
+  if (readerLocationCurrentButton) {
+    readerLocationCurrentButton.title = `${currentName} (${papers.length})`;
+  }
+  if (readerLibraryTitle) {
+    readerLibraryTitle.textContent = "文献库";
+  }
+
+  if (readerSearchQuery) {
+    const query = readerSearchQuery;
+    papers = papers.filter((paper) => String(paper.title || "").toLowerCase().includes(query));
+  }
+
   readerPaperList.innerHTML = "";
   if (!papers.length) {
     const empty = document.createElement("div");
     empty.className = "reader-library-empty";
-    empty.textContent = "No papers here.";
+    empty.textContent = readerSearchQuery ? "没有匹配的论文。" : "No papers here.";
     readerPaperList.appendChild(empty);
     return;
   }
@@ -686,8 +750,7 @@ function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler =
   }
   button.appendChild(document.createTextNode(`${label}${countText ? ` (${countText})` : ""}`));
   button.addEventListener("click", () => {
-    readerSelectedCategoryId = id;
-    renderReaderLibrary();
+    selectReaderLibraryCategory(id);
   });
   row.appendChild(button);
   if (addHandler) {
@@ -746,8 +809,7 @@ function renderReaderCategoryRow(node, depth) {
   }
   button.appendChild(document.createTextNode(`${node.name} (${collectReaderPapers(node).length})`));
   button.addEventListener("click", () => {
-    readerSelectedCategoryId = node.id;
-    renderReaderLibrary();
+    selectReaderLibraryCategory(node.id);
   });
   const menuButton = document.createElement("button");
   menuButton.type = "button";

@@ -16,50 +16,68 @@
   <body>
     <main class="app-shell">
       <nav id="readerLeftRail" class="reader-left-rail" aria-label="Reader library controls">
-        <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
-          <img class="site-logo reader-rail-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
-          <span>Paper Lantern</span>
-        </button>
+        <div class="reader-left-header">
+          <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="Open library" aria-controls="readerLibraryDrawer" aria-expanded="false">
+            <img class="site-logo reader-rail-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
+            <span>Paper Lantern</span>
+          </button>
+          <button id="readerPinButton" class="reader-pin-button" type="button" aria-label="固定文献库" title="固定文献库" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 17v5"></path>
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path>
+            </svg>
+          </button>
+        </div>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
-          <section class="reader-library-section reader-category-section">
-            <div class="reader-category-upload-wrap">
-              <button id="readerPaperUploadButton" class="reader-category-upload-button menu-button" type="button" aria-label="上传论文" title="上传论文" aria-haspopup="menu" aria-expanded="false" aria-controls="readerUploadMenu">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M12 3v12"></path>
-                  <path d="m7 8 5-5 5 5"></path>
-                  <path d="M5 15v4h14v-4"></path>
-                </svg>
-                <span>上传论文</span>
-              </button>
-              <div id="readerUploadMenu" class="reader-upload-menu upload-menu" role="menu" hidden>
-                <label class="upload-drop-option" role="menuitem">
-                  <input id="readerPaperUploadInput" type="file" accept="application/pdf" />
-                  <span class="upload-drop-box">
-                    <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
-                      <path d="M24 34V12"></path>
-                      <path d="m14 22 10-10 10 10"></path>
-                      <path d="M12 36h24"></path>
-                    </svg>
-                    <strong>上传 PDF</strong>
-                    <small>拖拽文件到这里，或点击选择</small>
-                  </span>
-                </label>
-                <div class="arxiv-upload-panel" role="menuitem">
-                  <label for="readerArxivUploadInput">PDF URL or arXiv</label>
-                  <div class="arxiv-upload-row">
-                    <input id="readerArxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
-                    <button id="readerArxivUploadButton" type="button">Import</button>
-                  </div>
+          <div class="reader-library-toolbar">
+            <label class="reader-library-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              <input id="readerSearchInput" type="text" placeholder="搜索论文…" aria-label="搜索文献库" autocomplete="off" />
+            </label>
+            <button id="readerPaperUploadButton" class="reader-category-upload-button menu-button reader-library-upload-button" type="button" aria-label="上传论文" title="上传论文" aria-haspopup="menu" aria-expanded="false" aria-controls="readerUploadMenu">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 3v12"></path>
+                <path d="m7 8 5-5 5 5"></path>
+                <path d="M5 15v4h14v-4"></path>
+              </svg>
+              <span>上传论文</span>
+            </button>
+            <div id="readerUploadMenu" class="reader-upload-menu upload-menu" role="menu" hidden>
+              <label class="upload-drop-option" role="menuitem">
+                <input id="readerPaperUploadInput" type="file" accept="application/pdf" />
+                <span class="upload-drop-box">
+                  <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
+                    <path d="M24 34V12"></path>
+                    <path d="m14 22 10-10 10 10"></path>
+                    <path d="M12 36h24"></path>
+                  </svg>
+                  <strong>上传 PDF</strong>
+                  <small>拖拽文件到这里，或点击选择</small>
+                </span>
+              </label>
+              <div class="arxiv-upload-panel" role="menuitem">
+                <label for="readerArxivUploadInput">PDF URL or arXiv</label>
+                <div class="arxiv-upload-row">
+                  <input id="readerArxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
+                  <button id="readerArxivUploadButton" type="button">Import</button>
                 </div>
               </div>
             </div>
-            <div id="readerCategoryList" class="reader-category-list"></div>
-          </section>
-          <div id="readerLibraryDivider" class="reader-library-divider" role="separator" aria-label="调整列表比例"></div>
-          <section class="reader-library-section reader-paper-section">
-            <h2 id="readerLibraryTitle">文献库</h2>
+          </div>
+          <div class="reader-library-location">
+            <button id="readerLocationBackButton" class="reader-location-back" type="button" aria-label="返回" title="返回">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"></path></svg>
+            </button>
+            <span id="readerLocationCurrentButton" class="reader-location-current">
+              <span id="readerLocationCurrentName" class="reader-location-name">文献库</span>
+              <span id="readerLocationCurrentCount" class="reader-location-count"></span>
+            </span>
+            <h2 id="readerLibraryTitle" class="reader-location-title">文献库</h2>
+          </div>
+          <div id="readerLibraryBody" class="reader-library-body">
+            <div id="readerCategoryList" class="reader-category-list" aria-label="选择目录"></div>
             <div id="readerPaperList" class="reader-paper-list"></div>
-          </section>
+          </div>
         </aside>
       </nav>
       <section class="reader-pane" aria-label="Paper reader">

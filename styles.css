@@ -5312,6 +5312,190 @@ body.selecting-pdf-text .selection-menu {
   outline: 3px solid rgba(44, 117, 140, 0.14);
 }
 
+/* Reader library drawer: papers-first, with an in-place directory picker */
+.reader-library-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.reader-library-search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.reader-library-search svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.reader-library-search input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px 4px 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.reader-library-search input:focus {
+  border-color: rgba(44, 117, 140, 0.62);
+  outline: 3px solid rgba(44, 117, 140, 0.14);
+}
+
+.reader-library-upload-button {
+  flex: 0 0 auto;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.reader-library-upload-button span {
+  display: none;
+}
+
+.reader-library-location {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 8px 8px;
+}
+
+.reader-show-picker .reader-library-location {
+  display: none;
+}
+
+.reader-location-back {
+  display: inline-flex;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-location-back svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.reader-location-back:hover,
+.reader-location-back:focus-visible {
+  color: var(--ink);
+}
+
+.reader-location-title {
+  display: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.reader-location-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: default;
+  user-select: text;
+}
+
+.reader-location-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-location-count {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.reader-show-picker .reader-location-title {
+  display: inline-block;
+}
+
+.reader-show-picker .reader-location-current {
+  display: none;
+}
+
+#readerLibraryBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#readerLibraryBody .reader-category-list,
+#readerLibraryBody .reader-paper-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#readerLibraryBody .reader-category-list {
+  display: none;
+}
+
+#readerLibraryBody .reader-paper-list {
+  display: block;
+}
+
+.reader-show-picker #readerLibraryBody .reader-paper-list {
+  display: none;
+}
+
+.reader-show-picker #readerLibraryBody .reader-category-list {
+  display: block;
+}
+
 .discussion-thread-header {
   position: sticky;
   top: 0;
@@ -6694,9 +6878,158 @@ button.ghost:hover,
   stroke: #000;
 }
 
+/* Current directory is indicated by text color, not a grey fill */
+.reader-left-rail .reader-category-item.active,
+.reader-left-rail .reader-category-item.reader-current-category-path.active,
+.reader-left-rail .reader-category-item.reader-current-category-path {
+  background: transparent;
+  box-shadow: none;
+}
+
+.reader-left-rail .reader-category-item.active {
+  color: var(--ink);
+}
+
+/* Paper list rows: uniform two-line titles, gentle spacing, light divider */
+.reader-left-rail .reader-paper-item {
+  min-height: 50px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(150, 162, 156, 0.18);
+}
+
+.reader-left-rail .reader-paper-item::before {
+  top: 10px;
+  bottom: 10px;
+}
+
+.reader-left-rail .reader-paper-open {
+  min-height: 0;
+  padding: 0 8px 0 12px;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.3;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.reader-left-rail .reader-paper-item:hover {
+  background: rgba(215, 222, 219, 0.5);
+}
+
+.reader-left-rail .reader-paper-item.active {
+  background: rgba(44, 117, 140, 0.1);
+}
+
+.reader-left-rail .reader-paper-item.active::before {
+  background: var(--accent-strong);
+}
+
 .annotation-tab.active {
   background: #fff;
   color: var(--ink);
+}
+
+/* Pinning the reader library: a fixed rail that takes layout space */
+.app-shell.reader-pinned {
+  grid-template-columns: 272px minmax(0, 1fr) 10px minmax(300px, var(--summary-pane-width)) 54px;
+}
+
+.app-shell.reader-pinned.summary-pane-collapsed {
+  grid-template-columns: 272px minmax(0, 1fr) 0 0 54px;
+}
+
+.reader-left-rail.reader-pinned {
+  width: 272px;
+  box-shadow: none;
+}
+
+.reader-pin-button {
+  flex: 0 0 auto;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-pin-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.reader-pin-button:hover,
+.reader-pin-button:focus-visible {
+  background: transparent;
+  color: var(--ink);
+}
+
+.reader-pin-button[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.reader-pin-button[aria-pressed="true"] svg rect,
+.reader-pin-button[aria-pressed="true"] svg path {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.reader-left-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+
+.reader-left-rail:not(.library-open) .reader-left-header {
+  justify-content: flex-start;
+}
+
+.reader-left-rail:not(.library-open) .reader-left-header .reader-logo-button {
+  width: 40px;
+}
+
+.reader-left-rail.library-open .reader-left-header {
+  padding: 0 10px 12px;
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+.reader-left-rail.library-open .reader-left-header .reader-logo-button {
+  width: auto;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.reader-left-header .reader-logo-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.reader-left-header .reader-pin-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.reader-left-rail:not(.library-open) .reader-pin-button {
+  display: none;
 }
 
 @media (max-width: 900px) {
