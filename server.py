@@ -2,6 +2,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import base64
 import cgi
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import difflib
 import hashlib
 import html
 import json
@@ -757,6 +758,7 @@ def new_db():
                 "name": UNCATEGORIZED_NAME,
                 "parentId": "",
                 "locked": True,
+                "order": 0,
             }
         },
         "papers": {},
@@ -791,7 +793,19 @@ def ensure_uncategorized(db):
         "name": UNCATEGORIZED_NAME,
         "parentId": "",
         "locked": True,
+        "order": db["categories"].get(UNCATEGORIZED_ID, {}).get("order", 0),
     }
+    ensure_category_order(db)
+
+
+def ensure_category_order(db):
+    grouped = {}
+    for category in db.get("categories", {}).values():
+        grouped.setdefault(category.get("parentId", ""), []).append(category)
+    for siblings in grouped.values():
+        siblings.sort(key=lambda item: (item.get("order") if isinstance(item.get("order"), (int, float)) else 10_000, item.get("name", "").lower()))
+        for index, category in enumerate(siblings):
+            category["order"] = index
 
 
 def migrate_existing_library(db):
@@ -857,9 +871,18 @@ def ensure_category_path(db, category_path):
     for part in [clean_folder_name(item) for item in re.split(r"[/\\]+", value) if item.strip()]:
         current_id = f"{parent_id}/{part}".strip("/")
         if current_id not in db["categories"]:
-            db["categories"][current_id] = {"id": current_id, "name": part, "parentId": parent_id, "locked": False}
+            db["categories"][current_id] = {"id": current_id, "name": part, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id)}
         parent_id = current_id
     return current_id or UNCATEGORIZED_ID
+
+
+def next_category_order(db, parent_id):
+    orders = [
+        item.get("order", 0)
+        for item in db.get("categories", {}).values()
+        if item.get("parentId", "") == parent_id and isinstance(item.get("order"), (int, float))
+    ]
+    return (max(orders) + 1) if orders else 0
 
 
 def paper_dir_from_record(record):
@@ -881,7 +904,7 @@ def build_category_node(db, category_id):
         locked = False
     folders = [
         build_category_node(db, child["id"])
-        for child in sorted(db["categories"].values(), key=lambda item: item["name"].lower())
+        for child in sorted(db["categories"].values(), key=lambda item: (item.get("order", 0), item["name"].lower()))
         if child.get("parentId", "") == category_id
     ]
     papers = [
@@ -890,7 +913,9 @@ def build_category_node(db, category_id):
         if paper.get("categoryId") == category_id
     ]
     papers = [paper for paper in papers if paper]
-    return {"id": category_id, "name": name, "locked": locked, "folders": folders, "papers": papers}
+    parent_id = db["categories"].get(category_id, {}).get("parentId", "") if category_id else ""
+    order = db["categories"].get(category_id, {}).get("order", 0) if category_id else 0
+    return {"id": category_id, "name": name, "locked": locked, "parentId": parent_id, "order": order, "folders": folders, "papers": papers}
 
 
 def read_paper(paper_id, db=None, include_extracted_text=False):
@@ -907,6 +932,8 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
     extracted_text = read_text_file(paper_dir / EXTRACTED_TEXT_FILE) if include_extracted_text else ""
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
     read_flag, todo_flag = paper_read_todo(record["id"], metadata)
+    local_path = str(paper_dir.resolve())
+    pdf_path = str((paper_dir / "paper.pdf").resolve())
     return {
         "id": record["id"],
         "title": metadata.get("title") or record.get("title") or record["id"],
@@ -914,6 +941,9 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "categoryName": db["categories"].get(category_id, {}).get("name", UNCATEGORIZED_NAME),
         "uploadedAt": record.get("uploadedAt") or metadata.get("uploadedAt") or utc_now(),
         "pdfUrl": f"/api/library/pdf?id={record['id']}",
+        "folder": record.get("folder", f"papers/{record['id']}"),
+        "localPath": local_path,
+        "pdfPath": pdf_path,
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
         "keywordExplanations": normalize_keyword_explanations(metadata.get("keywordExplanations", {}), metadata.get("keywords", [])),
@@ -942,7 +972,7 @@ def create_category(parent_id, name):
     category_id = f"{parent_id}/{child_name}".strip("/")
     if category_id in db["categories"]:
         raise FileExistsError("Category already exists.")
-    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False}
+    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id)}
     save_library_db(db)
     return category_id
 
@@ -1026,6 +1056,85 @@ def rename_category(category_id, name):
 
     save_library_db(db)
     return new_id
+
+
+def move_category(category_id, parent_id="", before_id="", after_id=""):
+    db = load_library_db()
+    category_id = str(category_id or "").strip()
+    parent_id = str(parent_id or "").strip()
+    before_id = str(before_id or "").strip()
+    after_id = str(after_id or "").strip()
+    category = db["categories"].get(category_id)
+    if not category:
+        raise FileNotFoundError("Category not found.")
+    if category.get("locked"):
+        raise PermissionError("This category cannot be moved.")
+    if parent_id and parent_id not in db["categories"]:
+        raise FileNotFoundError("Target category not found.")
+    if parent_id == category_id or parent_id.startswith(f"{category_id}/"):
+        raise ValueError("Cannot move a category inside itself.")
+
+    if before_id and before_id not in db["categories"]:
+        raise FileNotFoundError("Target sibling category not found.")
+    if after_id and after_id not in db["categories"]:
+        raise FileNotFoundError("Target sibling category not found.")
+    if before_id:
+        parent_id = db["categories"][before_id].get("parentId", "")
+    if after_id:
+        parent_id = db["categories"][after_id].get("parentId", "")
+
+    name = category["name"]
+    new_id = f"{parent_id}/{name}".strip("/")
+    if new_id != category_id and new_id in db["categories"]:
+        raise FileExistsError("Category already exists in target category.")
+
+    descendants = category_descendants(db, category_id)
+    id_map = {}
+    for old_id in sorted(descendants, key=len):
+        suffix = old_id[len(category_id):].lstrip("/")
+        id_map[old_id] = f"{new_id}/{suffix}".strip("/") if suffix else new_id
+
+    for old_id in sorted(descendants, key=len, reverse=True):
+        record = db["categories"].pop(old_id)
+        next_id = id_map[old_id]
+        record["id"] = next_id
+        if old_id == category_id:
+            record["parentId"] = parent_id
+        elif record.get("parentId") in id_map:
+            record["parentId"] = id_map[record["parentId"]]
+        db["categories"][next_id] = record
+
+    for paper in db["papers"].values():
+        old_category = paper.get("categoryId")
+        if old_category in id_map:
+            paper["categoryId"] = id_map[old_category]
+            metadata_path = paper_dir_from_record(paper) / "metadata.json"
+            metadata = read_json(metadata_path, default_metadata(paper.get("title", paper["id"]), paper["categoryId"]))
+            metadata["category"] = paper["categoryId"]
+            write_json(metadata_path, metadata)
+
+    reordered_id = id_map.get(category_id, category_id)
+    reorder_category_siblings(db, parent_id, moved_id=reordered_id, before_id=id_map.get(before_id, before_id), after_id=id_map.get(after_id, after_id))
+    save_library_db(db)
+    return reordered_id
+
+
+def reorder_category_siblings(db, parent_id, moved_id, before_id="", after_id=""):
+    siblings = [
+        item
+        for item in db["categories"].values()
+        if item.get("parentId", "") == parent_id and item["id"] != moved_id
+    ]
+    siblings.sort(key=lambda item: (item.get("order", 0), item.get("name", "").lower()))
+    moved = db["categories"][moved_id]
+    insert_index = len(siblings)
+    if before_id:
+        insert_index = next((index for index, item in enumerate(siblings) if item["id"] == before_id), insert_index)
+    elif after_id:
+        insert_index = next((index + 1 for index, item in enumerate(siblings) if item["id"] == after_id), insert_index)
+    siblings.insert(insert_index, moved)
+    for index, item in enumerate(siblings):
+        item["order"] = index
 
 
 def move_paper(paper_id, category_id):
@@ -1618,6 +1727,16 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 sync = maybe_auto_sync_library()
                 self._send_json(200, {"categoryId": category_id, "tree": read_library_tree(), "sync": sync})
                 return
+            if action == "move":
+                category_id = move_category(
+                    str(payload.get("id", "")),
+                    str(payload.get("parentId", "")),
+                    str(payload.get("beforeId", "")),
+                    str(payload.get("afterId", "")),
+                )
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"categoryId": category_id, "tree": read_library_tree(), "sync": sync})
+                return
             if action == "delete":
                 delete_category(str(payload.get("id", "")))
                 sync = maybe_auto_sync_library()
@@ -1897,11 +2016,8 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=No
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        keyword_future = executor.submit(explain_keywords, api_key, model, chat_completions_url, keyword_list, run_dir)
-        point_future = executor.submit(summarize_method_points, api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir)
-        point_results = point_future.result()
-        keyword_explanations = keyword_future.result()
+    keyword_explanations = overview.get("keywordExplanations", {}) or {}
+    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir)
     point_details = [item["detail"] for item in point_results]
     point_raws = [item["raw"] for item in point_results]
 
@@ -2012,7 +2128,7 @@ def merge_method_breakdown(original, formatted):
                 continue
             fallback = original_sections[index] if isinstance(original_sections, list) and index < len(original_sections) and isinstance(original_sections[index], dict) else {}
             merged_section = dict(fallback)
-            for key in ("title", "motivation", "summary", "bullets", "formulas"):
+            for key in ("title", "motivation", "content"):
                 value = section.get(key)
                 if value:
                     merged_section[key] = value
@@ -2031,7 +2147,11 @@ def sanitize_method_formula_format(method_json):
         if not isinstance(section, dict):
             continue
         item = dict(section)
-        item["formulas"] = [sanitize_formula_item(formula) for formula in normalize_list(item.get("formulas", []))]
+        content = str(item.get("content", "") or "").strip()
+        if content:
+            item["content"] = fix_math_delimited_subscripts(content)
+        if isinstance(item.get("formulas"), list):
+            item["formulas"] = [sanitize_formula_item(formula) for formula in normalize_list(item.get("formulas", []))]
         sections.append(item)
     sanitized["methodSections"] = sections
     return sanitized
@@ -2046,6 +2166,24 @@ def sanitize_formula_item(value):
 
 def fix_multicharacter_subscripts(text):
     return re.sub(r"_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})", r"_{\1}", text)
+
+
+# Math delimiters that may appear inside free-form prose content.
+_MATH_CHUNK_RE = re.compile(r"(\$\$.+?\$\$|\$[^$\n]+?\$|\\\(.+?\\\))", re.DOTALL)
+
+
+def fix_math_delimited_subscripts(text):
+    """Rewrite _name -> _{name} only inside $...$ / $$...$$ / \\(...\\) spans,
+    leaving surrounding Chinese prose untouched."""
+    text = str(text or "")
+    parts = []
+    cursor = 0
+    for match in _MATH_CHUNK_RE.finditer(text):
+        parts.append(text[cursor:match.start()])
+        parts.append(fix_multicharacter_subscripts(match.group(0)))
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None):
@@ -2073,13 +2211,16 @@ def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, 
         chat_completions_url,
         prompt,
     )
+    content = (
+        str(detail.get("content", "") or "").strip()
+        or str(detail.get("summary", "") or "").strip()
+        or str(point.get("description", "") or "").strip()
+    )
     result = {
         "detail": {
             "title": detail.get("title") or point["title"],
             "motivation": detail.get("motivation", ""),
-            "summary": detail.get("summary", ""),
-            "details": normalize_list(detail.get("details", [])),
-            "formulas": normalize_list(detail.get("formulas", [])),
+            "content": content,
         },
         "raw": detail_raw,
     }
@@ -2267,6 +2408,17 @@ def build_discussion_payload(model, paper_text, question, summary=None, history=
     paper_excerpt = marked_paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
     history_messages = build_discussion_context_messages(history)
+
+    location_context = ""
+    if selection_reference and (selection_reference.get("before") or selection_reference.get("after")):
+        page = selection_reference.get("page") or None
+        page_note = f", page {page}" if page else ""
+        location_context = (
+            "Highlighted location (surrounding text at the exact spot the user selected"
+            f"{page_note}):\n"
+            f"{selection_reference.get('before', '')} ⟦{selection_reference.get('text', '')}⟧ {selection_reference.get('after', '')}\n\n"
+        )
+
     messages = [
         {
             "role": "system",
@@ -2281,6 +2433,7 @@ def build_discussion_payload(model, paper_text, question, summary=None, history=
                 f"{summary_context}\n\n"
                 "Selected text, if any:\n"
                 f"{selection_reference.get('text', '') if selection_reference else ''}\n\n"
+                f"{location_context}"
                 "Use this context for the following discussion."
             ),
         },
@@ -2300,36 +2453,65 @@ def normalize_selection_reference(reference):
     text = re.sub(r"\s+", " ", str(reference.get("text", "") or "")).strip()
     if not text:
         return None
+    page = reference.get("page")
+    try:
+        page_number = int(page)
+    except (TypeError, ValueError):
+        page_number = 0
+    before = re.sub(r"\s+", " ", str(reference.get("before", "") or "")).strip()
+    after = re.sub(r"\s+", " ", str(reference.get("after", "") or "")).strip()
     return {
         "text": text[:MAX_TRANSLATE_CHARS],
         "paperTitle": str(reference.get("paperTitle", "") or "").strip()[:240],
+        "page": page_number if 1 <= page_number <= 9999 else 0,
+        "before": before[:240],
+        "after": after[:240],
     }
+
+
+def _normalize_whitespace(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _neighborhood_similarity(source, start, end, before, after):
+    """How closely the paper text around [start, end) matches the recorded
+    before/after context captured next to the user's actual highlight."""
+    if not before and not after:
+        return 1.0
+    before_window = _normalize_whitespace(source[max(0, start - 300):start])
+    after_window = _normalize_whitespace(source[end:end + 300])
+
+    def ratio(left, right):
+        if not left or not right:
+            return 1.0 if not left and not right else 0.0
+        return difflib.SequenceMatcher(None, left, right).ratio()
+
+    return ratio(before[-220:], before_window[-220:]) * 0.5 + ratio(after[:220], after_window[:220]) * 0.5
 
 
 def mark_selected_text_in_paper(paper_text, selection_reference=None):
     source = str(paper_text or "")
-    selected = str((selection_reference or {}).get("text", "") or "").strip()
+    reference = selection_reference or {}
+    selected = _normalize_whitespace(reference.get("text"))
     if not source or not selected:
         return source
 
+    before = _normalize_whitespace(reference.get("before"))
+    after = _normalize_whitespace(reference.get("after"))
+
     start_marker = "<<<USER_SELECTED_TEXT_START>>>"
     end_marker = "<<<USER_SELECTED_TEXT_END>>>"
-    direct_index = source.find(selected)
-    if direct_index >= 0:
-        return (
-            source[:direct_index]
-            + start_marker
-            + selected
-            + end_marker
-            + source[direct_index + len(selected):]
-        )
 
-    pattern = re.escape(selected)
-    pattern = re.sub(r"\\\s+", r"\\s+", pattern)
-    match = re.search(pattern, source)
-    if not match:
+    pattern = r"\s+".join(re.escape(part) for part in selected.split())
+    candidates = [(match.start(), match.end()) for match in re.finditer(pattern, source)]
+    if not candidates:
         return source
-    return source[:match.start()] + start_marker + source[match.start():match.end()] + end_marker + source[match.end():]
+
+    if len(candidates) > 1 and (before or after):
+        start, end = max(candidates, key=lambda item: _neighborhood_similarity(source, item[0], item[1], before, after))
+    else:
+        start, end = candidates[0]
+    return source[:start] + start_marker + source[start:end] + end_marker + source[end:]
 
 
 def build_discussion_context_messages(history):
@@ -2373,6 +2555,30 @@ def format_earlier_discussion_context(messages):
     return "\n".join(lines)
 
 
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+# A backslash followed by anything that is not a valid JSON escape character is
+# almost always a lone LaTeX backslash (e.g. \mathrm) that the model forgot to escape.
+_JSON_BAD_ESCAPE_RE = re.compile(r"\\(?![\\\"bfnrtu])")
+
+
+def parse_model_json_response(content):
+    text = str(content or "")
+    fence = _JSON_FENCE_RE.search(text)
+    if fence:
+        text = fence.group(1)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        text = text[start:end + 1]
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Repair lone backslashes (\m -> \\m) and retry once.
+        text = _JSON_BAD_ESCAPE_RE.sub(lambda match: "\\\\", text)
+        return json.loads(text)
+
+
 def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12):
     upstream_payload = {
         "model": model,
@@ -2401,7 +2607,7 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
         error_msg = error_detail.get("message") if error_detail else (raw.get("msg") or raw.get("message"))
         display_msg = f"AI API returned an unexpected response without choices: {error_msg}" if error_msg else "AI API returned an unexpected response without choices."
         raise AIResponseError(display_msg, raw=raw) from exc
-    return json.loads(content), raw
+    return parse_model_json_response(content), raw
 
 
 def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False, think_mode=None):
@@ -2671,17 +2877,19 @@ def normalize_method_sections(sections):
             continue
         title = str(section.get("title", "")).strip()
         motivation = str(section.get("motivation", "")).strip()
-        summary = str(section.get("summary", "")).strip()
-        bullets = normalize_list(section.get("bullets", []))
-        formulas = normalize_list(section.get("formulas", []))
-        if title or motivation or summary or bullets or formulas:
+        content = str(section.get("content", "") or "").strip()
+        if not content:
+            # Tolerate legacy pipeline JSON that still returns summary/bullets/formulas.
+            summary = str(section.get("summary", "") or "").strip()
+            bullets = normalize_list(section.get("bullets", []))
+            formulas = normalize_list(section.get("formulas", []))
+            content = "\n\n".join([part for part in [summary] + bullets + formulas if part])
+        if title or motivation or content:
             normalized.append(
                 {
                     "title": title or "Method point",
                     "motivation": motivation,
-                    "summary": summary,
-                    "bullets": bullets[:5],
-                    "formulas": formulas[:4],
+                    "content": content,
                 }
             )
     return normalized[:5]
@@ -2701,10 +2909,15 @@ def normalize_basic_info(info):
 def sections_to_text(sections):
     parts = []
     for section in sections:
-        lines = [section["title"], section.get("motivation", ""), section.get("summary", "")]
-        lines.extend(section.get("bullets", []))
-        lines.extend(section.get("formulas", []))
-        parts.append("; ".join([line for line in lines if line]))
+        lines = [section.get("title", ""), section.get("motivation", "")]
+        content = section.get("content", "")
+        if content:
+            lines.append(content)
+        else:
+            lines.append(str(section.get("summary", "") or "").strip())
+            lines.extend(normalize_list(section.get("bullets", [])))
+            lines.extend(normalize_list(section.get("formulas", [])))
+        parts.append("\n".join([line for line in lines if line]))
     return "\n\n".join(parts)
 
 

@@ -22,6 +22,37 @@
         </button>
         <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="Reader library" aria-hidden="true">
           <section class="reader-library-section reader-category-section">
+            <div class="reader-category-upload-wrap">
+              <button id="readerPaperUploadButton" class="reader-category-upload-button menu-button" type="button" aria-label="上传论文" title="上传论文" aria-haspopup="menu" aria-expanded="false" aria-controls="readerUploadMenu">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 3v12"></path>
+                  <path d="m7 8 5-5 5 5"></path>
+                  <path d="M5 15v4h14v-4"></path>
+                </svg>
+                <span>上传论文</span>
+              </button>
+              <div id="readerUploadMenu" class="reader-upload-menu upload-menu" role="menu" hidden>
+                <label class="upload-drop-option" role="menuitem">
+                  <input id="readerPaperUploadInput" type="file" accept="application/pdf" />
+                  <span class="upload-drop-box">
+                    <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true">
+                      <path d="M24 34V12"></path>
+                      <path d="m14 22 10-10 10 10"></path>
+                      <path d="M12 36h24"></path>
+                    </svg>
+                    <strong>上传 PDF</strong>
+                    <small>拖拽文件到这里，或点击选择</small>
+                  </span>
+                </label>
+                <div class="arxiv-upload-panel" role="menuitem">
+                  <label for="readerArxivUploadInput">PDF URL or arXiv</label>
+                  <div class="arxiv-upload-row">
+                    <input id="readerArxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
+                    <button id="readerArxivUploadButton" type="button">Import</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div id="readerCategoryList" class="reader-category-list"></div>
           </section>
           <div id="readerLibraryDivider" class="reader-library-divider" role="separator" aria-label="调整列表比例"></div>
@@ -35,7 +66,7 @@
         <div class="paper-frame">
           <div id="pdfToolbar" class="pdf-toolbar">
             <div class="pdf-toolbar-left">
-              <button id="pdfOutlineToggleButton" class="pdf-toolbar-button" type="button" title="目录" aria-label="目录" aria-expanded="false" aria-controls="pdfOutlinePanel" disabled>
+              <button id="pdfOutlineToggleButton" class="pdf-toolbar-button pdf-outline-toggle-button" type="button" title="目录" aria-label="目录" aria-expanded="false" aria-controls="pdfOutlinePanel" disabled>
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M4 5h6"></path>
                   <path d="M4 12h6"></path>
@@ -56,7 +87,11 @@
               </button>
               <button id="pdfZoomLabel" class="pdf-zoom-label" type="button" title="缩放">100%</button>
             </div>
-            <span id="pageIndicator" class="page-indicator" hidden>0 / 0</span>
+            <div id="pageIndicator" class="page-indicator" hidden>
+              <input id="pageNumberInput" class="page-number-input" type="text" inputmode="numeric" autocomplete="off" aria-label="跳转页码" value="0" />
+              <span class="page-indicator-separator">/</span>
+              <span id="pageTotalLabel" class="page-total-label">0</span>
+            </div>
             <div class="pdf-toolbar-right">
               <div id="pdfSearchGroup" class="pdf-search-group">
                 <button id="pdfSearchToggleButton" class="pdf-toolbar-button" type="button" title="全文搜索" aria-label="全文搜索" aria-expanded="false">
@@ -165,8 +200,6 @@
           <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
           <div class="summary-scroll">
             <div class="ai-summary-panel">
-                <p id="status" class="status" role="status"></p>
-
                 <section class="summary-card collapsible-card" data-collapsible-card>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
@@ -241,16 +274,17 @@
                   <span class="collapse-icon" aria-hidden="true"></span>
                   <span>Discussion</span>
                 </button>
-                <button id="newDiscussionButton" class="icon-button discussion-new-button" type="button" aria-label="New discussion" title="New discussion">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
-                    <path d="M12 8v6"></path>
-                    <path d="M9 11h6"></path>
-                  </svg>
-                </button>
               </div>
               <div id="discussionContent" class="discussion-content">
                 <div id="discussionListView" class="discussion-list-view">
+                  <button id="newDiscussionListButton" class="discussion-list-create" type="button" aria-label="New discussion" title="New discussion">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                      <path d="M12 8v6"></path>
+                      <path d="M9 11h6"></path>
+                    </svg>
+                    <span>新建对话</span>
+                  </button>
                   <div id="discussionThreadList" class="discussion-thread-list" aria-label="Discussion list"></div>
                 </div>
                 <div id="discussionThreadView" class="discussion-thread-view" hidden>
@@ -261,6 +295,13 @@
                       </svg>
                     </button>
                     <div id="discussionThreadTitle" class="discussion-thread-title"></div>
+                    <button id="newDiscussionFromThreadButton" class="icon-button discussion-new-thread-button" type="button" aria-label="New discussion" title="New discussion">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                        <path d="M12 8v6"></path>
+                        <path d="M9 11h6"></path>
+                      </svg>
+                    </button>
                   </div>
                   <div id="discussionMessages" class="discussion-messages" aria-live="polite">
                     <div class="discussion-empty">Ask a question about the method, assumptions, experiments, or limitations.</div>
@@ -286,51 +327,88 @@
           </div>
 
           <div id="basicInfoPanel" class="reader-tab-panel basic-info-panel" role="tabpanel" aria-labelledby="basicInfoTab" hidden>
-          <section class="summary-card basic-info-card">
-            <div class="summary-group-header">
-              <h2>基本信息</h2>
-              <button id="basicInfoButton" class="icon-button refresh-button" type="button" aria-label="重新整理基本信息" title="重新整理基本信息">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M20 6v5h-5"></path>
-                  <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
-                </svg>
-              </button>
-            </div>
-            <p id="basicInfoStatus" class="status" role="status"></p>
-            <dl id="basicInfoList" class="basic-info-list">
-              <dt>作者</dt>
-              <dd id="basicInfoAuthors">Waiting</dd>
-              <dt>期刊/会议</dt>
-              <dd id="basicInfoVenue">Waiting</dd>
-              <dt>发表日期</dt>
-              <dd id="basicInfoDate">Waiting</dd>
-              <dt>机构</dt>
-              <dd id="basicInfoInstitutions">Waiting</dd>
-              <dt>DOI</dt>
-              <dd id="basicInfoDoi">未识别</dd>
-            </dl>
-          </section>
+            <section class="summary-card basic-info-card">
+              <div class="summary-group-header">
+                <h2>基本信息</h2>
+                <button id="basicInfoButton" class="icon-button refresh-button" type="button" aria-label="重新整理基本信息" title="重新整理基本信息">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M20 6v5h-5"></path>
+                    <path d="M19.1 15a7.5 7.5 0 1 1-1.9-8.1L20 11"></path>
+                  </svg>
+                </button>
+              </div>
+              <p id="basicInfoStatus" class="status" role="status"></p>
+              <dl id="basicInfoList" class="basic-info-list">
+                <div class="basic-info-field basic-info-field-full">
+                  <dt>标题</dt>
+                  <dd id="basicInfoTitle" class="basic-info-readonly" tabindex="0">Waiting</dd>
+                </div>
+                <div class="basic-info-field basic-info-field-full">
+                  <dt>作者</dt>
+                  <dd id="basicInfoAuthors">Waiting</dd>
+                </div>
+                <div class="basic-info-pair">
+                  <div class="basic-info-field">
+                    <dt>期刊/会议</dt>
+                    <dd id="basicInfoVenue">Waiting</dd>
+                  </div>
+                  <div class="basic-info-field">
+                    <dt>发表日期</dt>
+                    <dd id="basicInfoDate">Waiting</dd>
+                  </div>
+                </div>
+                <div class="basic-info-field basic-info-field-full">
+                  <dt>机构</dt>
+                  <dd id="basicInfoInstitutions">Waiting</dd>
+                </div>
+                <div class="basic-info-field basic-info-field-full basic-info-doi-field">
+                  <dt>DOI</dt>
+                  <div class="basic-info-doi-row">
+                    <dd id="basicInfoDoi">未识别</dd>
+                    <div class="basic-info-doi-actions" aria-label="DOI 操作">
+                      <button id="copyDoiButton" class="metadata-action-button" type="button" aria-label="复制 DOI" title="复制 DOI" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                      <button id="openDoiButton" class="metadata-action-button" type="button" aria-label="打开 DOI" title="打开 DOI" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                          <path d="M15 3h6v6"></path>
+                          <path d="M10 14 21 3"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="basic-info-field basic-info-field-full">
+                  <dt>本地存储地址</dt>
+                  <dd id="basicInfoLocalPath" class="basic-info-readonly" tabindex="0">未识别</dd>
+                </div>
+              </dl>
+            </section>
 
-          <section class="summary-card citation-card">
-            <div class="summary-group-header">
-              <h2>引用信息</h2>
-              <button id="generateCitationButton" class="citation-search-button" type="button" aria-label="搜索" title="搜索">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <path d="m21 21-4.35-4.35"></path>
-                </svg>
-                <span>搜索</span>
-              </button>
-            </div>
-            <p id="citationStatus" class="status" role="status">引用信息尚未生成，点击「搜索」通过 Crossref 检索。</p>
-            <div id="citationResults" class="citation-results" hidden></div>
-          </section>
+            <section class="summary-card citation-card">
+              <div class="summary-group-header">
+                <h2>引用信息</h2>
+                <button id="generateCitationButton" class="citation-search-button" type="button" aria-label="搜索" title="搜索">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <path d="m21 21-4.35-4.35"></path>
+                  </svg>
+                  <span>搜索</span>
+                </button>
+              </div>
+              <p id="citationStatus" class="status" role="status">引用信息尚未生成，点击「搜索」通过 Crossref 检索。</p>
+              <div id="citationResults" class="citation-results" hidden></div>
+            </section>
           </div>
 
           <div id="notesPanel" class="reader-tab-panel notes-panel" role="tabpanel" aria-labelledby="notesTab" hidden>
           <section class="notes-card">
             <div class="summary-group-header notes-header">
-              <h2>Notes</h2>
+              <h2>笔记</h2>
               <div class="notes-toolbar" aria-label="Notes tools">
                 <button id="toggleNotesModeButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Preview notes" title="Preview notes">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

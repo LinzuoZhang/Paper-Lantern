@@ -1,5 +1,6 @@
 import { initSettingsModal } from "./settings_modal.js";
 
+const libraryView = document.querySelector("#libraryView");
 const libraryRoot = document.querySelector("#libraryRoot");
 const libraryLayout = document.querySelector(".library-layout");
 const categoryPanel = document.querySelector(".category-panel");
@@ -84,6 +85,8 @@ function sortPapers(papers) {
   return list;
 }
 let searchQuery = "";
+let libraryDragState = null;
+let libraryFileDragDepth = 0;
 let arxivDownloadOverlayTimer = null;
 let cloudSyncProgressHideTimer = null;
 let cloudSyncProgressPollTimer = null;
@@ -240,8 +243,9 @@ uploadForm.addEventListener("dragleave", (event) => {
 });
 uploadForm.addEventListener("drop", async (event) => {
   event.preventDefault();
+  event.stopPropagation();
   uploadForm.classList.remove("drag-over");
-  const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
+  const file = getDroppedPdfFile(event.dataTransfer);
   if (!file) {
     setLibraryStatus("Please drop a PDF file.", true);
     return;
@@ -249,6 +253,11 @@ uploadForm.addEventListener("drop", async (event) => {
   await handlePdfUpload(file);
   uploadForm.reset();
 });
+
+libraryView?.addEventListener("dragenter", handleLibraryFileDragEnter);
+libraryView?.addEventListener("dragover", handleLibraryFileDragOver);
+libraryView?.addEventListener("dragleave", handleLibraryFileDragLeave);
+libraryView?.addEventListener("drop", handleLibraryFileDrop);
 
 document.addEventListener("pointerdown", (event) => {
   if (!uploadForm.contains(event.target)) closeUploadMenu();
@@ -271,9 +280,62 @@ function closeUploadMenu() {
 
 function handleUploadDrag(event) {
   event.preventDefault();
-  if (Array.from(event.dataTransfer?.items || []).some((item) => item.kind === "file")) {
+  if (hasExternalFileDrag(event.dataTransfer)) {
     uploadForm.classList.add("drag-over");
   }
+}
+
+function handleLibraryFileDragEnter(event) {
+  if (!hasExternalFileDrag(event.dataTransfer)) return;
+  event.preventDefault();
+  libraryFileDragDepth += 1;
+  libraryView?.classList.add("library-file-drag-over");
+}
+
+function handleLibraryFileDragOver(event) {
+  if (!hasExternalFileDrag(event.dataTransfer)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  libraryView?.classList.add("library-file-drag-over");
+}
+
+function handleLibraryFileDragLeave(event) {
+  if (!hasExternalFileDrag(event.dataTransfer)) return;
+  event.preventDefault();
+  libraryFileDragDepth = Math.max(0, libraryFileDragDepth - 1);
+  if (!libraryFileDragDepth) libraryView?.classList.remove("library-file-drag-over");
+}
+
+async function handleLibraryFileDrop(event) {
+  if (!hasExternalFileDrag(event.dataTransfer)) return;
+  event.preventDefault();
+  clearLibraryFileDragState();
+  const file = getDroppedPdfFile(event.dataTransfer);
+  if (!file) {
+    setLibraryStatus("请拖入 PDF 文件。", true);
+    return;
+  }
+  closeUploadMenu();
+  await handlePdfUpload(file);
+  uploadForm.reset();
+}
+
+function clearLibraryFileDragState() {
+  libraryFileDragDepth = 0;
+  libraryView?.classList.remove("library-file-drag-over");
+  uploadForm.classList.remove("drag-over");
+}
+
+function hasExternalFileDrag(dataTransfer) {
+  if (!dataTransfer) return false;
+  if (libraryDragState) return false;
+  const types = Array.from(dataTransfer.types || []);
+  if (!types.includes("Files")) return false;
+  return Array.from(dataTransfer.items || []).some((item) => item.kind === "file");
+}
+
+function getDroppedPdfFile(dataTransfer) {
+  return Array.from(dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
 }
 
 async function handlePdfUpload(file) {
@@ -294,7 +356,7 @@ async function uploadPdfToLibrary(file, title, category) {
       return;
     }
     reportSyncResult(data.sync);
-    openPaperReader(data.paper.id, true);
+    openPaperReader(data.paper.id);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Upload failed.", true);
@@ -319,7 +381,7 @@ async function uploadRemotePdf(source) {
     }
     reportSyncResult(data.sync);
     showArxivDownloadOverlay("Opening paper...", source);
-    openPaperReader(data.paper.id, true);
+    openPaperReader(data.paper.id);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "PDF import failed.", true);
@@ -367,11 +429,9 @@ function getActiveUploadCategory() {
   return selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID ? selectedCategoryId : UNCATEGORIZED_LABEL;
 }
 
-function openPaperReader(paperId, analyze = false) {
+function openPaperReader(paperId) {
   recordPaperViewed(paperId);
-  const params = new URLSearchParams({ id: paperId });
-  if (analyze) params.set("analyze", "1");
-  window.open(`./reader.html?${params.toString()}`, "_blank", "noopener,noreferrer");
+  window.open(`./reader.html?${new URLSearchParams({ id: paperId }).toString()}`, "_blank", "noopener,noreferrer");
 }
 
 async function loadLibrary(focusPaperId = "") {
@@ -438,12 +498,17 @@ function renderCategoryNode(node, depth = 0) {
 function renderCategoryRow(node, depth = 0) {
   const row = document.createElement("div");
   row.className = "category-row";
+  row.dataset.categoryId = node.id || "";
   row.style.paddingLeft = `${depth * 18}px`;
+  initCategoryDragAndDrop(row, node);
 
   const hasChildren = Boolean(node.folders && node.folders.length);
   const button = document.createElement("button");
   button.type = "button";
   button.className = "category-item";
+  button.draggable = Boolean(node.id && !node.locked);
+  button.addEventListener("dragstart", (event) => startCategoryDrag(event, node));
+  button.addEventListener("dragend", clearLibraryDragFeedback);
   button.classList.toggle("active", node.id === selectedCategoryId);
   button.classList.toggle("category-has-children", hasChildren);
 
@@ -549,6 +614,101 @@ function renderTodoCategory() {
   categoryTopRows.appendChild(row);
 }
 
+function startPaperDrag(event, paper) {
+  libraryDragState = { type: "paper", id: paper.id };
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-paperlantern-paper", paper.id);
+  event.dataTransfer.setData("text/plain", paper.title || paper.id);
+  event.currentTarget.classList.add("dragging");
+}
+
+function startCategoryDrag(event, category) {
+  if (!category.id || category.locked) {
+    event.preventDefault();
+    return;
+  }
+  libraryDragState = { type: "category", id: category.id };
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-paperlantern-category", category.id);
+  event.dataTransfer.setData("text/plain", category.name || category.id);
+  event.currentTarget.closest(".category-row")?.classList.add("dragging");
+}
+
+function initCategoryDragAndDrop(row, category) {
+  row.addEventListener("dragover", (event) => {
+    const drop = getCategoryDropTarget(row, category, event);
+    if (!drop) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    showCategoryDropFeedback(row, drop.zone);
+  });
+  row.addEventListener("dragleave", (event) => {
+    if (!row.contains(event.relatedTarget)) clearCategoryDropFeedback(row);
+  });
+  row.addEventListener("drop", async (event) => {
+    const drop = getCategoryDropTarget(row, category, event);
+    clearLibraryDragFeedback();
+    if (!drop) return;
+    event.preventDefault();
+    if (drop.type === "paper") {
+      await updatePaper({ action: "move", id: drop.id, category: category.id || UNCATEGORIZED_LABEL });
+      return;
+    }
+    await updateCategory(drop.payload);
+  });
+}
+
+function getCategoryDropTarget(row, category, event) {
+  const draggedPaperId = libraryDragState?.type === "paper" ? libraryDragState.id : event.dataTransfer.getData("application/x-paperlantern-paper");
+  if (draggedPaperId) return { type: "paper", id: draggedPaperId, zone: "inside" };
+
+  const draggedCategoryId = libraryDragState?.type === "category" ? libraryDragState.id : event.dataTransfer.getData("application/x-paperlantern-category");
+  if (!draggedCategoryId || draggedCategoryId === category.id) return null;
+  if (category.id && category.id.startsWith(`${draggedCategoryId}/`)) return null;
+
+  const zone = getCategoryDropZone(row, category, event);
+  if (zone === "inside") {
+    return { type: "category", zone, payload: { action: "move", id: draggedCategoryId, parentId: category.id || "" } };
+  }
+  if (!category.id) return { type: "category", zone: "inside", payload: { action: "move", id: draggedCategoryId, parentId: "" } };
+  return {
+    type: "category",
+    zone,
+    payload: {
+      action: "move",
+      id: draggedCategoryId,
+      parentId: category.parentId || "",
+      beforeId: zone === "before" ? category.id : "",
+      afterId: zone === "after" ? category.id : "",
+    },
+  };
+}
+
+function getCategoryDropZone(row, category, event) {
+  if (!category.id) return "inside";
+  const rect = row.getBoundingClientRect();
+  const ratio = (event.clientY - rect.top) / Math.max(rect.height, 1);
+  if (ratio < 0.25) return "before";
+  if (ratio > 0.75) return "after";
+  return "inside";
+}
+
+function showCategoryDropFeedback(row, zone) {
+  document.querySelectorAll(".category-row.drop-before, .category-row.drop-after, .category-row.drop-inside").forEach(clearCategoryDropFeedback);
+  row.classList.add(`drop-${zone}`);
+}
+
+function clearCategoryDropFeedback(row) {
+  row.classList.remove("drop-before", "drop-after", "drop-inside");
+}
+
+function clearLibraryDragFeedback() {
+  libraryDragState = null;
+  document.querySelectorAll(".dragging, .drop-before, .drop-after, .drop-inside").forEach((node) => {
+    node.classList.remove("dragging", "drop-before", "drop-after", "drop-inside");
+  });
+}
+
 function renderPaperList(papers) {
   if (!papers.length) {
     const empty = document.createElement("div");
@@ -605,6 +765,10 @@ function renderPaperList(papers) {
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
     tr.tabIndex = 0;
+    tr.draggable = true;
+    tr.dataset.paperId = paper.id;
+    tr.addEventListener("dragstart", (event) => startPaperDrag(event, paper));
+    tr.addEventListener("dragend", clearLibraryDragFeedback);
     tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
     tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
     tr.addEventListener("keydown", (event) => {
@@ -1336,6 +1500,10 @@ async function updateCategory(payload) {
       selectedCategoryId = data.categoryId || "";
     } else if (payload.action === "rename" && selectedCategoryId.startsWith(`${payload.id}/`) && data.categoryId) {
       selectedCategoryId = `${data.categoryId}/${selectedCategoryId.slice(String(payload.id).length + 1)}`;
+    } else if (payload.action === "move" && selectedCategoryId === payload.id) {
+      selectedCategoryId = data.categoryId || "";
+    } else if (payload.action === "move" && selectedCategoryId.startsWith(`${payload.id}/`) && data.categoryId) {
+      selectedCategoryId = `${data.categoryId}/${selectedCategoryId.slice(String(payload.id).length + 1)}`;
     }
     if (payload.action === "delete" && selectedCategoryId === payload.id) selectedCategoryId = "";
     renderLibrary();
@@ -1360,9 +1528,6 @@ async function updatePaper(payload) {
       return;
     }
     libraryTree = data.tree;
-    if (payload.action === "move" && selectedCategoryId && selectedCategoryId !== payload.category) {
-      selectedCategoryId = "";
-    }
     renderLibrary();
     setLibraryStatus("");
     reportSyncResult(data.sync);
@@ -1399,6 +1564,8 @@ function flattenCategories(node, depth = 0) {
     name: node.name || "Library",
     depth,
     locked: Boolean(node.locked),
+    parentId: node.parentId || "",
+    order: Number(node.order) || 0,
     paperCount: collectPapers(node).length,
     papers: node.papers || [],
   };

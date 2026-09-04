@@ -8,31 +8,26 @@ JSON schema:
   "methodSections": [
     {{
       "title": "method point title",
-      "motivation": "why this method point is needed",
-      "summary": "one sentence overview",
-      "bullets": ["technical detail bullet"],
-      "formulas": ["important formula or notation and explanation"]
+      "motivation": "optional one sentence naming the limitation or design need this point addresses; empty string when not explicit",
+      "content": "Chinese prose explaining this method point clearly"
     }}
   ],
   "methodConclusion": "closing synthesis for Method Breakdown in 80 to 140 Chinese characters"
 }}
 
 Hard requirements:
-- Return 3 to 5 methodSections, preserving logical order unless paper evidence indicates a better order.
+- Return one methodSections entry per method point given in the task's ordered point list (typically 3 to 5), preserving that order unless the paper clearly indicates a better one. Every point must get its own complete section.
 - methodOverview should state the whole method pipeline, main design idea, and how the sections connect.
 - methodConclusion should synthesize what the method achieves, its key tradeoff, and any stated limitation or dependency.
-- Each section should have one clear title, one plain motivation sentence, one summary sentence, 2 to 4 compact bullets, and formulas/notations only when useful.
-- Motivation should be modest and factual. Do not style it rhetorically; explain the specific limitation, bottleneck, or design need.
+- Make the sections read as one connected walkthrough of the method. It is fine for a section's prose to open with a short transition to the previous section when that reads naturally; do not add transitions where they feel forced.
+- Watch for facts that repeat across sections. Keep each detail once, in the place where it is most relevant, and remove the duplicate mentions.
+- Keep each section title short and precise. Write each content value as concise Chinese prose that clearly explains the point: concrete modules, representations, equations, algorithms, training/inference procedures, experiments, or baseline differences. Split long content into a few short paragraphs separated by blank lines, and do not use Markdown lists or emphasis inside it.
+- The motivation value is optional, modest, and factual: state the specific limitation, bottleneck, or design need only when the paper does; use an empty string otherwise.
 - When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, the mention must be a complete phrase in the form "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation/acronym exists, or "Chinese explanation (Original English Full Term)" when it does not. Do not use only the Chinese translation. Use the exact original English term from the paper when available.
 - Never introduce an abbreviation/acronym by itself on first mention. The first occurrence must include the Chinese explanation, the full original English term, and the abbreviation/acronym together.
-- Parenthesized English terms and abbreviations must remain plain text in the JSON value; do not add Markdown, HTML, code formatting, special font instructions, emphasis, or visual styling.
-- Formula markup is mandatory: block formulas must be wrapped in "$$...$$"; inline formulas or short notations must be wrapped in "$...$".
-- In each formulas item, put the wrapped formula/notation first, then put the symbol explanation after a clear separator outside the math delimiters, such as "$$L = ...$$: L means ...".
-- Every formulas item must include a plain-text symbol explanation after the formula. If the paper does not explain a symbol, state that the symbol meaning is not explicit in the paper.
-- The symbol explanation must be plain Chinese text. Do not put the explanation itself inside "$...$" or "$$...$$".
-- Keep formulas in simple LaTeX-like text inside the math delimiters, such as $L = ...$, $d_i = ...$, $p_{{current}}$, $G=(V,E)$, $O(n)$, or $$\frac{{a}}{{b}}$$, and explain what the variables mean in the plain-text explanation line.
+- Parenthesized English terms and abbreviations must remain plain text in the JSON value; do not add Markdown, HTML, code formatting, emphasis, or visual styling.
+- Place formulas where they belong inside the prose: wrap block formulas in "$$...$$" and inline formulas or short notations in "$...$", then explain the symbols in plain Chinese right after each formula; never put the explanation inside the math delimiters.
+- Keep formulas in simple LaTeX-like text, for example $L = ...$, $d_i = ...$, $p_{{current}}$, $G=(V,E)$, $O(n)$, or $$\frac{{a}}{{b}}$$, and explain what each variable means in the plain Chinese text that follows.
 - For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, and $c_{{obs}}$ rather than $P_target$, $p_current$, or $c_obs$.
 - Write partial derivatives as \frac{{\partial c_i}}{{\partial p}} rather than "\partial c_i \partial p".
-- Emphasize concrete modules, representations, equations, algorithms, training/inference procedures, experiments, and baseline differences.
-- Avoid one giant paragraph. The frontend will render these sections directly.
 - Do not add unsupported claims. If a detail is missing, say it is not explicit.

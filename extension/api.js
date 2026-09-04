@@ -42,10 +42,8 @@ export async function importRemotePdf(source, options = {}) {
   return { base, data };
 }
 
-export function readerUrl(base, paperId, analyze = true) {
-  const params = new URLSearchParams({ id: paperId });
-  if (analyze) params.set("analyze", "1");
-  return `${base}/reader.html?${params.toString()}`;
+export function readerUrl(base, paperId) {
+  return `${base}/reader.html?${new URLSearchParams({ id: paperId }).toString()}`;
 }
 
 export function normalizeImportSource(url) {

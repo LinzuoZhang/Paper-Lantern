@@ -8,6 +8,11 @@ const readerLibraryDrawer = document.querySelector("#readerLibraryDrawer");
 const readerCategoryList = document.querySelector("#readerCategoryList");
 const readerPaperList = document.querySelector("#readerPaperList");
 const readerLibraryTitle = document.querySelector("#readerLibraryTitle");
+const readerPaperUploadButton = document.querySelector("#readerPaperUploadButton");
+const readerPaperUploadInput = document.querySelector("#readerPaperUploadInput");
+const readerUploadMenu = document.querySelector("#readerUploadMenu");
+const readerArxivUploadInput = document.querySelector("#readerArxivUploadInput");
+const readerArxivUploadButton = document.querySelector("#readerArxivUploadButton");
 const readerLeftRail = document.querySelector("#readerLeftRail");
 const pdfViewer = document.querySelector("#pdfViewer");
 const appShell = document.querySelector(".app-shell");
@@ -26,6 +31,8 @@ const askSelectionButton = document.querySelector("#askSelectionButton");
 const emptyState = document.querySelector("#emptyState");
 const fileName = document.querySelector("#fileName");
 const pageIndicator = document.querySelector("#pageIndicator");
+const pageNumberInput = document.querySelector("#pageNumberInput");
+const pageTotalLabel = document.querySelector("#pageTotalLabel");
 const regenerateKeywordsButton = document.querySelector("#regenerateKeywordsButton");
 const regenerateThreeLineButton = document.querySelector("#regenerateThreeLineButton");
 const regenerateMethodButton = document.querySelector("#regenerateMethodButton");
@@ -38,7 +45,7 @@ const methodSections = document.querySelector("#methodSections");
 const discussionListView = document.querySelector("#discussionListView");
 const discussionThreadView = document.querySelector("#discussionThreadView");
 const discussionThreadList = document.querySelector("#discussionThreadList");
-const newDiscussionButton = document.querySelector("#newDiscussionButton");
+const newDiscussionListButton = document.querySelector("#newDiscussionListButton");
 const backToDiscussionsButton = document.querySelector("#backToDiscussionsButton");
 const discussionThreadTitle = document.querySelector("#discussionThreadTitle");
 const discussionMessages = document.querySelector("#discussionMessages");
@@ -47,17 +54,22 @@ const discussionReferenceBox = document.querySelector("#discussionReferenceBox")
 const discussionReferenceText = document.querySelector("#discussionReferenceText");
 const discussionInput = document.querySelector("#discussionInput");
 const sendDiscussionButton = document.querySelector("#sendDiscussionButton");
+const newDiscussionFromThreadButton = document.querySelector("#newDiscussionFromThreadButton");
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
 const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
 const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
 const basicInfoButton = document.querySelector("#basicInfoButton");
 const basicInfoStatus = document.querySelector("#basicInfoStatus");
+const basicInfoTitle = document.querySelector("#basicInfoTitle");
 const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
 const basicInfoVenue = document.querySelector("#basicInfoVenue");
 const basicInfoDate = document.querySelector("#basicInfoDate");
 const basicInfoInstitutions = document.querySelector("#basicInfoInstitutions");
 const basicInfoDoi = document.querySelector("#basicInfoDoi");
+const basicInfoLocalPath = document.querySelector("#basicInfoLocalPath");
+const copyDoiButton = document.querySelector("#copyDoiButton");
+const openDoiButton = document.querySelector("#openDoiButton");
 const generateCitationButton = document.querySelector("#generateCitationButton");
 const citationStatus = document.querySelector("#citationStatus");
 const citationResults = document.querySelector("#citationResults");
@@ -93,6 +105,8 @@ const pdfOutlineResizer = document.querySelector("#pdfOutlineResizer");
 const READER_LIBRARY_ALL_ID = "__library";
 const READER_RECENT_ID = "__recent";
 const READER_TODO_ID = "__todo";
+const READER_UNCATEGORIZED_ID = "uncategorized";
+const READING_POSITION_STORAGE_PREFIX = "paperLanternReadingPosition:";
 const MAX_DISCUSSION_REFERENCE_CHARS = 4000;
 const PDF_OUTLINE_MIN_WIDTH = 180;
 const PDF_OUTLINE_MAX_WIDTH = 420;
@@ -128,6 +142,7 @@ let pdfRenderingPages = new Map();
 let pdfPageTextCache = new Map();
 let pdfVirtualRenderTimer = null;
 let pdfSearchTask = null;
+let readingPositionSaveTimer = null;
 let pdfZoom = 1;
 let renderedPdfZoom = 1;
 let zoomRenderTimer = null;
@@ -137,6 +152,7 @@ let selectedPdfText = "";
 let selectedPdfRange = null;
 let lastSelectionRect = null;
 let isPdfTextSelecting = false;
+let isPdfLoadingForReadingPosition = false;
 let pdfSelectionPointerId = null;
 let pendingPdfSelectionRect = null;
 let pdfSelectionStartPageNumber = null;
@@ -221,6 +237,7 @@ function initReaderLibraryDrawer() {
     window.clearTimeout(readerLibraryHoverTimer);
     readerLibraryHoverTimer = window.setTimeout(() => {
       if (document.querySelector(".library-menu")) return;
+      if (isReaderUploadMenuOpen()) return;
       if (readerCategoryInlineEditorActive) return;
       closeReaderLibraryDrawer();
     }, 220);
@@ -229,6 +246,44 @@ function initReaderLibraryDrawer() {
     if (readerCategoryInlineEditorActive) return;
     if (event.key === "Escape") closeReaderLibraryDrawer();
   });
+  readerPaperUploadButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openReaderLibraryDrawer();
+    isReaderUploadMenuOpen() ? closeReaderUploadMenu() : openReaderUploadMenu();
+  });
+  readerPaperUploadInput?.addEventListener("change", () => {
+    const file = readerPaperUploadInput.files && readerPaperUploadInput.files[0];
+    if (!file) return;
+    closeReaderUploadMenu();
+    uploadReaderLibraryPaper(file).finally(() => {
+      readerPaperUploadInput.value = "";
+    });
+  });
+  readerArxivUploadButton?.addEventListener("click", () => {
+    const source = readerArxivUploadInput?.value || "";
+    if (!source.trim()) return;
+    closeReaderUploadMenu();
+    uploadReaderRemotePaper(source.trim()).finally(() => {
+      if (readerArxivUploadInput) readerArxivUploadInput.value = "";
+    });
+  });
+  readerUploadMenu?.addEventListener("dragenter", handleReaderUploadDrag);
+  readerUploadMenu?.addEventListener("dragover", handleReaderUploadDrag);
+  readerUploadMenu?.addEventListener("dragleave", (event) => {
+    if (!readerUploadMenu.contains(event.relatedTarget)) readerUploadMenu.classList.remove("drag-over");
+  });
+  readerUploadMenu?.addEventListener("drop", (event) => {
+    event.preventDefault();
+    readerUploadMenu.classList.remove("drag-over");
+    const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type === "application/pdf" || /\.pdf$/i.test(item.name));
+    if (!file) {
+      setStatus("请拖入 PDF 文件。", true);
+      return;
+    }
+    closeReaderUploadMenu();
+    uploadReaderLibraryPaper(file);
+  });
+  window.addEventListener("resize", positionReaderUploadMenu);
   initReaderLibraryResize();
   loadReaderLibrary().catch((error) => console.error("Failed to load reader library.", error));
 }
@@ -238,8 +293,9 @@ function initReaderLibraryResize() {
   const categorySection = document.querySelector(".reader-category-section");
   const drawer = document.querySelector("#readerLibraryDrawer");
   if (!divider || !categorySection || !drawer) return;
+  const minCategoryHeight = 128;
   const saved = Number(localStorage.getItem("paperLanternReaderCategoryHeight"));
-  if (saved > 60) categorySection.style.height = `${saved}px`;
+  if (saved > minCategoryHeight) categorySection.style.height = `${saved}px`;
 
   divider.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -247,7 +303,7 @@ function initReaderLibraryResize() {
     const startH = categorySection.getBoundingClientRect().height;
     const onMove = (moveEvent) => {
       const delta = moveEvent.clientY - startY;
-      const next = Math.max(Math.min(startH + delta, drawer.clientHeight - 60), 60);
+      const next = Math.max(Math.min(startH + delta, drawer.clientHeight - 60), minCategoryHeight);
       categorySection.style.height = `${next}px`;
       localStorage.setItem("paperLanternReaderCategoryHeight", String(next));
     };
@@ -358,21 +414,156 @@ function renderReaderLibrary() {
     return;
   }
   papers.forEach((paper) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "reader-paper-item";
-    button.classList.toggle("active", currentPaper?.id === paper.id);
-    button.textContent = paper.title;
-    button.addEventListener("click", () => {
+    const item = document.createElement("div");
+    item.className = "reader-paper-item";
+    item.classList.toggle("active", currentPaper?.id === paper.id);
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "reader-paper-open";
+    openButton.title = paper.title;
+    openButton.textContent = paper.title;
+    openButton.addEventListener("click", () => {
       const params = new URLSearchParams({ id: paper.id });
       openReaderNavigationInNewTab(`./reader.html?${params.toString()}`);
     });
-    readerPaperList.appendChild(button);
+
+    const todoButton = document.createElement("button");
+    todoButton.type = "button";
+    todoButton.className = "reader-paper-todo-button";
+    todoButton.classList.toggle("checked", Boolean(paper.todo));
+    todoButton.setAttribute("aria-label", paper.todo ? "移除待办" : "加入待办");
+    todoButton.title = paper.todo ? "移除待办" : "加入待办";
+    todoButton.innerHTML = paper.todo ? readerBookmarkCheckedSvg : readerBookmarkPlusSvg;
+    todoButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setReaderPaperTodo(paper, !paper.todo).catch((error) => {
+        console.error(error);
+        setStatus(error.message || "更新待办失败。", true);
+      });
+    });
+
+    item.append(openButton, todoButton);
+    readerPaperList.appendChild(item);
   });
 }
 
 function openReaderNavigationInNewTab(url) {
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function isReaderUploadMenuOpen() {
+  return Boolean(readerUploadMenu && !readerUploadMenu.hidden);
+}
+
+function openReaderUploadMenu() {
+  if (!readerUploadMenu) return;
+  readerUploadMenu.hidden = false;
+  readerPaperUploadButton?.setAttribute("aria-expanded", "true");
+  readerUploadMenu.classList.remove("drag-over");
+  positionReaderUploadMenu();
+  window.requestAnimationFrame(positionReaderUploadMenu);
+}
+
+function closeReaderUploadMenu() {
+  if (!readerUploadMenu) return;
+  readerUploadMenu.hidden = true;
+  readerPaperUploadButton?.setAttribute("aria-expanded", "false");
+  readerUploadMenu.classList.remove("drag-over");
+}
+
+function positionReaderUploadMenu() {
+  if (!readerUploadMenu || readerUploadMenu.hidden || !readerPaperUploadButton) return;
+  const buttonRect = readerPaperUploadButton.getBoundingClientRect();
+  const menuRect = readerUploadMenu.getBoundingClientRect();
+  const margin = 8;
+  const gap = 10;
+  const left = Math.min(buttonRect.right + gap, window.innerWidth - menuRect.width - margin);
+  const top = Math.min(Math.max(buttonRect.top, margin), window.innerHeight - menuRect.height - margin);
+  readerUploadMenu.style.left = `${Math.max(margin, left)}px`;
+  readerUploadMenu.style.top = `${top}px`;
+}
+
+function handleReaderUploadDrag(event) {
+  event.preventDefault();
+  if (Array.from(event.dataTransfer?.items || []).some((item) => item.kind === "file")) {
+    readerUploadMenu?.classList.add("drag-over");
+  }
+}
+
+async function uploadReaderLibraryPaper(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+    setStatus("请选择 PDF 文件。", true);
+    return;
+  }
+  const title = file.name.replace(/\.pdf$/i, "");
+  const formData = new FormData();
+  formData.append("pdf", file);
+  formData.append("title", title);
+  formData.append("category", getReaderUploadCategory());
+
+  const previousLabel = readerPaperUploadButton?.querySelector("span")?.textContent || "";
+  try {
+    if (readerPaperUploadButton) readerPaperUploadButton.disabled = true;
+    const label = readerPaperUploadButton?.querySelector("span");
+    if (label) label.textContent = "上传中";
+    setStatus("正在上传论文...");
+    const response = await apiFetch("/api/library/upload", { method: "POST", body: formData });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "上传失败。");
+    if (data.tree) readerLibraryTree = data.tree;
+    renderReaderLibrary();
+    setStatus("上传完成，已在新标签页打开。");
+    openReaderNavigationInNewTab(`./reader.html?${new URLSearchParams({ id: data.paper.id }).toString()}`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "上传失败。", true);
+  } finally {
+    if (readerPaperUploadButton) readerPaperUploadButton.disabled = false;
+    const label = readerPaperUploadButton?.querySelector("span");
+    if (label) label.textContent = previousLabel || "上传论文";
+  }
+}
+
+async function uploadReaderRemotePaper(source) {
+  const value = String(source || "").trim();
+  if (!value) return;
+
+  const previousText = readerArxivUploadButton?.textContent || "";
+  try {
+    if (readerArxivUploadButton) {
+      readerArxivUploadButton.disabled = true;
+      readerArxivUploadButton.textContent = "Importing";
+    }
+    setStatus("正在导入论文...");
+    const response = await apiFetch("/api/library/remote-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdfUrl: value, category: getReaderUploadCategory() }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.detail || data.error || "导入失败。");
+    if (data.tree) readerLibraryTree = data.tree;
+    renderReaderLibrary();
+    setStatus("导入完成，已在新标签页打开。");
+    openReaderNavigationInNewTab(`./reader.html?${new URLSearchParams({ id: data.paper.id }).toString()}`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "导入失败。", true);
+  } finally {
+    if (readerArxivUploadButton) {
+      readerArxivUploadButton.disabled = false;
+      readerArxivUploadButton.textContent = previousText || "Import";
+    }
+  }
+}
+
+function getReaderUploadCategory() {
+  if (readerSelectedCategoryId && ![READER_LIBRARY_ALL_ID, READER_RECENT_ID, READER_TODO_ID].includes(readerSelectedCategoryId)) {
+    return readerSelectedCategoryId;
+  }
+  return currentPaper?.category || READER_UNCATEGORIZED_ID;
 }
 
 function createReaderSpecialRow(id, label, iconSvg, countText = "", addHandler = null, collapsible = false, addIconSvg = readerPlusCircleSvg, addTitle = "新建分类", addActive = false, forceExpanded = false) {
@@ -512,23 +703,35 @@ async function toggleCurrentPaperTodo() {
     setStatus("未打开论文。", true);
     return;
   }
-  const nextTodo = !isCurrentPaperTodo();
+  await setReaderPaperTodo(currentPaper, !isCurrentPaperTodo());
+}
+
+async function setReaderPaperTodo(paper, nextTodo) {
+  if (!paper?.id) {
+    setStatus("未找到论文。", true);
+    return;
+  }
   try {
     const response = await apiFetch("/api/library/paper", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: currentPaper.id, todo: nextTodo }),
+      body: JSON.stringify({ id: paper.id, todo: nextTodo }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "更新待办失败。");
-    currentPaper.todo = nextTodo;
-    const libraryPaper = collectReaderPapers(readerLibraryTree).find((paper) => paper.id === currentPaper.id);
+    paper.todo = nextTodo;
+    if (currentPaper?.id === paper.id) {
+      currentPaper = data.paper || { ...currentPaper, todo: nextTodo };
+      currentPaper.todo = nextTodo;
+    }
+    if (data.tree) readerLibraryTree = data.tree;
+    const libraryPaper = collectReaderPapers(readerLibraryTree).find((item) => item.id === paper.id);
     if (libraryPaper) libraryPaper.todo = nextTodo;
     setStatus(nextTodo ? "已加入待办。" : "已移除待办。");
     renderReaderLibrary();
   } catch (error) {
-    console.error(error);
-    setStatus(error.message || "更新待办失败。", true);
+    paper.todo = !nextTodo;
+    throw error;
   }
 }
 
@@ -559,7 +762,7 @@ async function moveCurrentPaperToCategory(category) {
   if (!currentPaper?.id || !category) return;
   const targetCategory = category.id || category.name;
   if (!targetCategory || currentPaper.category === category.id) return;
-  const previousText = statusText.textContent;
+  const previousText = statusText ? statusText.textContent : "";
   setStatus(`Moving to ${category.name}...`);
   try {
     const response = await apiFetch("/api/library/paper", {
@@ -582,9 +785,9 @@ async function moveCurrentPaperToCategory(category) {
     console.error(error);
     setStatus(error.message || "Move failed.", true);
   } finally {
-    if (!statusText.classList.contains("error")) {
+    if (statusText && !statusText.classList.contains("error")) {
       window.setTimeout(() => {
-        if (statusText.textContent.startsWith("Moved to ")) setStatus(previousText || "");
+        if (statusText && statusText.textContent.startsWith("Moved to ")) setStatus(previousText || "");
       }, 1600);
     }
   }
@@ -804,10 +1007,10 @@ async function openReaderFromUrl() {
     setStatus("缺少论文 ID，请从文献库打开论文。", true);
     return;
   }
-  await openLibraryPaper(paperId, params.get("analyze") === "1");
+  await openLibraryPaper(paperId);
 }
 
-async function openLibraryPaper(paperId, shouldAnalyze = false) {
+async function openLibraryPaper(paperId) {
   setStatus("正在打开论文...");
   const response = await apiFetch(`/api/library/paper?id=${encodeURIComponent(paperId)}`);
   const data = await readJsonResponse(response);
@@ -822,7 +1025,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   renderDiscussionHistory(currentPaper.discussion || []);
   renderNotes(currentPaper.notes || "");
   renderSummary(paperToSummary(currentPaper));
-  renderBasicInfo(currentPaper.basicInfo);
+  renderBasicInfo(currentPaper.basicInfo, currentPaper);
   renderDoi(currentPaper.doi);
   resetCitationSection();
   loadCurrentCitationInfo().catch((error) => console.error("Failed to load current citation info.", error));
@@ -837,7 +1040,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   showPdf(file, currentPaper.title);
   setBusy(true);
   clearStatus();
-  if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
+  if (!currentPaper.threeLineSummary?.method) {
     renderSummaryLoading("解析论文并生成总结中...");
   }
 
@@ -851,6 +1054,7 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
     if (extraction.title) {
       setReaderPaperTitle(extraction.title);
       currentPaper.title = extraction.title;
+      if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(currentPaper.title);
       saveCurrentPaper({ title: extraction.title }).catch((error) => console.error("Failed to save extracted title.", error));
     }
 
@@ -863,9 +1067,8 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
       saveExtractedTextCache(extractedText).catch((error) => console.error("Failed to save extracted text cache.", error));
     }
 
-    if (shouldAnalyze || !currentPaper.threeLineSummary?.method) {
+    if (!currentPaper.threeLineSummary?.method) {
       await summarizeText(extractedText);
-      if (shouldAnalyze) clearReaderAnalyzeFlag();
     }
   } catch (error) {
     console.error(error);
@@ -876,20 +1079,15 @@ async function openLibraryPaper(paperId, shouldAnalyze = false) {
   }
 }
 
-function clearReaderAnalyzeFlag() {
-  const url = new URL(window.location.href);
-  if (!url.searchParams.has("analyze")) return;
-  url.searchParams.delete("analyze");
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
 document.addEventListener("selectionchange", handlePdfSelectionChange);
 pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
 pdfViewer.addEventListener("scroll", () => {
   updatePageIndicator();
   hideReferencePopover();
   scheduleVisiblePdfRender();
+  scheduleSaveReadingPosition();
 });
+window.addEventListener("beforeunload", saveReadingPositionNow);
 pdfViewer.addEventListener("pointerdown", handlePdfSelectionPointerDown);
 pdfViewer.addEventListener("lostpointercapture", resetPdfSelectionPointerState);
 pdfViewer.addEventListener("click", handlePdfClick);
@@ -904,9 +1102,13 @@ document.addEventListener("pointerdown", (event) => {
     selectionMenu.contains(event.target) ||
     translationBubble?.contains(event.target) ||
     annotationEditor?.contains(event.target) ||
-    referencePopover?.contains(event.target);
+    referencePopover?.contains(event.target) ||
+    readerUploadMenu?.contains(event.target);
   if (!event.target.closest(".library-menu") && !event.target.closest(".menu-button")) {
     document.querySelector(".library-menu")?.remove();
+  }
+  if (!event.target.closest(".reader-upload-menu") && !event.target.closest("#readerPaperUploadButton")) {
+    closeReaderUploadMenu();
   }
   if (!clickedFloatingUi) {
     hideTranslationBubble();
@@ -931,7 +1133,8 @@ explainButton.addEventListener("click", explainSelection);
 askSelectionButton?.addEventListener("click", askSelectionInDiscussion);
 discussionForm?.addEventListener("submit", handleDiscussionSubmit);
 discussionInput?.addEventListener("keydown", handleDiscussionInputKeydown);
-newDiscussionButton?.addEventListener("click", createBlankDiscussion);
+newDiscussionListButton?.addEventListener("click", createBlankDiscussion);
+newDiscussionFromThreadButton?.addEventListener("click", createBlankDiscussion);
 backToDiscussionsButton?.addEventListener("click", () => showDiscussionList());
 copyThreeLineButton?.addEventListener("click", () => copyReaderSection("threeLine", copyThreeLineButton));
 copyMethodButton?.addEventListener("click", () => copyReaderSection("method", copyMethodButton));
@@ -967,6 +1170,8 @@ basicInfoButton?.addEventListener("click", async () => {
 generateCitationButton?.addEventListener("click", () => {
   generateCitation();
 });
+copyDoiButton?.addEventListener("click", () => copyCurrentDoi(copyDoiButton));
+openDoiButton?.addEventListener("click", openCurrentDoi);
 
 function initReaderTabs() {
   readerTabs.forEach((tab) => {
@@ -1015,7 +1220,7 @@ async function exportCurrentPaperPdf() {
     link.click();
     link.remove();
     window.setTimeout(() => {
-      if (statusText.textContent === "正在导出...") setStatus("");
+      if (statusText && statusText.textContent === "正在导出...") setStatus("");
     }, 4000);
   } catch (error) {
     console.error(error);
@@ -1232,7 +1437,8 @@ async function handleDiscussionSubmit(event) {
     return;
   }
 
-  appendDiscussionMessage("user", question);
+  const firstTurnQuote = isFirstDiscussionTurn && selectionReference?.text ? selectionReference.text : null;
+  appendDiscussionMessage("user", question, -1, firstTurnQuote);
   discussionInput.value = "";
   setDiscussionBusy(true);
   const pending = appendDiscussionMessage("assistant", "Thinking...");
@@ -1270,7 +1476,8 @@ async function handleDiscussionSubmit(event) {
       thread.title = makeDiscussionTitle(question);
     }
     thread.hash = await makeDiscussionThreadHash(thread);
-    renderDiscussionMessages(thread.messages);
+    renderDiscussionMessages(thread.messages, thread.reference);
+    renderDiscussionReferenceBox(null);
     renderDiscussionThreadList();
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
@@ -1356,8 +1563,12 @@ function showDiscussionThread(threadId) {
   discussionListView.hidden = true;
   discussionThreadView.hidden = false;
   renderDiscussionThreadHeader(thread);
-  renderDiscussionMessages(thread.messages);
-  renderDiscussionReferenceBox(thread.reference);
+  renderDiscussionMessages(thread.messages, thread.reference);
+  const hasMessages = normalizeDiscussionHistory(thread.messages).length > 0;
+  // The quoted text box above the input is only for composing a new thread's
+  // first question; once the conversation has messages it lives in the first
+  // user message instead.
+  renderDiscussionReferenceBox(hasMessages ? null : thread.reference);
 }
 
 function renderDiscussionThreadHeader(thread) {
@@ -1444,7 +1655,6 @@ function startDiscussionThreadRename(threadId) {
   form.className = "discussion-thread-rename-form";
   form.innerHTML = `
     <input class="discussion-thread-rename-input" type="text" maxlength="120" aria-label="Discussion name" />
-    <button class="discussion-thread-rename-save" type="submit">保存</button>
   `;
   const input = form.querySelector(".discussion-thread-rename-input");
   input.value = thread.title || "New discussion";
@@ -1485,7 +1695,7 @@ function startDiscussionThreadRename(threadId) {
   input.select();
 }
 
-function appendDiscussionMessage(role, content, index = -1) {
+function appendDiscussionMessage(role, content, index = -1, referenceText = null) {
   discussionMessages.querySelector(".discussion-empty")?.remove();
 
   const message = document.createElement("div");
@@ -1499,6 +1709,14 @@ function appendDiscussionMessage(role, content, index = -1) {
   const header = document.createElement("div");
   header.className = "discussion-message-header";
   header.append(label);
+
+  message.append(header);
+  if (role === "user" && referenceText) {
+    const quote = document.createElement("div");
+    quote.className = "discussion-reference-quote";
+    quote.textContent = String(referenceText).trim();
+    message.appendChild(quote);
+  }
 
   const body = document.createElement("div");
   body.className = "discussion-message-body";
@@ -1520,7 +1738,7 @@ function appendDiscussionMessage(role, content, index = -1) {
     actions.appendChild(regenerateButton);
   }
 
-  message.append(header, body, actions);
+  message.append(body, actions);
   discussionMessages.appendChild(message);
   message.scrollIntoView({ block: "nearest" });
   return message;
@@ -1607,7 +1825,7 @@ async function restartDiscussionAfterEdit(thread, index, next) {
   await saveDiscussionThreads();
   renderDiscussionThreadList();
   renderDiscussionThreadHeader(thread);
-  renderDiscussionMessages(thread.messages);
+  renderDiscussionMessages(thread.messages, thread.reference);
 
   const paperText = lastExtractedText.trim();
   if (paperText.length < 80) {
@@ -1635,7 +1853,7 @@ async function restartDiscussionAfterEdit(thread, index, next) {
     thread.messages.push({ role: "assistant", content: answer || "" });
     thread.updatedAt = new Date().toISOString();
     thread.hash = await makeDiscussionThreadHash(thread);
-    renderDiscussionMessages(thread.messages);
+    renderDiscussionMessages(thread.messages, thread.reference);
     renderDiscussionThreadList();
     renderDiscussionThreadHeader(thread);
     await saveDiscussionThreads();
@@ -1846,9 +2064,14 @@ function renderDiscussionHistory(discussion) {
   showDiscussionList();
 }
 
-function renderDiscussionMessages(history) {
+function renderDiscussionMessages(history, reference = null) {
   clearDiscussionMessages();
-  normalizeDiscussionHistory(history).forEach((message, index) => appendDiscussionMessage(message.role, message.content, index));
+  const referenceText = reference ? String(reference.text || "").trim() : "";
+  normalizeDiscussionHistory(history).forEach((message, index) => {
+    // Attach the quoted selection below the "You" label of the first user message.
+    const quote = index === 0 && message.role === "user" && referenceText ? referenceText : null;
+    appendDiscussionMessage(message.role, message.content, index, quote);
+  });
 }
 
 function normalizeDiscussionHistory(history) {
@@ -1865,9 +2088,15 @@ function normalizeDiscussionReference(reference) {
   if (!reference || typeof reference !== "object") return null;
   const text = String(reference.text || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
+  const page = Number(reference.page);
+  const before = cleanCopiedText(reference.before);
+  const after = cleanCopiedText(reference.after);
   return {
     text: text.slice(0, MAX_DISCUSSION_REFERENCE_CHARS),
     paperTitle: String(reference.paperTitle || "").trim().slice(0, 240),
+    page: Number.isInteger(page) && page >= 1 && page <= 9999 ? page : 0,
+    before: before.slice(0, 240),
+    after: after.slice(0, 240),
   };
 }
 
@@ -2049,20 +2278,25 @@ function getMethodBreakdownText() {
       if (cleanCopiedText(section.motivation)) {
         lines.push(`**动机：** ${cleanCopiedText(section.motivation)}`);
       }
-      if (cleanCopiedText(section.summary)) {
-        lines.push(cleanCopiedText(section.summary));
-      }
-      const bullets = (Array.isArray(section.bullets) ? section.bullets : [])
-        .map((bullet) => cleanCopiedText(bullet))
-        .filter(Boolean);
-      if (bullets.length) {
-        lines.push(bullets.map((bullet) => `- ${bullet}`).join("\n"));
-      }
-      const formulas = (Array.isArray(section.formulas) ? section.formulas : [])
-        .map((formula) => cleanCopiedText(formula))
-        .filter(Boolean);
-      if (formulas.length) {
-        lines.push(formulas.join("\n\n"));
+      const content = cleanCopiedText(section.content);
+      if (content) {
+        lines.push(content);
+      } else {
+        if (cleanCopiedText(section.summary)) {
+          lines.push(cleanCopiedText(section.summary));
+        }
+        const bullets = (Array.isArray(section.bullets) ? section.bullets : [])
+          .map((bullet) => cleanCopiedText(bullet))
+          .filter(Boolean);
+        if (bullets.length) {
+          lines.push(bullets.map((bullet) => `- ${bullet}`).join("\n"));
+        }
+        const formulas = (Array.isArray(section.formulas) ? section.formulas : [])
+          .map((formula) => cleanCopiedText(formula))
+          .filter(Boolean);
+        if (formulas.length) {
+          lines.push(formulas.join("\n\n"));
+        }
       }
       return lines.join("\n\n");
     });
@@ -2259,6 +2493,7 @@ async function renderPdf(file) {
   hideSelectionMenu();
   hideTranslationBubble();
   hideReferencePopover();
+  isPdfLoadingForReadingPosition = true;
   pdfOutlineItems = [];
   closePdfOutlinePanel();
   updatePdfOutlineUI();
@@ -2276,28 +2511,32 @@ async function renderPdf(file) {
 
   const renderId = Symbol("pdfRender");
   currentPdfTask = renderId;
-  const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  if (currentPdfTask !== renderId) return;
-  currentPdfDocument = pdf;
-  pdfPageMetrics = [];
-  pdfRenderedPages = new Map();
-  pdfRenderingPages = new Map();
-  pdfPageTextCache = new Map();
-  pdfLinkAnnotationsCache = new Map();
-  pdfLinkDestCache = new Map();
-  pdfOutlineItems = [];
-  closePdfOutlinePanel();
-  updatePdfOutlineUI();
-  setPageIndicator(1, pdf.numPages);
-  await loadPdfOutline(pdf);
+  try {
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    if (currentPdfTask !== renderId) return;
+    currentPdfDocument = pdf;
+    pdfPageMetrics = [];
+    pdfRenderedPages = new Map();
+    pdfRenderingPages = new Map();
+    pdfPageTextCache = new Map();
+    pdfLinkAnnotationsCache = new Map();
+    pdfLinkDestCache = new Map();
+    pdfOutlineItems = [];
+    closePdfOutlinePanel();
+    updatePdfOutlineUI();
+    setPageIndicator(1, pdf.numPages);
+    await loadPdfOutline(pdf);
 
-  await renderPdfPages(renderId);
+    await renderPdfPages(renderId, { restoreReadingPosition: true });
+  } finally {
+    if (currentPdfTask === renderId) isPdfLoadingForReadingPosition = false;
+  }
 }
 
 async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   if (!currentPdfDocument) return;
-  const { keepExisting = false } = options;
+  const { keepExisting = false, restoreReadingPosition = false } = options;
   const renderZoom = pdfZoom;
   currentPdfTask = renderId;
   pdfRenderingPages = new Map();
@@ -2318,6 +2557,7 @@ async function renderPdfPages(renderId = Symbol("pdfRender"), options = {}) {
   }
   renderedPdfZoom = renderZoom;
   setPdfZoomPreviewScale(1);
+  if (restoreReadingPosition) restoreSavedReadingPosition();
   await renderVisiblePdfPages(renderId, { force: true });
   refreshReferenceCitations();
   updatePageIndicator();
@@ -2497,6 +2737,22 @@ function initPdfToolbar() {
   zoomOutButton?.addEventListener("click", () => zoomPdf(1 / 1.25));
   zoomInButton?.addEventListener("click", () => zoomPdf(1.25));
   fitPageButton?.addEventListener("click", () => fitPdfPage());
+  pageNumberInput?.addEventListener("focus", () => {
+    pageNumberInput.select();
+  });
+  pageNumberInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitPageNumberInput();
+      pageNumberInput.blur();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setPageIndicator(currentVisiblePage, currentPdfDocument?.numPages || 0);
+      pageNumberInput.blur();
+    }
+  });
+  pageNumberInput?.addEventListener("change", commitPageNumberInput);
   pdfZoomLabel?.addEventListener("click", (event) => {
     event.stopPropagation();
     togglePdfZoomMenu();
@@ -2707,6 +2963,40 @@ async function jumpToPdfOutlinePageAsync(pageNumber) {
   updatePageIndicator();
   await renderPdfPageInto(pageNumber, pageNode, currentPdfTask);
   scheduleVisiblePdfRender();
+}
+
+function commitPageNumberInput() {
+  if (!currentPdfDocument || !pageNumberInput) {
+    setPageIndicator(0, 0);
+    return;
+  }
+  const requestedPage = Number.parseInt(String(pageNumberInput.value || "").replace(/[^\d]/g, ""), 10);
+  if (!Number.isFinite(requestedPage)) {
+    setPageIndicator(currentVisiblePage, currentPdfDocument.numPages);
+    return;
+  }
+  const pageNumber = clamp(requestedPage, 1, currentPdfDocument.numPages);
+  pageNumberInput.value = String(pageNumber);
+  jumpToPdfPage(pageNumber, "auto");
+}
+
+function jumpToPdfPage(pageNumber, behavior = "auto") {
+  jumpToPdfPageAsync(pageNumber, behavior).catch((error) => console.error("Failed to jump to PDF page.", error));
+}
+
+async function jumpToPdfPageAsync(pageNumber, behavior = "auto") {
+  if (!currentPdfDocument || !currentPdfTask) return;
+  window.clearTimeout(paneRenderTimer);
+  window.clearTimeout(zoomRenderTimer);
+  const normalizedPage = clamp(Math.round(Number(pageNumber)), 1, currentPdfDocument.numPages);
+  if (!Number.isFinite(normalizedPage)) return;
+  const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${normalizedPage}"]`);
+  if (!pageNode) return;
+  pageNode.scrollIntoView({ block: "start", behavior });
+  updatePageIndicator();
+  await renderPdfPageInto(normalizedPage, pageNode, currentPdfTask);
+  scheduleVisiblePdfRender();
+  saveReadingPositionNow();
 }
 
 function updatePdfZoomLabel() {
@@ -3078,9 +3368,18 @@ async function regenerateSummarySection(section) {
   }
 
   const button = getSummarySectionRefreshButton(section);
-  if (button) button.disabled = true;
+  if (button) {
+    button.disabled = true;
+    button.classList.add("spinning");
+  }
   clearStatus();
-  setSummarySectionLoading(section);
+  if (section === "method") {
+    // Keep the existing Method Breakdown visible while it regenerates; only
+    // show progress in the status line instead of inside the content area.
+    setStatus("正在重新生成方法解析...");
+  } else {
+    setSummarySectionLoading(section);
+  }
   try {
     if (section === "keywords") {
       const overviewInfo = await fetchOverviewInfo(text);
@@ -3088,6 +3387,7 @@ async function regenerateSummarySection(section) {
       const keywordExplanations = overviewInfo.keywordExplanations || {};
       renderKeywords(keywordsValue, keywordExplanations);
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), keywords: keywordsValue, keywordExplanations } });
+      clearStatus();
       return;
     }
 
@@ -3098,6 +3398,7 @@ async function regenerateSummarySection(section) {
       method.textContent = threeLineSummary.method || "No response";
       conclusion.textContent = threeLineSummary.conclusion || "No response";
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), threeLineSummary } });
+      clearStatus();
       return;
     }
 
@@ -3113,13 +3414,17 @@ async function regenerateSummarySection(section) {
         conclusion: methodUpdate.methodConclusion,
       });
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), ...methodUpdate } });
+      clearStatus();
     }
   } catch (error) {
     console.error(error);
     renderSummary(paperToSummary(currentPaper));
     setStatus(error.message || "Regeneration failed.", true);
   } finally {
-    if (button) button.disabled = false;
+    if (button) {
+      button.classList.remove("spinning");
+      button.disabled = false;
+    }
   }
 }
 
@@ -3139,10 +3444,6 @@ function setSummarySectionLoading(section) {
     challenges.textContent = "Loading...";
     method.textContent = "Loading...";
     conclusion.textContent = "Loading...";
-    return;
-  }
-  if (section === "method") {
-    renderMethodLoading("重新生成方法解析中...");
   }
 }
 
@@ -3586,9 +3887,13 @@ function askSelectionInDiscussion() {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
 
+  const context = buildPdfSelectionContext(selectedPdfRange);
   const reference = {
     text,
     paperTitle: currentPaper?.title || fileName?.textContent || "",
+    page: context.page || 0,
+    before: context.before,
+    after: context.after,
   };
   const thread = createDiscussionThread("", true, reference);
   setActiveReaderTab("withAiTab");
@@ -3598,6 +3903,43 @@ function askSelectionInDiscussion() {
   hideTranslationBubble();
   window.getSelection()?.removeAllRanges();
   discussionInput?.focus();
+}
+
+// Capture the actual page and the text immediately around the selection from the
+// rendered PDF, so a repeated phrase can be anchored to the instance the user
+// highlighted instead of the first occurrence in the paper.
+function buildPdfSelectionContext(range, beforeChars = 140, afterChars = 120) {
+  if (!range) return { page: 0, before: "", after: "" };
+  const pageNode = getPdfPageForNode(range.startContainer) || getPdfPageForNode(range.endContainer);
+  if (!pageNode) return { page: 0, before: "", after: "" };
+  const page = Number(pageNode.dataset.pageNumber) || 0;
+
+  const walker = document.createTreeWalker(pageNode, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  const starts = [];
+  let total = 0;
+  while (walker.nextNode()) {
+    const text = walker.currentNode.nodeValue || "";
+    if (!text.length) continue;
+    textNodes.push(walker.currentNode);
+    starts.push(total);
+    total += text.length;
+  }
+  if (!textNodes.length) return { page, before: "", after: "" };
+
+  const startIndex = textNodes.indexOf(range.startContainer);
+  const endIndex = textNodes.indexOf(range.endContainer);
+  if (startIndex < 0 || endIndex < 0) return { page, before: "", after: "" };
+
+  const fullText = textNodes.map((node) => node.nodeValue || "").join("");
+  const startGlobal = starts[startIndex] + range.startOffset;
+  const endGlobal = starts[endIndex] + range.endOffset;
+  const collapse = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  return {
+    page,
+    before: collapse(fullText.slice(Math.max(0, startGlobal - beforeChars), startGlobal)).slice(-240),
+    after: collapse(fullText.slice(endGlobal, endGlobal + afterChars)).slice(0, 240),
+  };
 }
 
 function showTranslationWindow(text) {
@@ -4682,6 +5024,66 @@ function setViewerScrollRatio(ratio) {
   updatePageIndicator();
 }
 
+function getReadingPositionStorageKey(paperId = currentPaper?.id) {
+  return paperId ? `${READING_POSITION_STORAGE_PREFIX}${paperId}` : "";
+}
+
+function scheduleSaveReadingPosition() {
+  if (isPdfLoadingForReadingPosition || !currentPaper?.id || !currentPdfDocument) return;
+  window.clearTimeout(readingPositionSaveTimer);
+  readingPositionSaveTimer = window.setTimeout(saveReadingPositionNow, 350);
+}
+
+function saveReadingPositionNow() {
+  if (isPdfLoadingForReadingPosition || !currentPaper?.id || !currentPdfDocument) return;
+  const key = getReadingPositionStorageKey();
+  if (!key) return;
+  const anchor = getPdfViewportAnchor();
+  const position = {
+    pageNumber: anchor.pageNumber || currentVisiblePage || 1,
+    ratioX: Number.isFinite(anchor.ratioX) ? anchor.ratioX : 0.5,
+    ratioY: Number.isFinite(anchor.ratioY) ? anchor.ratioY : 0,
+    scrollRatio: anchor.scrollRatio || getViewerScrollRatio(),
+    zoom: pdfZoom,
+    savedAt: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(key, JSON.stringify(position));
+  } catch (error) {
+    console.warn("Failed to save reading position.", error);
+  }
+}
+
+function restoreSavedReadingPosition() {
+  const key = getReadingPositionStorageKey();
+  if (!key) return false;
+
+  let position = null;
+  try {
+    position = JSON.parse(localStorage.getItem(key) || "null");
+  } catch (error) {
+    console.warn("Failed to read saved reading position.", error);
+  }
+  if (!position || typeof position !== "object") return false;
+
+  const pageNumber = Math.round(Number(position.pageNumber));
+  if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > currentPdfDocument.numPages) return false;
+
+  const viewerRect = pdfViewer.getBoundingClientRect();
+  const ratioX = Number(position.ratioX);
+  const ratioY = Number(position.ratioY);
+  const anchor = {
+    pageNumber,
+    ratioX: Number.isFinite(ratioX) ? clamp(ratioX, 0, 1) : 0.5,
+    ratioY: Number.isFinite(ratioY) ? clamp(ratioY, 0, 1) : 0,
+    clientX: viewerRect.left + viewerRect.width / 2,
+    clientY: viewerRect.top + viewerRect.height * 0.42,
+    scrollRatio: position.scrollRatio || { top: 0, left: 0 },
+  };
+  restorePdfViewportAnchor(anchor);
+  return true;
+}
+
 function getPdfViewportAnchor(clientX, clientY) {
   const viewerRect = pdfViewer.getBoundingClientRect();
   const x = Number.isFinite(clientX) ? clientX : viewerRect.left + viewerRect.width / 2;
@@ -4772,10 +5174,14 @@ function updatePageIndicator() {
 function setPageIndicator(current, total) {
   currentVisiblePage = current;
   if (!total) {
-    pageIndicator.textContent = "0 / 0";
+    if (pageNumberInput) pageNumberInput.value = "0";
+    if (pageTotalLabel) pageTotalLabel.textContent = "0";
     return;
   }
-  pageIndicator.textContent = `${currentVisiblePage || 1} / ${total}`;
+  if (pageNumberInput && document.activeElement !== pageNumberInput) {
+    pageNumberInput.value = String(currentVisiblePage || 1);
+  }
+  if (pageTotalLabel) pageTotalLabel.textContent = String(total);
 }
 
 function clamp(value, min, max) {
@@ -4947,19 +5353,23 @@ function normalizeKeywordKey(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function renderBasicInfo(info) {
+function renderBasicInfo(info, paper = currentPaper) {
   const normalized = info && typeof info === "object" ? info : {};
+  if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(paper?.title);
   basicInfoAuthors.textContent = formatBasicInfoValue(normalized.authors);
   basicInfoVenue.textContent = formatBasicInfoValue(normalized.venue);
   basicInfoDate.textContent = formatBasicInfoValue(normalized.publishedDate);
   basicInfoInstitutions.textContent = formatBasicInfoValue(normalized.institutions);
+  if (basicInfoLocalPath) basicInfoLocalPath.textContent = formatBasicInfoValue(getPaperStoragePath(paper));
 }
 
 function renderBasicInfoLoading() {
+  if (basicInfoTitle) basicInfoTitle.textContent = "Loading...";
   basicInfoAuthors.textContent = "Loading...";
   basicInfoVenue.textContent = "Loading...";
   basicInfoDate.textContent = "Loading...";
   basicInfoInstitutions.textContent = "Loading...";
+  if (basicInfoLocalPath) basicInfoLocalPath.textContent = "Loading...";
 }
 
 function formatBasicInfoValue(value) {
@@ -4968,13 +5378,35 @@ function formatBasicInfoValue(value) {
   return text || "未识别";
 }
 
+function getPaperStoragePath(paper = currentPaper) {
+  if (!paper) return "";
+  const directPath = String(paper.localPath || paper.pdfPath || "").trim();
+  if (directPath) return directPath;
+  const folder = String(paper.folder || "").trim();
+  if (folder) return folder.replace(/\//g, "\\");
+  return paper.id ? `literature_library\\papers\\${paper.id}` : "";
+}
+
 function setBasicInfoStatus(message, isError = false) {
   if (!basicInfoStatus) return;
   basicInfoStatus.textContent = message;
   basicInfoStatus.classList.toggle("error", isError);
+  basicInfoStatus.hidden = !message;
 }
 
 function initBasicInfoEditing() {
+  [basicInfoTitle, basicInfoLocalPath].forEach((field) => {
+    if (!field) return;
+    field.setAttribute("aria-label", "点击复制");
+    field.title = "点击复制";
+    field.addEventListener("click", () => copyReadonlyBasicInfo(field));
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      copyReadonlyBasicInfo(field);
+    });
+  });
+
   const fields = [
     { dd: basicInfoAuthors, key: "authors", isArray: true },
     { dd: basicInfoVenue, key: "venue", isArray: false },
@@ -5006,6 +5438,7 @@ function initBasicInfoEditing() {
       }
       try {
         await saveCurrentPaper(field.isDoi ? { doi: currentPaper.doi } : { basicInfo: currentPaper.basicInfo });
+        if (field.isDoi) renderDoi(currentPaper.doi);
         setBasicInfoStatus("");
       } catch (error) {
         console.error("Failed to save basic info edit.", error);
@@ -5017,9 +5450,48 @@ function initBasicInfoEditing() {
   });
 }
 
+async function copyReadonlyBasicInfo(field) {
+  const value = String(field?.textContent || "").trim();
+  if (!value || value === "未识别" || value === "Loading...") return;
+  await copyCitationText(field, value);
+}
+
 function renderDoi(doi) {
   if (!basicInfoDoi) return;
-  basicInfoDoi.textContent = String(doi || "").trim() || "未识别";
+  const normalizedDoi = normalizeDoiValue(doi);
+  basicInfoDoi.textContent = normalizedDoi || "未识别";
+  [copyDoiButton, openDoiButton].forEach((button) => {
+    if (button) button.disabled = !normalizedDoi;
+  });
+}
+
+function normalizeDoiValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "")
+    .trim();
+}
+
+function getCurrentDoiValue() {
+  const text = String(basicInfoDoi?.textContent || currentPaper?.doi || "").trim();
+  return normalizeDoiValue(text === "未识别" ? "" : text);
+}
+
+function getDoiUrl(doi) {
+  const normalizedDoi = normalizeDoiValue(doi);
+  return normalizedDoi ? `https://doi.org/${encodeURIComponent(normalizedDoi).replace(/%2F/g, "/")}` : "";
+}
+
+async function copyCurrentDoi(button) {
+  const doi = getCurrentDoiValue();
+  if (!doi) return;
+  await copyCitationText(button, doi);
+}
+
+function openCurrentDoi() {
+  const url = getDoiUrl(getCurrentDoiValue());
+  if (url) window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function setCitationStatus(message, isError = false) {
@@ -5462,6 +5934,8 @@ function initCitationOverlay() {
 
 async function copyCitationText(button, text) {
   if (!text) return;
+  const previousTitle = button.title || "";
+  const previousLabel = button.getAttribute("aria-label") || previousTitle;
   try {
     await copyTextToClipboard(text);
     button.classList.add("copied");
@@ -5471,8 +5945,8 @@ async function copyCitationText(button, text) {
     window.setTimeout(() => {
       if (!document.body.contains(button)) return;
       button.classList.remove("copied");
-      button.title = "复制引用";
-      button.setAttribute("aria-label", "复制引用");
+      button.title = previousTitle;
+      if (previousLabel) button.setAttribute("aria-label", previousLabel);
     }, 1200);
   } catch (error) {
     console.error("Failed to copy citation.", error);
@@ -5534,6 +6008,7 @@ function renderMethodLoading(message = "Loading...") {
 }
 
 function renderMethodSections(sections, options = {}) {
+  methodSections.innerHTML = "";
   const fallbackText = typeof options === "string" ? options : options.fallbackText || "";
   const overviewText = typeof options === "object" ? options.overview || "" : "";
   const conclusionText = typeof options === "object" ? options.conclusion || "" : "";
@@ -5575,33 +6050,42 @@ function renderMethodSections(sections, options = {}) {
       article.appendChild(motivationNode);
     }
 
-    if (section.summary) {
-      const summaryNode = document.createElement("p");
-      summaryNode.className = "method-summary";
-      summaryNode.append(...formatInlineTechnicalText(section.summary));
-      article.appendChild(summaryNode);
-    }
+    const content = String(section.content || "").trim();
+    if (content) {
+      const contentNode = document.createElement("div");
+      contentNode.className = "method-content";
+      appendMethodProse(contentNode, content);
+      article.appendChild(contentNode);
+    } else {
+      // Legacy structured summaries (bullets + separate formula list).
+      if (section.summary) {
+        const summaryNode = document.createElement("p");
+        summaryNode.className = "method-summary";
+        summaryNode.append(...formatInlineTechnicalText(section.summary));
+        article.appendChild(summaryNode);
+      }
 
-    const bullets = Array.isArray(section.bullets) ? section.bullets : [];
-    if (bullets.length) {
-      const list = document.createElement("ul");
-      list.className = "method-bullets";
-      bullets.forEach((bullet) => {
-        const item = document.createElement("li");
-        item.append(...formatInlineTechnicalText(String(bullet)));
-        list.appendChild(item);
-      });
-      article.appendChild(list);
-    }
+      const bullets = Array.isArray(section.bullets) ? section.bullets : [];
+      if (bullets.length) {
+        const list = document.createElement("ul");
+        list.className = "method-bullets";
+        bullets.forEach((bullet) => {
+          const item = document.createElement("li");
+          item.append(...formatInlineTechnicalText(String(bullet)));
+          list.appendChild(item);
+        });
+        article.appendChild(list);
+      }
 
-    const formulas = Array.isArray(section.formulas) ? section.formulas : [];
-    if (formulas.length) {
-      const formulaBox = document.createElement("div");
-      formulaBox.className = "formula-list";
-      formulas.forEach((formula) => {
-        formulaBox.appendChild(createFormulaExplanationBlock(formula));
-      });
-      article.appendChild(formulaBox);
+      const formulas = Array.isArray(section.formulas) ? section.formulas : [];
+      if (formulas.length) {
+        const formulaBox = document.createElement("div");
+        formulaBox.className = "formula-list";
+        formulas.forEach((formula) => {
+          formulaBox.appendChild(createFormulaExplanationBlock(formula));
+        });
+        article.appendChild(formulaBox);
+      }
     }
 
     fragment.appendChild(article);
@@ -5640,25 +6124,84 @@ function splitMethodFallback(text) {
     return [
       {
         title: "Core method overview",
-        summary: text,
-        bullets: [],
-        formulas: extractFormulaLikeText(text),
+        content: text,
       },
     ];
   }
 
   return chunks.slice(0, 5).map((chunk, index) => ({
     title: `Method point ${index + 1}`,
-    summary: chunk,
-    bullets: [],
-    formulas: extractFormulaLikeText(chunk),
+    content: chunk,
   }));
 }
 
-function extractFormulaLikeText(text) {
-  return Array.from(text.matchAll(/(?:\\?[A-Za-z]+[A-Za-z0-9_{}α-ωΑ-Ω]*|[A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^，。；;,.]+|[A-Z]=\([^)]+\)|O\([^)]+\)/g)).map(
-    (match) => match[0],
-  );
+function appendMethodProse(parent, content) {
+  splitProseDisplayMath(content).forEach((part) => {
+    if (part.type === "formula") {
+      const node = document.createElement("div");
+      node.className = "formula-display";
+      renderFormula(node, part.value, true);
+      parent.appendChild(node);
+      return;
+    }
+    String(part.value)
+      .split(/\n\s*\n/)
+      .forEach((paragraph) => {
+        const text = paragraph.replace(/[ \t]*\n[ \t]*/g, " ").trim();
+        if (!text) return;
+        const node = document.createElement("p");
+        node.append(...formatInlineTechnicalText(text));
+        parent.appendChild(node);
+      });
+  });
+}
+
+function splitProseDisplayMath(content) {
+  const text = String(content || "");
+  const parts = [];
+  let buffer = "";
+  let cursor = 0;
+  let afterFormula = false;
+  // Block math ($$...$$) always splits out. A single-dollar span longer than
+  // the inline-math limit (180) that is clearly math is also treated as a
+  // block formula, so an over-long inline formula does not end up as raw
+  // $...$ text.
+  const pattern = /\$\$(.+?)\$\$|\$([^$\n]{181,}?)\$/gs;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const blockFormula = match[1] !== undefined;
+    const inner = (blockFormula ? match[1] : match[2]).trim();
+    if (!blockFormula && !looksLikeMathExpression(inner)) {
+      // Long prose between two stray dollars — keep it in the text stream.
+      buffer += text.slice(cursor, match.index) + "$" + inner + "$";
+      cursor = match.index + match[0].length;
+      continue;
+    }
+    buffer += text.slice(cursor, match.index);
+    const before = (afterFormula ? stripFormulaExplanationPreamble(buffer) : buffer.trim());
+    if (before) parts.push({ type: "text", value: before });
+    parts.push({ type: "formula", value: inner });
+    buffer = "";
+    cursor = match.index + match[0].length;
+    afterFormula = true;
+  }
+  if (cursor < text.length) buffer += text.slice(cursor);
+  const rest = afterFormula ? stripFormulaExplanationPreamble(buffer) : buffer.trim();
+  if (rest) parts.push({ type: "text", value: rest });
+  return parts;
+}
+
+function looksLikeMathExpression(value) {
+  return /\\(?:[a-zA-Z]+|\{|\})|\^|_\{/.test(String(value || ""));
+}
+
+// "$$...$$：其中 x 表示..." — when text right after a block formula starts with a
+// separator or "其中/where", drop that preamble so it reads as a following sentence.
+function stripFormulaExplanationPreamble(value) {
+  return String(value || "")
+    .replace(/^[：:，,；;、\s]+/, "")
+    .replace(/^(?:其中|where|with|in which)\s*/i, "")
+    .trim();
 }
 
 function createFormulaExplanationBlock(value) {
@@ -6024,6 +6567,7 @@ function setBusy(isBusy) {
 }
 
 function setStatus(message, isError = false) {
+  if (!statusText) return;
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
 }

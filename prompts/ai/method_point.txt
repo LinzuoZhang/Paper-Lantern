@@ -3,11 +3,9 @@ All user-facing JSON values must be in Chinese.
 
 JSON schema:
 {{
-  "title": "method point title",
-  "motivation": "why this method point is needed",
-  "summary": "one concise sentence explaining this method point",
-  "details": ["technical detail bullet"],
-  "formulas": ["formula, variable, objective, or algorithm notation with explanation"]
+  "title": "short method point title",
+  "motivation": "optional one sentence naming the limitation or design need this point addresses; empty string when not explicit",
+  "content": "Chinese prose explaining this method point clearly"
 }}
 
 Task:
@@ -16,19 +14,15 @@ Analyze method point {index} of {total}. Use the full paper content as evidence.
 Method point:
 {point_json}
 
-Hard requirements:
-- Return 3 to 5 detail bullets. Each bullet should be 35 to 90 Chinese characters.
-- The motivation should be one plain Chinese sentence explaining what limitation, bottleneck, or design need this method point addresses.
-- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, the mention must be a complete phrase in the form "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation/acronym exists, or "Chinese explanation (Original English Full Term)" when it does not. Do not use only the Chinese translation. Use the exact original English term from the paper when available.
-- Return formulas only when the paper includes equations, variables, objectives, search rules, metrics, or named notation. Otherwise return an empty array.
-- Formula markup is mandatory: block formulas must be wrapped in "$$...$$"; inline formulas or short notations must be wrapped in "$...$".
-- In each formulas item, put the wrapped formula/notation first, then put the symbol explanation after a clear separator outside the math delimiters, such as "$$d_i = ...$$: d_i means ...".
-- The symbol explanation must be plain Chinese text. Do not put the explanation itself inside "$...$" or "$$...$$".
-- Keep formulas in simple LaTeX-like text inside the math delimiters, such as $p_i$, $p_{{current}}$, $d_i = ...$, $G=(V,E)$, $O(n)$, or $$\frac{{a}}{{b}}$$. Do not explain subscripts in words when notation can express them.
-- For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, and $c_{{obs}}$ rather than $P_target$, $p_current$, or $c_obs$.
-- Write partial derivatives as \frac{{\partial c_{{i}}}}{{\partial p}} rather than "\partial c_i \partial p".
-- Details should explain mechanisms: data representation, modules, pipeline, objectives/losses, optimization/search, training/inference, datasets, baselines, ablations, or constraints when present.
-- Avoid generic filler. Do not invent unavailable details.
+Writing guidance:
+- Write the content field as natural Chinese prose that fully explains how this point works. Be concrete and complete.
+- Present the explanation with clear structure: state the core idea first, then organize the rest into a few short, self-contained paragraphs separated by blank lines. Do not force a list format.
+- The motivation field is optional and should be modest and factual; use an empty string when the paper does not state the need explicitly.
+- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, write the mention as "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation exists, or "Chinese explanation (Original English Full Term)" when not; never use only the Chinese translation. Use the exact original English term from the paper when available.
+- Place formulas where they belong in the prose: wrap inline or short notation in "$...$" and block formulas in "$$...$$", then explain the symbols in plain Chinese in the sentence that follows; never put the explanation inside the math delimiters.
+- Only write formulas the paper actually includes.
+- Keep LaTeX simple, for example $p_i$, $p_{{current}}$, $d_i = ...$, $G=(V,E)$, $O(n)$, or $$\frac{{a}}{{b}}$$. For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, $c_{{obs}}$, not $P_target$, $p_current$, $c_obs$. Write partial derivatives as \frac{{\partial c_{{i}}}}{{\partial p}}.
+- Do not invent details; if something is not in the paper, say it is not explicit.
 
 Paper content:
 {paper_text}

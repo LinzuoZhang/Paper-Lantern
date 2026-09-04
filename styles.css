@@ -60,6 +60,11 @@ body {
   padding: 22px;
 }
 
+.library-view.library-file-drag-over {
+  outline: 2px dashed rgba(44, 117, 140, 0.52);
+  outline-offset: -10px;
+}
+
 .library-layout,
 .paper-list-header {
   display: flex;
@@ -562,9 +567,41 @@ body.resizing-paper-info * {
 }
 
 .category-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+.category-row.dragging,
+.paper-table-row.dragging {
+  opacity: 0.48;
+}
+
+.category-row.drop-inside .category-item {
+  background: rgba(44, 117, 140, 0.12);
+  outline: 1px dashed rgba(44, 117, 140, 0.58);
+  outline-offset: -2px;
+}
+
+.category-row.drop-before::before,
+.category-row.drop-after::after {
+  position: absolute;
+  z-index: 3;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-strong);
+  content: "";
+}
+
+.category-row.drop-before::before {
+  top: -2px;
+}
+
+.category-row.drop-after::after {
+  bottom: -2px;
 }
 
 .category-item {
@@ -1111,6 +1148,18 @@ body.resizing-paper-info * {
   background: var(--soft);
 }
 
+.paper-table-row {
+  cursor: grab;
+}
+
+.paper-table-row:active {
+  cursor: grabbing;
+}
+
+.paper-table-row.dragging td {
+  background: rgba(230, 232, 231, 0.78);
+}
+
 .paper-col-resize-handle {
   position: absolute;
   top: 0;
@@ -1385,8 +1434,10 @@ body.upload-menu-open .paper-card:hover {
 
 .reader-category-section {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   height: 200px;
-  min-height: 60px;
+  min-height: 128px;
   overflow: hidden;
 }
 
@@ -1624,9 +1675,12 @@ body.resizing-categories * {
 }
 
 .reader-category-list {
-  height: 100%;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px 0 12px;
+  overscroll-behavior: contain;
 }
 
 .reader-paper-section {
@@ -1648,6 +1702,58 @@ body.resizing-categories * {
   letter-spacing: 0.02em;
 }
 
+.reader-category-upload-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 8px 8px 6px;
+}
+
+.reader-category-upload-button {
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 1.5px dashed rgba(44, 117, 140, 0.42);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 760;
+  box-shadow: none;
+}
+
+.reader-category-upload-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.reader-category-upload-button:hover,
+.reader-category-upload-button:focus-visible,
+.reader-category-upload-button[aria-expanded="true"] {
+  border-color: rgba(44, 117, 140, 0.68);
+  background: rgba(230, 232, 231, 0.72);
+  box-shadow: none;
+}
+
+.reader-upload-menu {
+  position: fixed;
+  left: 0;
+  right: auto;
+  top: 0;
+  min-width: 326px;
+}
+
+.reader-upload-menu.drag-over .upload-drop-box {
+  border-color: var(--ink);
+  background: var(--soft);
+}
+
 .reader-paper-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -1655,7 +1761,7 @@ body.resizing-categories * {
 }
 
 .reader-category-item,
-.reader-paper-item {
+.reader-paper-open {
   justify-content: flex-start;
   gap: 7px;
   width: 100%;
@@ -1689,9 +1795,98 @@ body.resizing-categories * {
 }
 
 .reader-paper-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
   min-height: 42px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   line-height: 1.35;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.reader-paper-item::before {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  content: "";
+  transition: background 140ms ease;
+}
+
+.reader-paper-open {
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-align: left;
   white-space: normal;
+}
+
+.reader-paper-open:hover,
+.reader-paper-open:focus-visible {
+  background: transparent;
+  box-shadow: none;
+}
+
+.reader-paper-todo-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: none;
+  transform: none;
+  visibility: hidden;
+}
+
+.reader-paper-todo-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.reader-paper-todo-button.checked {
+  color: #2f8f46;
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.reader-paper-item:hover .reader-paper-todo-button,
+.reader-paper-item:focus-within .reader-paper-todo-button {
+  opacity: 0.72;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.reader-paper-item:hover .reader-paper-todo-button.checked,
+.reader-paper-item:focus-within .reader-paper-todo-button.checked {
+  opacity: 1;
+}
+
+.reader-paper-todo-button:hover,
+.reader-paper-todo-button:focus-visible {
+  background: transparent;
+  color: #2f8f46;
+  opacity: 1;
+  box-shadow: none;
+  transform: scale(1.08);
 }
 
 .reader-category-menu-button {
@@ -1718,11 +1913,27 @@ body.resizing-categories * {
 }
 
 .reader-category-item:hover,
-.reader-category-item.active,
-.reader-paper-item:hover,
-.reader-paper-item.active {
+.reader-category-item.active {
   background: transparent;
   color: var(--ink);
+}
+
+.reader-paper-item:hover {
+  background: rgba(230, 232, 231, 0.72);
+  color: var(--ink);
+}
+
+.reader-paper-item:hover::before {
+  background: rgba(47, 143, 70, 0.48);
+}
+
+.reader-paper-item.active {
+  background: #d2d6d4;
+  color: var(--ink);
+}
+
+.reader-paper-item.active::before {
+  background: var(--accent-strong);
 }
 
 .reader-library-empty {
@@ -1975,6 +2186,15 @@ button {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: 0 18px 42px rgba(29, 37, 32, 0.18);
+}
+
+.reader-upload-menu.upload-menu {
+  position: fixed;
+  z-index: 180;
+  left: 0;
+  right: auto;
+  top: 0;
+  min-width: 326px;
 }
 
 .upload-menu-item {
@@ -2515,6 +2735,13 @@ select {
   stroke-width: 2;
 }
 
+.pdf-outline-toggle-button {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .pdf-zoom-label {
   min-width: 42px;
   min-height: 30px;
@@ -2623,17 +2850,49 @@ select {
 }
 
 .page-indicator {
-  min-width: 58px;
-  padding: 4px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 74px;
+  min-height: 30px;
+  padding: 2px 8px;
   border: 1px solid rgba(37, 109, 133, 0.18);
-  border-radius: 999px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.88);
   color: var(--ink);
   box-shadow: 0 8px 18px rgba(29, 37, 32, 0.1);
   font-size: 12px;
   font-weight: 800;
   text-align: center;
-  pointer-events: none;
+}
+
+.page-indicator[hidden] {
+  display: none;
+}
+
+.page-number-input {
+  width: 32px;
+  min-width: 32px;
+  height: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+}
+
+.page-number-input:hover,
+.page-number-input:focus {
+  background: var(--soft);
+  outline: none;
+}
+
+.page-indicator-separator,
+.page-total-label {
+  color: var(--muted);
 }
 
 .pdf-reader-body {
@@ -4097,6 +4356,24 @@ body.selecting-pdf-text .selection-menu {
   background: var(--accent);
 }
 
+.method-content {
+  margin-top: 10px;
+}
+
+.method-content p {
+  margin: 0 0 8px;
+  color: #2d3832;
+  line-height: 1.7;
+}
+
+.method-content p:last-child {
+  margin-bottom: 0;
+}
+
+.method-content .formula-display {
+  margin: 6px 0 12px;
+}
+
 .discussion-card {
   display: grid;
   gap: 12px;
@@ -4139,38 +4416,17 @@ body.selecting-pdf-text .selection-menu {
   background: transparent;
 }
 
-.discussion-new-button {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  box-shadow: none;
-}
-
-.discussion-new-button:hover,
-.discussion-new-button:focus-visible {
-  background: var(--soft);
-  color: var(--ink);
-  box-shadow: none;
-}
-
-.discussion-new-button svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.2;
-}
-
 .basic-info-panel {
+  display: none;
+  align-content: start;
+  gap: 12px;
+  grid-auto-rows: max-content;
   overflow-y: auto;
-  padding: 0 16px 16px;
+  padding: 0 16px 14px;
+}
+
+.basic-info-panel.active {
+  display: grid;
 }
 
 .comments-panel {
@@ -4180,7 +4436,8 @@ body.selecting-pdf-text .selection-menu {
 
 .basic-info-card {
   display: grid;
-  gap: 12px;
+  align-content: start;
+  gap: 10px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -4189,9 +4446,9 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .basic-info-card .summary-group-header {
-  min-height: 42px;
-  padding: 0 0 10px;
-  border-bottom: 1px solid var(--line);
+  min-height: 32px;
+  padding: 0;
+  border-bottom: 0;
   border-radius: 0;
   background: transparent;
 }
@@ -4204,36 +4461,88 @@ body.selecting-pdf-text .selection-menu {
   line-height: 1.2;
 }
 
-.basic-info-list {
-  display: grid;
-  gap: 0;
+.basic-info-card .status,
+.citation-card .status {
   margin: 0;
 }
 
+.basic-info-card .status[hidden],
+.citation-card .status[hidden] {
+  display: none;
+}
+
+.basic-info-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  margin: 0;
+}
+
+.basic-info-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.basic-info-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
 .basic-info-list dt {
-  padding-top: 12px;
-  color: var(--ink);
+  padding: 0;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 
 .basic-info-list dd {
   margin: 0;
-  padding: 2px 0 12px;
-  border-bottom: 1px solid var(--line);
+  padding: 0;
+  border-bottom: 0;
   color: var(--ink);
-  line-height: 1.65;
+  line-height: 1.48;
   overflow-wrap: anywhere;
 }
 
-.basic-info-list dd:last-child {
-  border-bottom: 0;
+.basic-info-doi-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.basic-info-doi-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.basic-info-doi-field:hover .basic-info-doi-actions,
+.basic-info-doi-field:focus-within .basic-info-doi-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.basic-info-readonly {
+  cursor: copy;
+  border-radius: 6px;
+}
+
+.basic-info-readonly:hover,
+.basic-info-readonly:focus {
+  background: var(--soft);
+  outline: none;
 }
 
 .basic-info-list dd[contenteditable="true"] {
   cursor: text;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .basic-info-list dd[contenteditable="true"]:hover,
@@ -4246,9 +4555,47 @@ body.selecting-pdf-text .selection-menu {
   outline-offset: -1px;
 }
 
+.metadata-action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.metadata-action-button:hover:not(:disabled),
+.metadata-action-button:focus-visible:not(:disabled) {
+  background: var(--soft);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.metadata-action-button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.metadata-action-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .citation-card {
   display: grid;
-  gap: 12px;
+  align-content: start;
+  gap: 8px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -4257,8 +4604,8 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .citation-card .summary-group-header {
-  min-height: 42px;
-  padding: 14px 0 10px;
+  min-height: 34px;
+  padding: 8px 0 8px;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
@@ -4330,11 +4677,11 @@ body.selecting-pdf-text .selection-menu {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
   min-height: auto;
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   background: transparent;
   color: var(--ink);
@@ -4411,13 +4758,13 @@ body.selecting-pdf-text .selection-menu {
 
 .citation-candidate-title {
   font-weight: 650;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .citation-candidate-meta {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .citation-candidate-doi {
@@ -4522,6 +4869,40 @@ body.selecting-pdf-text .selection-menu {
   display: none;
 }
 
+.discussion-list-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(44, 117, 140, 0.55);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.discussion-list-create svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.discussion-list-create:hover,
+.discussion-list-create:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--soft);
+}
+
 .discussion-thread-list {
   display: grid;
   gap: 2px;
@@ -4574,8 +4955,12 @@ body.selecting-pdf-text .selection-menu {
 }
 
 .discussion-thread-rename {
-  margin-right: 4px;
+  margin-left: 6px;
   color: var(--muted);
+}
+
+.discussion-thread-delete {
+  margin-left: 2px;
 }
 
 .discussion-thread-delete {
@@ -4591,7 +4976,7 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-thread-rename-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   flex: 1;
@@ -4615,16 +5000,6 @@ body.selecting-pdf-text .selection-menu {
   outline: 3px solid rgba(44, 117, 140, 0.14);
 }
 
-.discussion-thread-rename-save {
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink);
-  box-shadow: none;
-  font-size: 12px;
-}
-
 .discussion-thread-item-title {
   overflow: hidden;
   font-size: 14px;
@@ -4643,11 +5018,52 @@ body.selecting-pdf-text .selection-menu {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   padding: 4px 0 6px;
   background: var(--panel);
+}
+
+.discussion-new-thread-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.discussion-thread-header:hover .discussion-new-thread-button,
+.discussion-thread-header:focus-within .discussion-new-thread-button,
+.discussion-new-thread-button:focus-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.discussion-new-thread-button:hover,
+.discussion-new-thread-button:focus-visible {
+  background: transparent;
+  color: var(--accent);
+}
+
+.discussion-new-thread-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
 }
 
 .discussion-back-button {
@@ -4760,6 +5176,20 @@ body.selecting-pdf-text .selection-menu {
 
 .discussion-message.user .discussion-message-label {
   text-align: right;
+}
+
+.discussion-reference-quote {
+  justify-self: end;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid rgba(37, 109, 133, 0.5);
+  border-radius: 6px;
+  background: rgba(44, 117, 140, 0.06);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .discussion-message-body {
@@ -5248,32 +5678,29 @@ body.selecting-pdf-text .selection-menu {
 
 .category-item,
 .reader-category-item,
-.reader-paper-item {
+.reader-paper-item,
+.reader-paper-open,
+.reader-paper-todo-button {
   border-radius: 7px;
   transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
 .reader-left-rail .reader-category-item,
-.reader-left-rail .reader-paper-item {
+.reader-left-rail .reader-paper-item,
+.reader-left-rail .reader-paper-open,
+.reader-left-rail .reader-paper-todo-button {
   border-radius: 0;
 }
 
 .category-item.active,
-.reader-category-item.active,
-.reader-paper-item.active {
+.reader-category-item.active {
   background: var(--soft-strong);
   color: var(--ink);
   box-shadow: none;
 }
 
-.reader-left-rail .reader-category-item.active,
-.reader-left-rail .reader-paper-item.active {
+.reader-left-rail .reader-category-item.active {
   background: transparent;
-}
-
-.reader-paper-item {
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
 }
 
 .reader-paper-item:last-child {
@@ -5372,6 +5799,9 @@ button.ghost,
 .category-item,
 .reader-category-item,
 .reader-paper-item,
+.reader-paper-open,
+.reader-paper-todo-button,
+.reader-category-upload-button,
 .summary-card-toggle,
 .selection-menu button,
 .category-menu button,
@@ -5399,7 +5829,9 @@ button.ghost:hover,
 .reader-settings-button:hover,
 .category-item:hover,
 .reader-category-item:hover,
-.reader-paper-item:hover,
+.reader-paper-open:hover,
+.reader-paper-todo-button:hover,
+.reader-category-upload-button:hover,
 .summary-card-toggle:hover,
 .selection-menu button:hover,
 .category-menu button:hover,
@@ -5420,6 +5852,9 @@ button.ghost:hover,
 .reader-left-rail .reader-category-menu-button,
 .reader-left-rail .reader-add-category-button,
 .reader-left-rail .reader-paper-item,
+.reader-left-rail .reader-paper-open,
+.reader-left-rail .reader-paper-todo-button,
+.reader-left-rail .reader-category-upload-button,
 .reader-left-rail .reader-settings-button,
 .reader-left-rail .reader-export-button {
   border-radius: 0;
@@ -5434,6 +5869,9 @@ button.ghost:hover,
 .reader-left-rail .reader-category-menu-button:hover,
 .reader-left-rail .reader-add-category-button:hover,
 .reader-left-rail .reader-paper-item:hover,
+.reader-left-rail .reader-paper-open:hover,
+.reader-left-rail .reader-paper-todo-button:hover,
+.reader-left-rail .reader-category-upload-button:hover,
 .reader-left-rail .reader-settings-button:hover,
 .reader-left-rail .reader-export-button:hover {
   background: transparent;
@@ -5444,8 +5882,32 @@ button.ghost:hover,
   border-bottom-color: var(--line);
 }
 
+.reader-left-rail .reader-paper-item:hover {
+  background: rgba(230, 232, 231, 0.72);
+}
+
+.reader-left-rail .reader-paper-item:hover::before {
+  background: rgba(47, 143, 70, 0.48);
+}
+
 .reader-left-rail .reader-paper-item.active {
   background: #d2d6d4;
+}
+
+.reader-left-rail .reader-paper-item.active::before {
+  background: var(--accent-strong);
+}
+
+.reader-left-rail .reader-paper-open:hover,
+.reader-left-rail .reader-paper-todo-button:hover,
+.reader-left-rail .reader-paper-todo-button:focus-visible {
+  background: transparent;
+}
+
+.reader-left-rail .reader-category-upload-button:hover,
+.reader-left-rail .reader-category-upload-button:focus-visible,
+.reader-left-rail .reader-category-upload-button[aria-expanded="true"] {
+  background: rgba(230, 232, 231, 0.72);
 }
 
 .reader-left-rail .reader-category-item.active {
@@ -5646,12 +6108,6 @@ button.ghost:hover,
   margin: 0;
   border-radius: 0;
   background: transparent;
-}
-
-.discussion-new-button,
-.discussion-new-button:hover,
-.discussion-new-button:focus-visible {
-  box-shadow: none;
 }
 
 .comments-nav-card {
@@ -5873,6 +6329,14 @@ button.ghost:hover,
 .reader-left-rail .reader-category-item.active,
 .reader-left-rail .reader-category-item.reader-current-category-path.active {
   background: #d2d6d4;
+}
+
+.reader-left-rail .reader-paper-item.active {
+  background: #d2d6d4;
+}
+
+.reader-left-rail .reader-paper-item.active::before {
+  background: var(--accent-strong);
 }
 
 .reader-left-rail .reader-category-item.reader-current-category-path .reader-category-folder-icon {
