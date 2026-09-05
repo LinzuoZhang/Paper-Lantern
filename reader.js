@@ -1,4 +1,5 @@
 ﻿import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+import { initAnnotationPanel } from "./annotation_panel.js";
 import { initSettingsModal } from "./settings_modal.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
@@ -77,6 +78,9 @@ const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
 const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
 const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
+const withAiPanel = document.querySelector("#withAiPanel");
+const withAiSummaryScroll = document.querySelector("#withAiPanel .summary-scroll");
+const withAiScrollBottomButton = document.querySelector("#withAiScrollBottomButton");
 const basicInfoButton = document.querySelector("#basicInfoButton");
 const basicInfoStatus = document.querySelector("#basicInfoStatus");
 const basicInfoTitle = document.querySelector("#basicInfoTitle");
@@ -155,6 +159,8 @@ let pdfSearchMatches = [];
 let pdfSearchIndex = -1;
 let pdfOutlineItems = [];
 let isResizingPdfOutline = false;
+let pdfLinkJumpHighlight = null;
+let pdfLinkJumpHighlightIgnoreScrollUntil = 0;
 
 let lastExtractedText = "";
 let currentPdfTask = null;
@@ -184,7 +190,6 @@ let currentPaper = null;
 let currentVisiblePage = 0;
 let apiBaseUrl = "";
 let translationDragState = null;
-let activeHighlightGroupId = null;
 let readerLibraryTree = null;
 let readerSelectedCategoryId = "";
 let discussionThreads = [];
@@ -195,7 +200,6 @@ let discussionTitleRenaming = false;
 let discussionHeaderVisible = true;
 let discussionCompactInitDone = false;
 let activeDiscussionAbortController = null;
-let annotationAutoSaveTimer = null;
 let notesAutoSaveTimer = null;
 let copiedToastTimer = null;
 let notesLastSavedValue = "";
@@ -225,6 +229,29 @@ const commentSwatchColors = {
   pink: "#ef93ab",
 };
 
+const annotationPanel = initAnnotationPanel({
+  getPdfFrameElement,
+  getPdfViewer: () => pdfViewer,
+  getCurrentPaperTitle: () => currentPaper?.title || "",
+  getFileTitle: () => fileName?.textContent || "",
+  getHighlightGroup,
+  getHighlightKey,
+  getHighlights: () => savedHighlights,
+  setHighlights: (nextHighlights) => {
+    savedHighlights = Array.isArray(nextHighlights) ? nextHighlights : [];
+  },
+  isSameHighlightGroup,
+  highlightColors,
+  redrawHighlights,
+  refreshCommentsNavigation,
+  renderDiscussionMarkdown,
+  saveCurrentPaper,
+  startDiscussionFromReference,
+  translateAnnotationText,
+  explainAnnotationText,
+  clamp,
+});
+
 initPaneResizer();
 initReaderSideRail();
 initSummaryPaneToggle();
@@ -244,6 +271,7 @@ initPdfOutlineResizer();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
 initNotesPanel();
+initWithAiScrollBottom();
 openReaderFromUrl();
 
 function initReaderLibraryDrawer() {
@@ -1367,11 +1395,14 @@ pdfViewer.addEventListener("wheel", handlePdfWheel, { passive: false });
 pdfViewer.addEventListener("scroll", () => {
   updatePageIndicator();
   hideReferencePopover();
+  if (Date.now() > pdfLinkJumpHighlightIgnoreScrollUntil) clearPdfLinkJumpHighlight();
   scheduleVisiblePdfRender();
   scheduleSaveReadingPosition();
 });
+pdfViewer.addEventListener("wheel", clearPdfLinkJumpHighlight, { passive: true });
 window.addEventListener("beforeunload", saveReadingPositionNow);
 pdfViewer.addEventListener("pointerdown", handlePdfSelectionPointerDown);
+pdfViewer.addEventListener("pointerdown", clearPdfLinkJumpHighlight);
 pdfViewer.addEventListener("lostpointercapture", resetPdfSelectionPointerState);
 pdfViewer.addEventListener("click", handlePdfClick);
 document.addEventListener("pointerup", handlePdfSelectionPointerFinish);
@@ -1668,6 +1699,55 @@ function setActiveReaderTab(activeTabId) {
     panel.classList.toggle("active", isActive);
     panel.hidden = !isActive;
   });
+  updateWithAiScrollBottomButton();
+}
+
+function initWithAiScrollBottom() {
+  if (!withAiScrollBottomButton) return;
+  withAiScrollBottomButton.addEventListener("click", scrollWithAiPanelToBottom);
+  withAiSummaryScroll?.addEventListener("scroll", updateWithAiScrollBottomButton, { passive: true });
+  window.addEventListener("scroll", updateWithAiScrollBottomButton, { passive: true });
+  window.addEventListener("resize", () => {
+    updateWithAiScrollBottomOffset();
+    updateWithAiScrollBottomButton();
+  });
+  if (window.ResizeObserver && discussionForm) {
+    new ResizeObserver(updateWithAiScrollBottomOffset).observe(discussionForm);
+  }
+  updateWithAiScrollBottomOffset();
+  updateWithAiScrollBottomButton();
+}
+
+function scrollWithAiPanelToBottom() {
+  if (isScrollableElement(withAiSummaryScroll)) {
+    withAiSummaryScroll.scrollTo({ top: withAiSummaryScroll.scrollHeight, behavior: "smooth" });
+    return;
+  }
+  discussionForm?.scrollIntoView({ block: "end", behavior: "smooth" });
+}
+
+function updateWithAiScrollBottomButton() {
+  if (!withAiScrollBottomButton) return;
+  const isWithAiActive = withAiPanel?.classList.contains("active");
+  const scrollTarget = isScrollableElement(withAiSummaryScroll) ? withAiSummaryScroll : document.scrollingElement;
+  const isNearBottom = !isScrollableElement(scrollTarget) || scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 12;
+  withAiScrollBottomButton.classList.toggle("is-hidden", !isWithAiActive || isNearBottom);
+}
+
+function queueWithAiScrollBottomButtonUpdate() {
+  window.requestAnimationFrame(() => {
+    updateWithAiScrollBottomOffset();
+    updateWithAiScrollBottomButton();
+  });
+}
+
+function isScrollableElement(element) {
+  return Boolean(element && element.scrollHeight > element.clientHeight + 2);
+}
+
+function updateWithAiScrollBottomOffset() {
+  if (!withAiPanel || !discussionForm) return;
+  withAiPanel.style.setProperty("--with-ai-discussion-form-height", `${discussionForm.offsetHeight}px`);
 }
 
 function initCollapsibleSummaryCards() {
@@ -2774,6 +2854,7 @@ function renderDiscussionHistory(discussion) {
   activeDiscussionId = null;
   renderDiscussionThreadList();
   showDiscussionList();
+  queueWithAiScrollBottomButtonUpdate();
 }
 
 function renderDiscussionMessages(history, reference = null) {
@@ -2784,6 +2865,7 @@ function renderDiscussionMessages(history, reference = null) {
     const quote = index === 0 && message.role === "user" && referenceText ? referenceText : null;
     appendDiscussionMessage(message.role, message.content, index, quote);
   });
+  queueWithAiScrollBottomButtonUpdate();
 }
 
 function normalizeDiscussionHistory(history) {
@@ -4435,7 +4517,7 @@ function highlightSelection() {
   if (!selectedPdfRange) return;
 
   const groupId = createAnnotationId();
-  const highlights = createHighlightsFromRange(selectedPdfRange, { groupId, color: "yellow", text: selectedPdfText });
+  const highlights = createHighlightsFromRange(selectedPdfRange, { groupId, color: "yellow", selectedText: selectedPdfText, text: [] });
   highlights.forEach((highlight) => {
     savedHighlights.push(highlight);
     const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${highlight.pageNumber}"]`);
@@ -4513,7 +4595,8 @@ function commentSelection() {
     groupId,
     color: "green",
     type: "comment",
-    text: selectedPdfText,
+    selectedText: selectedPdfText,
+    text: [],
   });
   if (!draftHighlights.length) return;
 
@@ -4555,7 +4638,8 @@ async function translateSelection() {
     groupId,
     color: "blue",
     type: "translation",
-    text,
+    selectedText: text,
+    text: [],
   });
   if (!draftHighlights.length) return;
 
@@ -4576,7 +4660,7 @@ async function translateSelection() {
     if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
     const translation = data.translation || "";
     draftHighlights.forEach((highlight) => {
-      const annotation = { ...highlight, translation };
+      const annotation = { ...highlight, translation, text: [{ type: "translation", content: translation }] };
       savedHighlights.push(annotation);
       const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
       if (pageNode) drawHighlight(pageNode, annotation);
@@ -4593,6 +4677,43 @@ async function translateSelection() {
   }
 }
 
+async function translateAnnotationText(text) {
+  const source = String(text || "").trim();
+  if (!source) return "";
+  const response = await apiFetch("/api/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: source,
+      selectionType: getTranslationSelectionType(source),
+      paperText: lastExtractedText.trim(),
+      summary: paperToSummary(currentPaper),
+    }),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.detail || data.error || "\u7ffb\u8bd1\u5931\u8d25");
+  return data.translation || "";
+}
+
+async function explainAnnotationText(text) {
+  const selectedText = String(text || "").trim();
+  const paperText = lastExtractedText.trim();
+  if (!selectedText) return "";
+  if (paperText.length < 80) throw new Error("\u8bf7\u5148\u6253\u5f00\u5e76\u89e3\u6790\u8bba\u6587\uff0c\u518d\u89e3\u91ca\u5c40\u90e8\u6587\u672c\u3002");
+  const response = await apiFetch("/api/explain", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      selectedText,
+      paperText,
+      summary: paperToSummary(currentPaper),
+    }),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.detail || data.error || "\u89e3\u91ca\u5931\u8d25");
+  return data.explanation || "";
+}
+
 async function explainSelection() {
   const text = selectedPdfText.trim();
   const paperText = lastExtractedText.trim();
@@ -4607,7 +4728,8 @@ async function explainSelection() {
     groupId,
     color: "green",
     type: "comment",
-    text,
+    selectedText: text,
+    text: [],
   });
   if (!draftHighlights.length) return;
 
@@ -4628,7 +4750,7 @@ async function explainSelection() {
     if (!response.ok) throw new Error(data.detail || data.error || "\u89e3\u91ca\u5931\u8d25");
     const comment = String(data.explanation || "").trim() || "No explanation returned.";
     draftHighlights.forEach((highlight) => {
-      const annotation = { ...highlight, comment };
+      const annotation = { ...highlight, comment, text: [{ type: "comment", content: comment }] };
       savedHighlights.push(annotation);
       const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${annotation.pageNumber}"]`);
       if (pageNode) drawHighlight(pageNode, annotation);
@@ -4666,13 +4788,17 @@ function askSelectionInDiscussion() {
     after: context.after,
     ranges,
   };
+  startDiscussionFromReference(reference);
+  hideSelectionMenu();
+  hideTranslationBubble();
+  window.getSelection()?.removeAllRanges();
+}
+
+function startDiscussionFromReference(reference) {
   const thread = createDiscussionThread("", true, reference);
   setActiveReaderTab("withAiTab");
   setSummaryPaneCollapsed(false);
   renderDiscussionReferenceBox(thread.reference);
-  hideSelectionMenu();
-  hideTranslationBubble();
-  window.getSelection()?.removeAllRanges();
   discussionInput?.focus();
 }
 
@@ -4994,19 +5120,79 @@ async function handlePdfInternalLinkClickAsync(dest, clientX, clientY) {
       return;
     }
   }
-  if (resolved) jumpToPdfLinkPage(resolved.pageIndex + 1);
+  if (resolved) jumpToPdfLinkPage(resolved.pageIndex + 1, resolved);
 }
 
-function jumpToPdfLinkPage(pageNumber) {
-  jumpToPdfLinkPageAsync(pageNumber).catch((error) => console.error("Failed to follow PDF link.", error));
+function jumpToPdfLinkPage(pageNumber, destination = null) {
+  jumpToPdfLinkPageAsync(pageNumber, destination).catch((error) => console.error("Failed to follow PDF link.", error));
 }
 
-async function jumpToPdfLinkPageAsync(pageNumber) {
+async function jumpToPdfLinkPageAsync(pageNumber, destination = null) {
   if (!currentPdfDocument || !currentPdfTask) return;
+  const renderId = currentPdfTask;
   const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
   if (!pageNode) return;
+  clearPdfLinkJumpHighlight();
+  pdfLinkJumpHighlightIgnoreScrollUntil = Date.now() + 900;
   pageNode.scrollIntoView({ block: "center", behavior: "smooth" });
-  await renderPdfPageInto(pageNumber, pageNode, currentPdfTask);
+  await renderPdfPageInto(pageNumber, pageNode, renderId);
+  if (currentPdfTask === renderId && destination) {
+    const marker = await showPdfLinkJumpHighlight(pageNode, pageNumber, destination);
+    if (marker) {
+      marker.scrollIntoView({ block: "center", behavior: "smooth" });
+      pdfLinkJumpHighlightIgnoreScrollUntil = Date.now() + 900;
+    }
+  }
+}
+
+async function showPdfLinkJumpHighlight(pageNode, pageNumber, destination) {
+  if (!currentPdfDocument || !pageNode || !destination || destination.top == null) return null;
+  const page = await currentPdfDocument.getPage(pageNumber);
+  const metrics = pdfPageMetrics[pageNumber] || getPdfPageMetrics(page, renderedPdfZoom);
+  const viewport = page.getViewport({ scale: metrics.scale });
+  const rect = getPdfLinkDestinationHighlightRect(destination, page, viewport);
+  if (!rect) return null;
+
+  const marker = document.createElement("div");
+  marker.className = "pdf-link-jump-highlight";
+  Object.assign(marker.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
+  pageNode.appendChild(marker);
+  pdfLinkJumpHighlight = marker;
+  return marker;
+}
+
+function getPdfLinkDestinationHighlightRect(destination, page, viewport) {
+  const pageWidth = viewport.width;
+  const pageHeight = viewport.height;
+  const baseViewport = page.getViewport({ scale: 1 });
+  const leftPdf = Number.isFinite(destination.left) ? destination.left : 0;
+  const topPdf = Number(destination.top);
+  if (!Number.isFinite(topPdf)) return null;
+
+  const [, yFromPdfPoint] = viewport.convertToViewportPoint(leftPdf, topPdf);
+  const yFromTopDistance = topPdf * viewport.scale;
+  const candidates = [yFromPdfPoint, yFromTopDistance].filter((value) => Number.isFinite(value) && value >= -24 && value <= pageHeight + 24);
+  const top = clamp(candidates[0] ?? pageHeight - baseViewport.height * viewport.scale, 0, pageHeight - 2);
+  const left = Number.isFinite(destination.left) ? clamp(leftPdf * viewport.scale - 12, 0, pageWidth - 24) : Math.min(28, pageWidth * 0.06);
+  const width = Number.isFinite(destination.left) ? Math.min(Math.max(pageWidth - left - 28, 80), pageWidth - left) : Math.max(pageWidth - left * 2, 80);
+  const height = Math.min(36, Math.max(22, pageHeight * 0.035));
+  return {
+    left,
+    top: clamp(top - height * 0.45, 0, pageHeight - height),
+    width,
+    height,
+  };
+}
+
+function clearPdfLinkJumpHighlight() {
+  if (!pdfLinkJumpHighlight) return;
+  pdfLinkJumpHighlight.remove();
+  pdfLinkJumpHighlight = null;
 }
 
 function handlePdfClick(event) {
@@ -5215,207 +5401,7 @@ function findHighlightAtPoint(clientX, clientY) {
 }
 
 function showAnnotationEditor(highlight, clientX, clientY, options = {}) {
-  activeHighlightGroupId = highlight.groupId || getHighlightKey(highlight);
-  let editor = document.querySelector("#annotationEditor");
-  if (!editor) {
-    editor = document.createElement("section");
-    editor.id = "annotationEditor";
-    editor.className = "annotation-editor translation-window";
-    editor.innerHTML = `
-      <header class="translation-window-header">
-        <span>Annotation</span>
-        <div class="annotation-header-actions">
-          <button class="annotation-delete icon-button" type="button" aria-label="Delete annotation" title="Delete annotation">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M3 6h18"></path>
-              <path d="M8 6V4h8v2"></path>
-              <path d="M6 6l1 15h10l1-15"></path>
-              <path d="M10 11v6"></path>
-              <path d="M14 11v6"></path>
-            </svg>
-          </button>
-          <button class="translation-close" type="button" aria-label="Close annotation editor">×</button>
-        </div>
-      </header>
-      <div class="annotation-tabs" role="tablist" aria-label="Annotation fields">
-        <button class="annotation-tab active" type="button" role="tab" aria-selected="true" data-annotation-tab="comment">Comment</button>
-        <button class="annotation-tab" type="button" role="tab" aria-selected="false" data-annotation-tab="translation">Translation</button>
-        <button class="annotation-mode-toggle" type="button" data-annotation-mode="edit" aria-label="Preview" title="Preview">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
-          </svg>
-        </button>
-      </div>
-      <div class="annotation-tab-panel active" data-annotation-panel="comment">
-        <textarea class="translation-text annotation-comment" placeholder="Add or edit comment with Markdown..." spellcheck="false"></textarea>
-        <div class="annotation-preview markdown-body" aria-label="Comment preview"></div>
-      </div>
-      <div class="annotation-tab-panel" data-annotation-panel="translation" hidden>
-        <textarea class="translation-text annotation-translation" placeholder="Translation or notes with Markdown..." spellcheck="false"></textarea>
-        <div class="annotation-preview markdown-body" aria-label="Translation preview"></div>
-      </div>
-      <div class="annotation-colors" aria-label="Highlight color"></div>
-    `;
-    getPdfFrameElement().appendChild(editor);
-    initTranslationWindow(editor, hideAnnotationEditor);
-    editor.querySelector(".annotation-comment").addEventListener("input", () => {
-      renderAnnotationPreview(editor, "comment");
-      scheduleAnnotationAutoSave();
-    });
-    editor.querySelector(".annotation-translation").addEventListener("input", () => {
-      renderAnnotationPreview(editor, "translation");
-      scheduleAnnotationAutoSave();
-    });
-    editor.querySelectorAll(".annotation-tab").forEach((button) => {
-      button.addEventListener("click", () => setAnnotationTab(editor, button.dataset.annotationTab));
-    });
-    editor.querySelector(".annotation-mode-toggle").addEventListener("click", () => toggleAnnotationMode(editor));
-    editor.querySelector(".annotation-delete").addEventListener("click", deleteActiveHighlight);
-    const colorHost = editor.querySelector(".annotation-colors");
-    Object.entries(highlightColors).forEach(([key, value]) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "color-swatch";
-      button.dataset.color = key;
-      button.style.background = value;
-      button.setAttribute("aria-label", key);
-      button.addEventListener("click", () => {
-        colorHost.querySelectorAll(".color-swatch").forEach((swatch) => swatch.classList.remove("active"));
-        button.classList.add("active");
-        scheduleAnnotationAutoSave();
-      });
-      colorHost.appendChild(button);
-    });
-  }
-
-  const group = getHighlightGroup(activeHighlightGroupId);
-  const comment = group.find((item) => item.comment)?.comment || "";
-  const translation = group.find((item) => item.translation)?.translation || "";
-  const color = group.find((item) => item.color)?.color || highlight.color || "yellow";
-  editor.querySelector(".annotation-comment").value = comment;
-  editor.querySelector(".annotation-translation").value = translation;
-  renderAnnotationPreview(editor, "comment");
-  renderAnnotationPreview(editor, "translation");
-  setAnnotationTab(editor, comment || !translation ? "comment" : "translation");
-  // Opening an existing comment defaults to preview; composing a fresh
-  // comment (no content yet) starts in edit mode.
-  const hasContent = Boolean(comment.trim() || translation.trim());
-  const defaultMode = hasContent ? "preview" : "edit";
-  setAnnotationMode(editor, options.mode === "preview" || options.mode === "edit" ? options.mode : defaultMode);
-  editor.querySelectorAll(".color-swatch").forEach((button) => {
-    button.classList.toggle("active", button.dataset.color === color);
-  });
-
-  const frameRect = getPdfFrameElement().getBoundingClientRect();
-  const editorWidth = editor.offsetWidth || 360;
-  const editorHeight = editor.offsetHeight || 360;
-  const left = Math.max(12, Math.min(clientX - frameRect.left + 10, frameRect.width - editorWidth - 12));
-  const top = Math.max(12, Math.min(clientY - frameRect.top + 10, frameRect.height - editorHeight - 12));
-  editor.style.left = `${left}px`;
-  editor.style.top = `${top}px`;
-}
-
-function setAnnotationTab(editor, tabName) {
-  const target = tabName === "translation" ? "translation" : "comment";
-  editor.querySelectorAll(".annotation-tab").forEach((button) => {
-    const active = button.dataset.annotationTab === target;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  editor.querySelectorAll(".annotation-tab-panel").forEach((panel) => {
-    const active = panel.dataset.annotationPanel === target;
-    panel.classList.toggle("active", active);
-    panel.hidden = !active;
-  });
-}
-
-function renderAnnotationPreview(editor, field) {
-  const textarea = editor.querySelector(field === "translation" ? ".annotation-translation" : ".annotation-comment");
-  const panel = editor.querySelector(`[data-annotation-panel="${field}"]`);
-  const preview = panel?.querySelector(".annotation-preview");
-  if (!preview || !textarea) return;
-  const value = textarea.value.trim();
-  preview.innerHTML = value ? renderDiscussionMarkdown(value) : "<p>Markdown preview</p>";
-  preview.classList.toggle("empty", !value);
-}
-
-function toggleAnnotationMode(editor) {
-  const current = editor.querySelector(".annotation-mode-toggle")?.dataset.annotationMode || "edit";
-  setAnnotationMode(editor, current === "preview" ? "edit" : "preview");
-}
-
-function setAnnotationMode(editor, mode) {
-  const nextMode = mode === "preview" ? "preview" : "edit";
-  editor.querySelectorAll(".annotation-tab-panel").forEach((panel) => {
-    panel.classList.toggle("preview-mode", nextMode === "preview");
-    panel.classList.toggle("edit-mode", nextMode === "edit");
-  });
-  const toggle = editor.querySelector(".annotation-mode-toggle");
-  if (toggle) {
-    const isPreview = nextMode === "preview";
-    toggle.dataset.annotationMode = nextMode;
-    toggle.setAttribute("aria-label", isPreview ? "Edit" : "Preview");
-    toggle.title = isPreview ? "Edit" : "Preview";
-    // Same icons as the notes preview/edit toggle: pencil in preview mode,
-    // eye in edit mode.
-    toggle.innerHTML = isPreview
-      ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M12 20h9"></path>
-          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-        </svg>`
-      : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
-        </svg>`;
-  }
-}
-
-function scheduleAnnotationAutoSave() {
-  window.clearTimeout(annotationAutoSaveTimer);
-  annotationAutoSaveTimer = window.setTimeout(() => {
-    saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
-  }, 450);
-}
-
-async function saveAnnotationEdit() {
-  if (!activeHighlightGroupId) return;
-  const editor = document.querySelector("#annotationEditor");
-  const comment = editor?.querySelector(".annotation-comment")?.value.trim() || "";
-  const translation = editor?.querySelector(".annotation-translation")?.value.trim() || "";
-  const color = editor?.querySelector(".color-swatch.active")?.dataset.color || "yellow";
-  const wasCommentAnnotation = getHighlightGroup(activeHighlightGroupId).some((item) => item.type === "comment");
-  savedHighlights = savedHighlights.map((highlight) => {
-    if (!isSameHighlightGroup(highlight, activeHighlightGroupId)) return highlight;
-    const next = { ...highlight, color };
-    if (comment) {
-      next.comment = comment;
-      next.type = "comment";
-    } else {
-      delete next.comment;
-    }
-    if (translation) {
-      next.translation = translation;
-      next.type = next.type === "comment" ? "comment-translation" : "translation";
-    } else {
-      delete next.translation;
-      if (!next.comment) delete next.type;
-    }
-    return next;
-  });
-  if (wasCommentAnnotation && !comment && !translation) {
-    savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
-  }
-  redrawHighlights();
-  await saveCurrentPaper();
-}
-
-function deleteActiveHighlight() {
-  if (!activeHighlightGroupId) return;
-  savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, activeHighlightGroupId));
-  redrawHighlights();
-  hideAnnotationEditor();
-  saveCurrentPaper().catch((error) => console.error("Failed to delete annotation.", error));
+  annotationPanel.show(highlight, clientX, clientY, options);
 }
 
 function initTranslationWindow(bubble, closeHandler = hideTranslationBubble) {
@@ -5459,11 +5445,8 @@ function hideTranslationBubble() {
   document.querySelector("#translationBubble")?.remove();
 }
 
-function hideAnnotationEditor() {
-  window.clearTimeout(annotationAutoSaveTimer);
-  saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
-  document.querySelector("#annotationEditor")?.remove();
-  activeHighlightGroupId = null;
+function hideAnnotationEditor(options = {}) {
+  annotationPanel.hide(options);
 }
 
 function redrawHighlights() {
@@ -5508,7 +5491,7 @@ function buildCommentGroups() {
       pageNumber: Number(highlight.pageNumber),
       comment: group.find((item) => item.comment)?.comment || "",
       translation: group.find((item) => item.translation)?.translation || "",
-      text: group.find((item) => item.text)?.text || "",
+      text: group.find((item) => item.selectedText)?.selectedText || "",
       color: group[0]?.color || "yellow",
     });
   }
@@ -5684,6 +5667,8 @@ function normalizeHighlights(highlights) {
       width: Number(highlight.width),
       height: Number(highlight.height),
     };
+    normalized.selectedText = String(normalized.selectedText || (typeof normalized.text === "string" ? normalized.text : "") || "").trim();
+    normalized.text = normalizeAnnotationTextEntries(normalized.text, normalized);
     if (
       !Number.isFinite(normalized.left) ||
       !Number.isFinite(normalized.top) ||
@@ -5713,9 +5698,32 @@ function createHighlightHash(highlight) {
     color: highlight.color || "",
     comment: highlight.comment || "",
     translation: highlight.translation || "",
+    selectedText: highlight.selectedText || "",
+    text: normalizeAnnotationTextEntries(highlight.text, highlight),
     groupId: highlight.groupId || "",
   };
   return simpleHash(JSON.stringify(stable));
+}
+
+function normalizeAnnotationTextEntries(value, highlight = {}) {
+  const entries = Array.isArray(value)
+    ? value
+        .map((entry) => {
+          if (typeof entry === "string") return { type: "comment", content: entry };
+          if (!entry || typeof entry !== "object") return null;
+          const type = entry.type === "translation" ? "translation" : "comment";
+          const content = String(entry.content || entry.text || "").trim();
+          return content ? { type, content } : null;
+        })
+        .filter(Boolean)
+    : [];
+  if (!entries.some((entry) => entry.type === "translation") && String(highlight.translation || "").trim()) {
+    entries.unshift({ type: "translation", content: String(highlight.translation).trim() });
+  }
+  if (!entries.some((entry) => entry.type === "comment") && String(highlight.comment || "").trim()) {
+    entries.push({ type: "comment", content: String(highlight.comment).trim() });
+  }
+  return entries;
 }
 
 function simpleHash(value) {
@@ -6156,6 +6164,7 @@ function renderSummary(summary) {
     conclusion.textContent = "Waiting";
     keywords.innerHTML = "";
     methodSections.innerHTML = "";
+    queueWithAiScrollBottomButtonUpdate();
     return;
   }
 
@@ -6172,6 +6181,7 @@ function renderSummary(summary) {
     overview: summary.methodOverview || "",
     conclusion: summary.methodConclusion || summary.threeLineSummary?.conclusion || "",
   });
+  queueWithAiScrollBottomButtonUpdate();
 }
 
 function renderKeywords(items, explanations = {}) {
@@ -6896,6 +6906,7 @@ function renderSummaryLoading(message = "Loading...") {
   conclusion.textContent = "Loading...";
 
   renderMethodLoading(message);
+  queueWithAiScrollBottomButtonUpdate();
 }
 
 function renderKeywordsLoading(message = "Loading...") {
@@ -6926,6 +6937,7 @@ function renderMethodSections(sections, options = {}) {
 
   if (!Array.isArray(sections) || !sections.length) {
     methodSections.textContent = "No structured method sections returned.";
+    queueWithAiScrollBottomButtonUpdate();
     return;
   }
 
@@ -7001,6 +7013,7 @@ function renderMethodSections(sections, options = {}) {
   const conclusion = createMethodBoundary("总结", conclusionText);
   if (conclusion) fragment.appendChild(conclusion);
   methodSections.appendChild(fragment);
+  queueWithAiScrollBottomButtonUpdate();
 }
 
 function createMethodBoundary(label, text) {
