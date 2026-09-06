@@ -140,6 +140,18 @@ export function initAnnotationPanel(options) {
     entries.forEach((entry) => {
       list.appendChild(createPreviewBubble(editor, entry));
     });
+    if (!entries.length) {
+      list.appendChild(createEmptyCommentButton(editor));
+    }
+  }
+
+  function createEmptyCommentButton(editor) {
+    const button = document.createElement("button");
+    button.className = "annotation-empty-comment-button";
+    button.type = "button";
+    button.innerHTML = `${iconSvg("comment")}<span>增加评论</span>`;
+    button.addEventListener("click", () => addCommentEntry(editor));
+    return button;
   }
 
   function createPreviewBubble(editor, entry) {

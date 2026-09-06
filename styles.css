@@ -3365,17 +3365,30 @@ body.selecting-pdf-text .selection-menu {
 
 .reference-popover-body {
   display: grid;
-  gap: 10px;
+  gap: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 8px 10px;
 }
 
 .reference-entry {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: start;
+  padding: 0 0 7px;
+  border-bottom: 1px solid rgba(25, 35, 30, 0.08);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.42;
+}
+
+.reference-entry + .reference-entry {
+  padding-top: 7px;
+}
+
+.reference-entry:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .reference-entry strong {
@@ -3384,6 +3397,48 @@ body.selecting-pdf-text .selection-menu {
 
 .reference-entry p {
   margin: 0;
+}
+
+.reference-entry-actions {
+  grid-column: 2;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.42;
+  transition: opacity 140ms ease;
+}
+
+.reference-entry:hover .reference-entry-actions,
+.reference-entry:focus-within .reference-entry-actions {
+  opacity: 1;
+}
+
+.reference-entry-actions .reference-icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.reference-entry:hover .reference-entry-actions .reference-icon-button,
+.reference-entry:focus-within .reference-entry-actions .reference-icon-button {
+  border-color: rgba(25, 35, 30, 0.12);
+  background: #fff;
+}
+
+.reference-entry-actions .reference-icon-button:hover,
+.reference-entry-actions .reference-icon-button:focus-visible {
+  border-color: rgba(25, 35, 30, 0.2);
+  background: var(--soft);
 }
 
 .selection-menu {
@@ -3582,6 +3637,41 @@ body.selecting-pdf-text .selection-menu {
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+}
+
+.annotation-empty-comment-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 76px;
+  padding: 0 14px;
+  border: 1px dashed rgba(25, 35, 30, 0.28);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.annotation-empty-comment-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.annotation-empty-comment-button:hover,
+.annotation-empty-comment-button:focus-visible {
+  border-color: rgba(25, 35, 30, 0.44);
+  background: var(--soft);
+  color: var(--ink);
+  outline: none;
 }
 
 .annotation-bubble-translation {
@@ -6802,6 +6892,7 @@ button.ghost,
 .annotation-translate-button,
 .annotation-explain-button,
 .annotation-discuss-button,
+.annotation-empty-comment-button,
 .annotation-refresh-button,
 .annotation-entry-delete-button,
 .annotation-detail-refresh-button,
@@ -6842,6 +6933,7 @@ button.ghost:hover,
 .annotation-translate-button:hover,
 .annotation-explain-button:hover,
 .annotation-discuss-button:hover,
+.annotation-empty-comment-button:hover,
 .annotation-refresh-button:hover,
 .annotation-entry-delete-button:hover,
 .annotation-detail-refresh-button:hover,
@@ -7092,6 +7184,58 @@ button.ghost:hover,
   background: transparent;
 }
 
+.basic-info-panel,
+.notes-panel,
+.comments-panel {
+  display: none;
+  align-content: start;
+  gap: 12px;
+  grid-auto-rows: max-content;
+  overflow-y: auto;
+  padding: 0 16px 14px;
+}
+
+.basic-info-panel.active,
+.comments-panel.active {
+  display: grid;
+}
+
+.notes-panel.active {
+  display: flex;
+}
+
+#basicInfoPanel,
+#notesPanel,
+#commentsPanel {
+  padding: 0 16px 14px;
+}
+
+#basicInfoPanel.active,
+#commentsPanel.active {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  grid-auto-rows: max-content;
+}
+
+#notesPanel.active {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#notesPanel .notes-card {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+#basicInfoPanel .basic-info-card,
+#notesPanel .notes-card,
+#commentsPanel .comments-nav-card {
+  padding: 0;
+}
+
 .basic-info-card {
   border: 0;
   border-radius: 0;
@@ -7143,6 +7287,7 @@ button.ghost:hover,
 }
 
 .comments-nav-card {
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -7160,6 +7305,119 @@ button.ghost:hover,
   color: var(--ink);
   font-size: 17px;
   line-height: 1.2;
+}
+
+.ai-summary-panel .summary-card-header,
+.discussion-card .summary-group-header,
+.notes-card .summary-group-header,
+.citation-card .summary-group-header,
+.comments-nav-card .summary-group-header,
+.basic-info-card .summary-group-header {
+  width: 100%;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-summary-panel .summary-card-header:hover,
+.discussion-card .summary-group-header:hover,
+.notes-card .summary-group-header:hover,
+.citation-card .summary-group-header:hover,
+.comments-nav-card .summary-group-header:hover,
+.basic-info-card .summary-group-header:hover {
+  background: transparent;
+}
+
+.ai-summary-panel .summary-card-header .summary-card-toggle,
+.discussion-card .summary-card-toggle {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ai-summary-panel .summary-card-header .summary-card-toggle:hover,
+.discussion-card .summary-card-toggle:hover {
+  background: transparent;
+}
+
+.notes-header h2,
+.comments-nav-card .summary-group-header h2,
+.citation-card .summary-group-header h2,
+.basic-info-card .summary-group-header h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.notes-toolbar .icon-button,
+.basic-info-card .refresh-button,
+.citation-search-button,
+.copy-section-button,
+.refresh-section-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+}
+
+.citation-card .citation-search-button {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+}
+
+.citation-card .citation-search-button span {
+  display: none;
+}
+
+.basic-info-panel .summary-group-header,
+.notes-panel .summary-group-header,
+.comments-panel .summary-group-header {
+  width: 100%;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.basic-info-panel .summary-group-header:hover,
+.notes-panel .summary-group-header:hover,
+.comments-panel .summary-group-header:hover {
+  background: transparent;
+}
+
+.notes-workspace {
+  padding-top: 0;
+}
+
+#notesPanel .notes-workspace {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding-top: 0;
+}
+
+#notesPanel .notes-editor,
+#notesPanel .notes-preview {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .comments-nav-list {
@@ -7293,6 +7551,17 @@ button.ghost:hover,
   font-size: 13px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.comments-nav-source {
+  overflow: hidden;
+  display: block;
+  color: rgba(25, 35, 30, 0.48);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .comments-nav-empty {

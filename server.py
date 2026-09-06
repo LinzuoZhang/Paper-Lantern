@@ -1266,7 +1266,6 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/translate":
             selected_text = str(payload.get("text", "")).strip()
             paper_text = str(payload.get("paperText", "")).strip()
-            selection_type = str(payload.get("selectionType", "")).strip()
             if not selected_text:
                 self._send_json(400, {"error": "Please select text to translate."})
                 return
@@ -1278,7 +1277,6 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     selected_text,
                     paper_text,
                     payload.get("summary", {}),
-                    selection_type,
                 )
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
@@ -2248,20 +2246,10 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
     return parsed, raw
 
 
-def classify_translation_selection(text):
-    value = str(text or "").strip()
-    units = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?|[\u4e00-\u9fff]", value)
-    sentence_marks = re.findall(r"[.!?;:\u3002\uff01\uff1f\uff1b\uff1a]", value)
-    if re.search(r"\n\s*\n", value) or len(value) > 160 or sentence_marks or len(units) > 12:
-        return "sentence_or_paragraph"
-    return "word_or_phrase"
-
-
-def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None, selection_type=""):
+def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None):
     source_text = text[:MAX_TRANSLATE_CHARS]
     paper_excerpt = str(paper_text or "")[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
-    normalized_selection_type = selection_type if selection_type in {"word_or_phrase", "sentence_or_paragraph"} else classify_translation_selection(source_text)
     upstream_payload = {
         "model": model,
         "temperature": 0.1,
@@ -2273,8 +2261,6 @@ def translate_text(api_key, model, chat_completions_url, text, paper_text="", su
             {
                 "role": "user",
                 "content": (
-                    "Selection type:\n"
-                    f"{normalized_selection_type}\n\n"
                     "Selected text to translate:\n"
                     f"{source_text}\n\n"
                     "Existing paper summary JSON:\n"

@@ -4619,16 +4619,6 @@ function setSelectionMenuButtonLabel(button, label) {
   else if (button) button.textContent = label;
 }
 
-function getTranslationSelectionType(text) {
-  const value = String(text || "").trim();
-  const units = value.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?|[\u4e00-\u9fff]/g) || [];
-  const sentenceMarks = value.match(/[.!?;:。！？；：]/g) || [];
-  if (/\n\s*\n/.test(value) || value.length > 160 || sentenceMarks.length > 0 || units.length > 12) {
-    return "sentence_or_paragraph";
-  }
-  return "word_or_phrase";
-}
-
 async function translateSelection() {
   const text = selectedPdfText.trim();
   if (!text || !selectedPdfRange) return;
@@ -4651,7 +4641,6 @@ async function translateSelection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        selectionType: getTranslationSelectionType(text),
         paperText: lastExtractedText.trim(),
         summary: paperToSummary(currentPaper),
       }),
@@ -4685,7 +4674,6 @@ async function translateAnnotationText(text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text: source,
-      selectionType: getTranslationSelectionType(source),
       paperText: lastExtractedText.trim(),
       summary: paperToSummary(currentPaper),
     }),
@@ -5276,12 +5264,6 @@ function showReferencePopover(numbers, clientX, clientY) {
       <header class="reference-popover-header">
         <span>参考文献</span>
         <div class="reference-popover-tools">
-          <button class="reference-icon-button reference-copy" type="button" aria-label="复制引用" title="复制引用">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          </button>
-          <button class="reference-icon-button reference-scholar" type="button" aria-label="在 Google Scholar 中打开" title="Google Scholar">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 10 12 5 2 10l10 5 10-5z"></path><path d="M6 12.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.5"></path><path d="M22 10v6"></path></svg>
-          </button>
           <button class="reference-icon-button reference-close" type="button" aria-label="关闭参考文献预览" title="关闭">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
           </button>
@@ -5293,8 +5275,6 @@ function showReferencePopover(numbers, clientX, clientY) {
     getPdfFrameElement().appendChild(popover);
   }
 
-  popover.querySelector(".reference-copy").onclick = () => copyReferenceEntries(entries, popover);
-  popover.querySelector(".reference-scholar").onclick = () => openReferenceInGoogleScholar(entries);
   const body = popover.querySelector(".reference-popover-body");
   body.innerHTML = "";
   entries.forEach((entry) => {
@@ -5304,11 +5284,16 @@ function showReferencePopover(numbers, clientX, clientY) {
     number.textContent = `[${entry.number}]`;
     const text = document.createElement("p");
     text.textContent = entry.text;
-    item.append(number, text);
+    const actions = document.createElement("div");
+    actions.className = "reference-entry-actions";
+    const scholarButton = createReferenceIconButton("reference-scholar", "查看原文", '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 10 12 5 2 10l10 5 10-5z"></path><path d="M6 12.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.5"></path><path d="M22 10v6"></path></svg>', "查看原文");
+    scholarButton.addEventListener("click", () => openReferenceInGoogleScholar([entry]));
+    const copyButton = createReferenceIconButton("reference-copy", "复制引用", getReferenceCopyIcon(), "复制引用");
+    copyButton.addEventListener("click", () => copyReferenceEntries([entry], copyButton));
+    actions.append(scholarButton, copyButton);
+    item.append(number, text, actions);
     body.appendChild(item);
   });
-  popover.dataset.copyText = entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
-  resetReferenceCopyButton(popover.querySelector(".reference-copy"));
   positionReferencePopover(popover, clientX, clientY);
 }
 
@@ -5323,15 +5308,14 @@ function positionReferencePopover(popover, clientX, clientY) {
   popover.style.top = `${Math.max(12, top)}px`;
 }
 
-async function copyReferenceEntries(entries, popover) {
-  const text = popover.dataset.copyText || entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
-  const button = popover.querySelector(".reference-copy");
+async function copyReferenceEntries(entries, button) {
+  const text = entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
   try {
     await copyTextToClipboard(text);
     button.classList.add("copied");
     button.setAttribute("aria-label", "已复制");
     button.title = "已复制";
-    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m20 6-11 11-5-5"></path></svg>';
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m20 6-11 11-5-5"></path></svg><span>已复制</span>';
     window.setTimeout(() => {
       if (document.body.contains(button)) resetReferenceCopyButton(button);
     }, 1200);
@@ -5343,12 +5327,26 @@ async function copyReferenceEntries(entries, popover) {
   }
 }
 
+function createReferenceIconButton(className, label, icon, text = "") {
+  const button = document.createElement("button");
+  button.className = `reference-icon-button ${className}`;
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = `${icon}${text ? `<span>${text}</span>` : ""}`;
+  return button;
+}
+
+function getReferenceCopyIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+}
+
 function resetReferenceCopyButton(button) {
   if (!button) return;
   button.classList.remove("copied", "error");
   button.setAttribute("aria-label", "复制引用");
   button.title = "复制引用";
-  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  button.innerHTML = `${getReferenceCopyIcon()}<span>复制引用</span>`;
 }
 
 function openReferenceInGoogleScholar(entries) {
@@ -5486,16 +5484,36 @@ function buildCommentGroups() {
     if (seen.has(groupId)) continue;
     seen.add(groupId);
     const group = getHighlightGroup(groupId);
-    groups.push({
+    const first = group[0] || highlight;
+    const entries = normalizeAnnotationTextEntries(first.text, first);
+    const selectedText = group.find((item) => item.selectedText)?.selectedText || "";
+    const annotationEntries = entries
+      .map((entry, entryIndex) => ({ ...entry, entryIndex }))
+      .filter((entry) => entry.content);
+    annotationEntries.forEach((entry, orderIndex) => groups.push({
       groupId,
       pageNumber: Number(highlight.pageNumber),
-      comment: group.find((item) => item.comment)?.comment || "",
-      translation: group.find((item) => item.translation)?.translation || "",
-      text: group.find((item) => item.selectedText)?.selectedText || "",
-      color: group[0]?.color || "yellow",
-    });
+      entryIndex: entry.entryIndex,
+      orderIndex,
+      kind: entry.type,
+      comment: entry.content,
+      text: selectedText,
+      color: first.color || "yellow",
+    }));
+    if (!annotationEntries.length) {
+      groups.push({
+        groupId,
+        pageNumber: Number(highlight.pageNumber),
+        entryIndex: -1,
+        orderIndex: 0,
+        kind: "highlight",
+        comment: selectedText,
+        text: selectedText,
+        color: first.color || "yellow",
+      });
+    }
   }
-  groups.sort((a, b) => a.pageNumber - b.pageNumber || a.comment.localeCompare(b.comment));
+  groups.sort((a, b) => a.pageNumber - b.pageNumber || a.orderIndex - b.orderIndex || a.comment.localeCompare(b.comment));
   return groups;
 }
 
@@ -5569,7 +5587,7 @@ function renderCommentsNavCard(card, groups, totalCount = groups.length) {
   if (!groups.length) {
     const empty = document.createElement("div");
     empty.className = "comments-nav-empty";
-    empty.textContent = totalCount ? "暂无该颜色评论" : "暂无评论";
+    empty.textContent = totalCount ? "暂无该颜色批注" : "暂无批注";
     list.appendChild(empty);
     return;
   }
@@ -5594,35 +5612,77 @@ function renderCommentsNavCard(card, groups, totalCount = groups.length) {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "comments-nav-delete icon-button";
-    deleteButton.title = "删除评论";
-    deleteButton.setAttribute("aria-label", "删除评论");
+    deleteButton.title = entry.kind === "highlight" ? "删除高亮" : "删除该条批注";
+    deleteButton.setAttribute("aria-label", entry.kind === "highlight" ? "删除高亮" : "删除该条批注");
     deleteButton.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>';
     deleteButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      deleteCommentGroup(entry.groupId);
+      deleteCommentEntry(entry.groupId, entry.entryIndex);
     });
 
     head.append(swatch, page, deleteButton);
 
     const body = document.createElement("span");
     body.className = "comments-nav-body";
-    const rawText = entry.comment || entry.translation || entry.text || "纯高亮";
+    const rawText = entry.comment || "";
     const text = rawText.trim();
     body.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
 
-    item.append(head, body);
+    if (entry.kind !== "highlight" && entry.text) {
+      const source = document.createElement("span");
+      source.className = "comments-nav-source";
+      source.textContent = `“${entry.text.trim()}”`;
+      item.append(head, source, body);
+    } else {
+      item.append(head, body);
+    }
     list.appendChild(item);
   });
 }
 
-async function deleteCommentGroup(groupId) {
-  savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, groupId));
+async function deleteCommentEntry(groupId, entryIndex) {
+  if (entryIndex < 0) {
+    savedHighlights = savedHighlights.filter((highlight) => !isSameHighlightGroup(highlight, groupId));
+    redrawHighlights();
+    refreshCommentsNavigation();
+    try {
+      await saveCurrentPaper();
+    } catch (error) {
+      console.error("Failed to save after deleting highlight.", error);
+    }
+    return;
+  }
+  const group = getHighlightGroup(groupId);
+  const first = group[0] || {};
+  const entries = normalizeAnnotationTextEntries(first.text, first)
+    .filter((entry, index) => index !== entryIndex);
+  const firstComment = entries.find((entry) => entry.type === "comment" && entry.content)?.content || "";
+  const translation = entries.find((entry) => entry.type === "translation" && entry.content)?.content || "";
+  savedHighlights = savedHighlights.map((highlight) => {
+    if (!isSameHighlightGroup(highlight, groupId)) return highlight;
+    const next = { ...highlight, text: entries };
+    if (firstComment) {
+      next.comment = firstComment;
+      next.type = "comment";
+    } else {
+      delete next.comment;
+    }
+    if (translation) {
+      next.translation = translation;
+      next.type = next.type === "comment" ? "comment-translation" : "translation";
+    } else {
+      delete next.translation;
+      if (!next.comment) delete next.type;
+    }
+    return next;
+  });
   redrawHighlights();
+  refreshCommentsNavigation();
   try {
     await saveCurrentPaper();
   } catch (error) {
-    console.error("Failed to save after deleting comment.", error);
+    console.error("Failed to save after deleting comment entry.", error);
   }
 }
 
