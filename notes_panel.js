@@ -1,5 +1,6 @@
 const AUTOSAVE_DELAY_MS = 700;
 const NOTES_MODE_STORAGE_KEY = "paper-lantern-notes-mode";
+const PAPER_NOTE_DRAG_TYPE = "application/x-paper-lantern-paper";
 
 const NOTES_MODE_ICONS = {
   source: "code",
@@ -59,6 +60,9 @@ export function initNotesPanel({
   let lastSavedValue = "";
   let autoSaveTimer = null;
   let savePromise = null;
+  let paperLinkPopover = null;
+  let paperLinkRequestId = 0;
+  const paperLinkCache = new Map();
 
   function getStoredEditorMode() {
     try {
@@ -188,6 +192,129 @@ export function initNotesPanel({
     if (editorReady && vditor) return String(vditor.getValue() || "");
     if (fallbackEditor) return fallbackEditor.value;
     return pendingValue;
+  }
+
+  function escapeMarkdownLinkText(value) {
+    return String(value || "")
+      .replace(/[\r\n]+/g, " ")
+      .replace(/([\\\[\]])/g, "\\$1")
+      .trim();
+  }
+
+  function insertPaperReference(paper) {
+    const id = String(paper?.id || "").trim();
+    const title = escapeMarkdownLinkText(paper?.title || id);
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || !title) return;
+    const markdown = `[${title}](hash:${id})`;
+
+    if (editorReady && vditor) {
+      vditor.focus();
+      vditor.insertValue(markdown, true);
+      return;
+    }
+    if (fallbackEditor) {
+      const start = fallbackEditor.selectionStart;
+      const end = fallbackEditor.selectionEnd;
+      fallbackEditor.setRangeText(markdown, start, end, "end");
+      handleInput(fallbackEditor.value);
+    }
+  }
+
+  function closePaperLinkPopover() {
+    paperLinkRequestId += 1;
+    paperLinkPopover?.remove();
+    paperLinkPopover = null;
+  }
+
+  function positionPaperLinkPopover(anchor, popover) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const margin = 10;
+    let left = Math.min(anchorRect.left, window.innerWidth - popoverRect.width - margin);
+    let top = anchorRect.bottom + 8;
+    if (top + popoverRect.height > window.innerHeight - margin) {
+      top = anchorRect.top - popoverRect.height - 8;
+    }
+    popover.style.left = `${Math.max(margin, left)}px`;
+    popover.style.top = `${Math.max(margin, top)}px`;
+  }
+
+  async function loadLinkedPaper(id) {
+    if (paperLinkCache.has(id)) return paperLinkCache.get(id);
+    const request = (async () => {
+      const response = await apiFetch(`/api/library/paper?${new URLSearchParams({ id }).toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "论文信息加载失败");
+      return data.paper || data;
+    })();
+    paperLinkCache.set(id, request);
+    try {
+      return await request;
+    } catch (error) {
+      paperLinkCache.delete(id);
+      throw error;
+    }
+  }
+
+  async function showPaperLinkPopover(anchor, id) {
+    closePaperLinkPopover();
+    const requestId = paperLinkRequestId;
+    const popover = document.createElement("section");
+    popover.className = "notes-paper-link-popover";
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("aria-label", "论文链接详情");
+
+    const header = document.createElement("header");
+    const title = document.createElement("strong");
+    title.textContent = String(anchor.querySelector?.(".vditor-ir__link")?.textContent || anchor.textContent || id).trim();
+
+    const jumpButton = document.createElement("button");
+    jumpButton.type = "button";
+    jumpButton.className = "notes-paper-link-jump";
+    jumpButton.setAttribute("aria-label", "跳转到论文");
+    jumpButton.title = "跳转到论文";
+    jumpButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3h7v7"></path><path d="m10 14 11-11"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>';
+    jumpButton.addEventListener("click", () => {
+      window.open(`./reader.html?${new URLSearchParams({ id }).toString()}`, "_blank", "noopener,noreferrer");
+      closePaperLinkPopover();
+    });
+    header.append(title, jumpButton);
+
+    const summary = document.createElement("div");
+    summary.className = "notes-paper-link-summary loading";
+    summary.textContent = "正在加载三行摘要…";
+
+    popover.append(header, summary);
+    popover.addEventListener("click", (event) => event.stopPropagation());
+    document.body.appendChild(popover);
+    paperLinkPopover = popover;
+    positionPaperLinkPopover(anchor, popover);
+
+    try {
+      const paper = await loadLinkedPaper(id);
+      if (paperLinkPopover !== popover || requestId !== paperLinkRequestId) return;
+      title.textContent = paper.title || title.textContent;
+      const threeLine = paper.threeLineSummary || {};
+      summary.classList.remove("loading");
+      summary.replaceChildren();
+      [
+        ["挑战", threeLine.challenges],
+        ["方法", threeLine.method],
+        ["结论", threeLine.conclusion],
+      ].forEach(([label, value]) => {
+        const row = document.createElement("p");
+        const labelNode = document.createElement("b");
+        labelNode.textContent = `${label}：`;
+        row.append(labelNode, document.createTextNode(String(value || "暂无内容")));
+        summary.appendChild(row);
+      });
+      window.requestAnimationFrame(() => positionPaperLinkPopover(anchor, popover));
+    } catch (error) {
+      if (paperLinkPopover !== popover || requestId !== paperLinkRequestId) return;
+      summary.classList.remove("loading");
+      summary.classList.add("error");
+      summary.textContent = error.message || "论文信息加载失败";
+    }
   }
 
   function scheduleSave(delay = AUTOSAVE_DELAY_MS) {
@@ -399,10 +526,52 @@ export function initNotesPanel({
     setExportMenuOpen(false);
     exportNotesPdf();
   });
-  document.addEventListener("click", () => setExportMenuOpen(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") setExportMenuOpen(false);
+  document.addEventListener("click", () => {
+    setExportMenuOpen(false);
+    closePaperLinkPopover();
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setExportMenuOpen(false);
+      closePaperLinkPopover();
+    }
+  });
+  editorHost?.addEventListener("dragover", (event) => {
+    if (!Array.from(event.dataTransfer?.types || []).includes(PAPER_NOTE_DRAG_TYPE)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    editorHost.classList.add("paper-link-drag-over");
+  }, true);
+  editorHost?.addEventListener("dragleave", (event) => {
+    if (!editorHost.contains(event.relatedTarget)) editorHost.classList.remove("paper-link-drag-over");
+  });
+  editorHost?.addEventListener("drop", (event) => {
+    const raw = event.dataTransfer?.getData(PAPER_NOTE_DRAG_TYPE);
+    if (!raw) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    editorHost.classList.remove("paper-link-drag-over");
+    try {
+      insertPaperReference(JSON.parse(raw));
+    } catch (error) {
+      console.error("论文链接插入失败。", error);
+    }
+  }, true);
+  editorHost?.addEventListener("click", (event) => {
+    const anchor = event.target instanceof Element
+      ? event.target.closest('a[href^="hash:"], .vditor-ir__node[data-type="a"]')
+      : null;
+    if (!anchor || !editorHost.contains(anchor)) return;
+    const destination = anchor.matches("a")
+      ? anchor.getAttribute("href")
+      : anchor.querySelector(".vditor-ir__marker--link")?.textContent;
+    if (!String(destination || "").startsWith("hash:")) return;
+    const id = String(destination).slice(5).trim();
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    showPaperLinkPopover(anchor, id);
+  }, true);
   editorHost?.addEventListener("keydown", (event) => {
     if (event.altKey && event.ctrlKey && event.key === "7") {
       event.preventDefault();

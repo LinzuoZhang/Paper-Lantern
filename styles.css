@@ -1927,6 +1927,18 @@ body.resizing-categories * {
   background: rgba(47, 143, 70, 0.48);
 }
 
+.reader-paper-item[draggable="true"] .reader-paper-open {
+  cursor: grab;
+}
+
+.reader-paper-item.dragging {
+  opacity: 0.55;
+}
+
+.reader-paper-item.dragging .reader-paper-open {
+  cursor: grabbing;
+}
+
 .reader-paper-item.active {
   background: #d2d6d4;
   color: var(--ink);
@@ -4404,6 +4416,95 @@ body.selecting-pdf-text .selection-menu {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.notes-editor-host.paper-link-drag-over {
+  border-color: var(--accent-strong);
+  box-shadow: inset 0 0 0 2px rgba(23, 75, 94, 0.18);
+}
+
+.notes-paper-link-popover {
+  position: fixed;
+  z-index: 3100;
+  width: min(420px, calc(100vw - 20px));
+  max-height: min(520px, calc(100vh - 20px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 12px 36px rgba(24, 35, 30, 0.2);
+}
+
+.notes-paper-link-popover header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.notes-paper-link-popover header strong {
+  flex: 1 1 auto;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.notes-paper-link-summary {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notes-paper-link-summary.loading {
+  color: var(--muted);
+}
+
+.notes-paper-link-summary.error {
+  color: #b54436;
+}
+
+.notes-paper-link-summary p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.notes-paper-link-jump {
+  display: inline-grid;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-strong);
+  box-shadow: none;
+}
+
+.notes-paper-link-jump svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.notes-paper-link-jump:hover,
+.notes-paper-link-jump:focus-visible {
+  background: var(--soft);
+  filter: none;
+  box-shadow: none;
+  transform: none;
 }
 
 .notes-editor-host .vditor-toolbar {

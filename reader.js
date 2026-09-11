@@ -30,6 +30,7 @@ const paneResizer = document.querySelector("#paneResizer");
 const readerSideRail = document.querySelector("#readerSideRail");
 const exportPdfButton = document.querySelector("#exportPdfButton");
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "ftp:"]);
+const PAPER_NOTE_DRAG_TYPE = "application/x-paper-lantern-paper";
 let pdfLinkAnnotationsCache = new Map(); // pageNumber -> Promise<Annotation[]>
 let pdfLinkDestCache = new Map();        // destName(string) -> Promise<{pageIndex, top, left}|null>
 const selectionMenu = document.querySelector("#selectionMenu");
@@ -640,16 +641,29 @@ function renderReaderLibrary() {
     const item = document.createElement("div");
     item.className = "reader-paper-item";
     item.classList.toggle("active", currentPaper?.id === paper.id);
+    item.draggable = true;
 
     const openButton = document.createElement("button");
     openButton.type = "button";
     openButton.className = "reader-paper-open";
+    openButton.draggable = true;
     openButton.title = paper.title;
     openButton.textContent = paper.title;
     openButton.addEventListener("click", () => {
       const params = new URLSearchParams({ id: paper.id });
       openReaderNavigationInNewTab(`./reader.html?${params.toString()}`);
     });
+
+    const handlePaperDragStart = (event) => {
+      if (!event.dataTransfer) return;
+      const reference = { id: String(paper.id || ""), title: String(paper.title || "") };
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData(PAPER_NOTE_DRAG_TYPE, JSON.stringify(reference));
+      event.dataTransfer.setData("text/plain", `[${reference.title}](hash:${reference.id})`);
+      item.classList.add("dragging");
+    };
+    item.addEventListener("dragstart", handlePaperDragStart);
+    item.addEventListener("dragend", () => item.classList.remove("dragging"));
 
     const todoButton = document.createElement("button");
     todoButton.type = "button";
