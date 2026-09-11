@@ -1,4 +1,4 @@
-import { checkHealth, getApiBase, importRemotePdf, normalizeImportSource, readerUrl, setApiBase } from "./api.js";
+import { checkHealth, getApiBase, importPdfSource, normalizeImportSource, readerUrl, setApiBase } from "./api.js";
 
 const serviceStatus = document.querySelector("#serviceStatus");
 const importCurrentButton = document.querySelector("#importCurrentButton");
@@ -20,14 +20,14 @@ settingsForm.addEventListener("submit", async (event) => {
 });
 
 importCurrentButton.addEventListener("click", async () => {
-  setMessage("正在识别当前页...");
+  setMessage("正在检查当前页...");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const source = normalizeImportSource(tab?.url || "");
+  const source = normalizeImportSource(tab?.url || tab?.pendingUrl || "");
   if (!source) {
-    setMessage("当前页不是可直接导入的 PDF 或 arXiv 页面。", true);
+    setMessage("当前页没有可检查的地址。", true);
     return;
   }
-  await runImport(() => importRemotePdf(source));
+  await runImport(() => importPdfSource(source));
 });
 
 async function refreshHealth() {

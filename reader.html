@@ -8,10 +8,12 @@
     <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
+    <link rel="stylesheet" href="./vendor/vditor/dist/index.css" />
     <link rel="stylesheet" href="./styles.css" />
     <script defer src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script defer src="./vendor/katex/katex.min.js"></script>
     <script defer src="./vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script defer src="./vendor/vditor/dist/index.min.js"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -212,7 +214,7 @@
               <path d="M8 16h5"></path>
             </svg>
           </button>
-          <button id="notesTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" aria-label="Notes" title="Notes">
+          <button id="notesTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" aria-label="笔记" title="笔记">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 20h9"></path>
               <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
@@ -475,33 +477,48 @@
           <div id="notesPanel" class="reader-tab-panel notes-panel" role="tabpanel" aria-labelledby="notesTab" hidden>
           <section class="notes-card">
             <div class="summary-group-header notes-header">
-              <h2>笔记</h2>
-              <div class="notes-toolbar" aria-label="Notes tools">
-                <button id="toggleNotesModeButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Preview notes" title="Preview notes">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-                    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
-                  </svg>
-                </button>
-                <button id="copyNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Copy notes" title="Copy notes">
+              <h2 class="notes-title">
+                笔记
+                <span id="notesDirtyIndicator" class="notes-dirty-indicator" aria-label="有未保存的更改" title="有未保存的更改" hidden>*</span>
+              </h2>
+              <div class="notes-toolbar" aria-label="笔记工具">
+                <button id="copyNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="复制笔记" title="复制笔记">
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <rect x="9" y="9" width="11" height="11" rx="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
                 </button>
-                <button id="exportNotesPdfButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="Export notes PDF" title="Export notes PDF">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M12 3v11"></path>
-                    <path d="m7 9 5 5 5-5"></path>
-                    <path d="M5 19h14"></path>
-                  </svg>
-                </button>
+                <div class="notes-export-control">
+                  <button id="exportNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="导出笔记" title="导出" aria-haspopup="menu" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M12 3v11"></path>
+                      <path d="m7 9 5 5 5-5"></path>
+                      <path d="M5 19h14"></path>
+                    </svg>
+                  </button>
+                  <div id="notesExportMenu" class="notes-export-menu" role="menu" aria-label="选择导出格式" hidden>
+                    <button id="exportNotesPdfButton" type="button" role="menuitem">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M6 2h8l4 4v16H6z"></path>
+                        <path d="M14 2v5h5"></path>
+                        <path d="M9 13h6M9 17h4"></path>
+                      </svg>
+                      <span>PDF</span>
+                    </button>
+                    <button id="exportNotesMarkdownButton" type="button" role="menuitem">
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M6 2h8l4 4v16H6z"></path>
+                        <path d="M14 2v5h5"></path>
+                        <path d="M9 17v-5l2 2 2-2v5"></path>
+                      </svg>
+                      <span>Markdown</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-            <p id="notesStatus" class="status" role="status"></p>
-            <div id="notesWorkspace" class="notes-workspace" data-mode="edit">
-              <textarea id="notesEditor" class="notes-editor" spellcheck="true" placeholder="# Notes" aria-label="Markdown notes"></textarea>
-              <div id="notesPreview" class="notes-preview markdown-body" aria-label="Notes preview" hidden></div>
+            <div id="notesWorkspace" class="notes-workspace">
+              <div id="notesEditor" class="notes-editor-host" aria-label="Markdown 笔记编辑器"></div>
             </div>
           </section>
           </div>

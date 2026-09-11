@@ -14,9 +14,10 @@ from config_store import get_secret, load_config, public_config, save_config
 MANIFEST_NAME = "paperlantern-library.json"
 SYNC_INDEX_NAME = "paperlantern-sync-index.json"
 REMOTE_PAPERS_DIR = "papers"
-PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json")
+NOTES_FILE = "notes.md"
+PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json", NOTES_FILE)
 PAPER_SYNC_HASH_FILE = "sync_hash.json"
-SYNCED_PAPER_FILES = ("paper.pdf", "metadata.json", "highlights.json", "discussion.json", PAPER_SYNC_HASH_FILE)
+SYNCED_PAPER_FILES = (*PAPER_FILES, PAPER_SYNC_HASH_FILE)
 ROOT_SYNCED_FILES = (MANIFEST_NAME,)
 
 
@@ -464,6 +465,10 @@ def download_paper_files(config, paper_id, local_paper_dir):
         except FileNotFoundError:
             if name == "paper.pdf":
                 raise
+            if name == NOTES_FILE:
+                # Older remote libraries keep notes in metadata.json. Leaving
+                # notes.md absent lets the server migrate that value safely.
+                continue
             data = default_paper_file_bytes(name)
         (local_paper_dir / name).write_bytes(data)
 
@@ -713,6 +718,8 @@ def thread_is_newer(candidate, existing):
 
 
 def default_paper_file_bytes(name):
+    if name == NOTES_FILE:
+        return b""
     if name == "metadata.json" or name == PAPER_SYNC_HASH_FILE:
         return b"{}"
     if name == "discussion.json":

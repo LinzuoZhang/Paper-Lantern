@@ -39,6 +39,7 @@ KEYWORD_EXPLANATION_CACHE_VERSION = 2
 MAX_EXTRACTED_TEXT_CHARS = 40_000_000
 MAX_NOTES_CHARS = 300_000
 EXTRACTED_TEXT_FILE = "extracted_text.txt"
+NOTES_FILE = "notes.md"
 AI_RUNS_DIR = "ai_runs"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
@@ -543,6 +544,47 @@ def write_text_file(path, text):
     Path(path).write_text(str(text), encoding="utf-8")
 
 
+def read_paper_notes(paper_dir, metadata=None):
+    """Read notes.md and migrate the legacy metadata.json field on first use."""
+    paper_dir = Path(paper_dir)
+    notes_path = paper_dir / NOTES_FILE
+    metadata_path = paper_dir / "metadata.json"
+    metadata = metadata if isinstance(metadata, dict) else read_json(metadata_path, {})
+    if notes_path.exists():
+        notes = read_text_file(notes_path)[:MAX_NOTES_CHARS]
+        if "notes" in metadata:
+            try:
+                migrated_metadata = dict(metadata)
+                migrated_metadata.pop("notes", None)
+                write_json(metadata_path, migrated_metadata)
+                metadata.pop("notes", None)
+            except OSError:
+                pass
+        return notes
+
+    legacy_notes = str(metadata.get("notes", ""))[:MAX_NOTES_CHARS]
+    if "notes" not in metadata:
+        return legacy_notes
+
+    try:
+        write_text_file(notes_path, legacy_notes)
+        migrated_metadata = dict(metadata)
+        migrated_metadata.pop("notes", None)
+        write_json(metadata_path, migrated_metadata)
+        metadata.pop("notes", None)
+    except OSError:
+        # Reading legacy notes is still preferable to hiding them if migration
+        # cannot be completed because the library directory is read-only.
+        pass
+    return legacy_notes
+
+
+def write_paper_notes(paper_dir, notes):
+    notes = str(notes or "")[:MAX_NOTES_CHARS]
+    write_text_file(Path(paper_dir) / NOTES_FILE, notes)
+    return notes
+
+
 def create_ai_run_dir(paper_id):
     paper_dir = paper_dir_from_id(paper_id)
     if not paper_dir:
@@ -612,7 +654,6 @@ def default_metadata(title, category):
         "methodSections": [],
         "methodConclusion": "",
         "basicInfo": {},
-        "notes": "",
     }
 
 
@@ -666,7 +707,7 @@ def read_paper(paper_id):
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "read": read_flag,
         "todo": todo_flag,
-        "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
+        "notes": read_paper_notes(paper_dir, metadata),
     }
 
 
@@ -953,7 +994,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "doi": str(metadata.get("doi", "")).strip(),
-        "notes": str(metadata.get("notes", ""))[:MAX_NOTES_CHARS],
+        "notes": read_paper_notes(paper_dir, metadata),
         "read": read_flag,
         "todo": todo_flag,
         "discussion": discussion,
@@ -1178,6 +1219,7 @@ def add_paper_to_db(title, category, pdf_file):
     write_json(paper_dir / "metadata.json", metadata)
     write_json(paper_dir / "highlights.json", [])
     write_json(paper_dir / "discussion.json", default_discussion_payload())
+    write_paper_notes(paper_dir, "")
     update_paper_sync_hash(paper_dir)
     db["papers"][paper_id] = {
         "id": paper_id,
@@ -1444,7 +1486,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     return
                 try:
                     metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
-                    notes = str(metadata.get("notes", "")).strip()
+                    notes = read_paper_notes(paper_dir, metadata).strip()
                     data = export_notes_pdf(notes or "No notes.")
                 except Exception as exc:
                     self._send_json(500, {"error": "Failed to export notes PDF.", "detail": str(exc)})
@@ -1483,7 +1525,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", paper_id), record.get("categoryId", UNCATEGORIZED_ID)))
                 title = metadata.get("title") or record.get("title") or paper_id or "paper"
                 if parse_query_value(self.path, "type") == "notes":
-                    notes = str(metadata.get("notes", "")).strip()
+                    notes = read_paper_notes(paper_dir, metadata).strip()
                     data = export_notes_pdf(notes or "No notes.")
                     filename = clean_export_filename(f"{title}-notes.pdf")
                 else:
@@ -1684,7 +1726,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             update_paper_sync_hash(paper_dir)
             sync_relevant_changed = True
         if isinstance(payload.get("notes"), str):
-            metadata["notes"] = payload["notes"][:MAX_NOTES_CHARS]
+            write_paper_notes(paper_dir, payload["notes"])
+            metadata.pop("notes", None)
             sync_relevant_changed = True
         if isinstance(payload.get("read"), bool) or isinstance(payload.get("todo"), bool):
             flags = load_paper_flags()
@@ -2566,9 +2609,103 @@ def format_earlier_discussion_context(messages):
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
-# A backslash followed by anything that is not a valid JSON escape character is
-# almost always a lone LaTeX backslash (e.g. \mathrm) that the model forgot to escape.
-_JSON_BAD_ESCAPE_RE = re.compile(r"\\(?![\\\"bfnrtu])")
+_JSON_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def repair_model_json_backslashes(text):
+    r"""Escape lone LaTeX backslashes inside JSON strings.
+
+    Models sometimes emit ``\frac`` instead of the JSON-safe ``\\frac``. A
+    regex that only looks for invalid JSON escapes is not enough: ``\frac`` and
+    ``\theta`` begin with the otherwise-valid ``\f`` and ``\t`` escapes, while
+    commands such as ``\underbrace`` look like a malformed Unicode escape.
+    """
+    repaired = []
+    in_string = False
+    math_delimiter = ""
+    index = 0
+    length = len(text)
+
+    while index < length:
+        char = text[index]
+        if not in_string:
+            repaired.append(char)
+            if char == '"':
+                in_string = True
+            index += 1
+            continue
+
+        if char == '"':
+            repaired.append(char)
+            in_string = False
+            math_delimiter = ""
+            index += 1
+            continue
+
+        if char == "$":
+            delimiter = "$$" if text.startswith("$$", index) else "$"
+            repaired.append(delimiter)
+            if not math_delimiter:
+                math_delimiter = delimiter
+            elif math_delimiter == delimiter:
+                math_delimiter = ""
+            index += len(delimiter)
+            continue
+
+        if char != "\\":
+            repaired.append(char)
+            index += 1
+            continue
+
+        if index + 1 >= length:
+            repaired.append("\\\\")
+            index += 1
+            continue
+
+        escape = text[index + 1]
+        if escape == "\\":
+            repaired.append("\\\\")
+            index += 2
+            continue
+
+        if escape in "([":
+            repaired.append("\\\\")
+            math_delimiter = f"\\{escape}"
+            index += 1
+            continue
+
+        matching_open = {")": "\\(", "]": "\\["}.get(escape)
+        if matching_open and math_delimiter == matching_open:
+            repaired.append("\\\\")
+            math_delimiter = ""
+            index += 1
+            continue
+
+        unicode_escape_is_valid = (
+            escape == "u"
+            and index + 5 < length
+            and all(char in _JSON_HEX_DIGITS for char in text[index + 2:index + 6])
+        )
+        structural_escape_is_valid = escape in '\"/'
+        control_escape_is_valid = (
+            escape in "bfnrt"
+            and (
+                not math_delimiter
+                or index + 2 >= length
+                or not text[index + 2].isascii()
+                or not text[index + 2].isalpha()
+            )
+        )
+
+        if not (unicode_escape_is_valid or structural_escape_is_valid or control_escape_is_valid):
+            repaired.append("\\\\")
+            index += 1
+            continue
+
+        repaired.append(text[index:index + (6 if unicode_escape_is_valid else 2)])
+        index += 6 if unicode_escape_is_valid else 2
+
+    return "".join(repaired)
 
 
 def parse_model_json_response(content):
@@ -2581,12 +2718,17 @@ def parse_model_json_response(content):
     if start != -1 and end > start:
         text = text[start:end + 1]
     text = text.strip()
+    repaired = repair_model_json_backslashes(text)
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Repair lone backslashes (\m -> \\m) and retry once.
-        text = _JSON_BAD_ESCAPE_RE.sub(lambda match: "\\\\", text)
-        return json.loads(text)
+        return json.loads(repaired)
+    except json.JSONDecodeError as exc:
+        # Some OpenAI-compatible models emit literal newlines or tabs inside a
+        # JSON string even when response_format=json_object is requested. The
+        # non-strict decoder accepts only those control characters; malformed
+        # JSON structure continues to fail normally.
+        if exc.msg != "Invalid control character at":
+            raise
+        return json.loads(repaired, strict=False)
 
 
 def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12):
@@ -2617,7 +2759,11 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
         error_msg = error_detail.get("message") if error_detail else (raw.get("msg") or raw.get("message"))
         display_msg = f"AI API returned an unexpected response without choices: {error_msg}" if error_msg else "AI API returned an unexpected response without choices."
         raise AIResponseError(display_msg, raw=raw) from exc
-    return parse_model_json_response(content), raw
+    try:
+        parsed = parse_model_json_response(content)
+    except json.JSONDecodeError as exc:
+        raise AIResponseError(f"AI API returned invalid JSON: {exc}", raw=raw) from exc
+    return parsed, raw
 
 
 def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False, think_mode=None):

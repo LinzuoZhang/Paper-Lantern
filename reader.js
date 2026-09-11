@@ -1,5 +1,6 @@
 ﻿import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
 import { initAnnotationPanel } from "./annotation_panel.js";
+import { initNotesPanel } from "./notes_panel.js";
 import { initSettingsModal } from "./settings_modal.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
@@ -102,13 +103,6 @@ const citationOverlayCloseButton = document.querySelector("#citationOverlayClose
 const citationFormatSelect = document.querySelector("#citationFormatSelect");
 const citationCopyButton = document.querySelector("#citationCopyButton");
 const citationOutput = document.querySelector("#citationOutput");
-const notesEditor = document.querySelector("#notesEditor");
-const notesWorkspace = document.querySelector("#notesWorkspace");
-const notesPreview = document.querySelector("#notesPreview");
-const notesStatus = document.querySelector("#notesStatus");
-const toggleNotesModeButton = document.querySelector("#toggleNotesModeButton");
-const copyNotesButton = document.querySelector("#copyNotesButton");
-const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomInButton = document.querySelector("#zoomInButton");
 const fitPageButton = document.querySelector("#fitPageButton");
@@ -200,11 +194,7 @@ let discussionTitleRenaming = false;
 let discussionHeaderVisible = true;
 let discussionCompactInitDone = false;
 let activeDiscussionAbortController = null;
-let notesAutoSaveTimer = null;
 let copiedToastTimer = null;
-let notesLastSavedValue = "";
-let notesIsSaving = false;
-let notesMode = "edit";
 let referenceEntries = new Map();
 let citationCandidates = [];
 let selectedCitationIndex = -1;
@@ -252,6 +242,15 @@ const annotationPanel = initAnnotationPanel({
   clamp,
 });
 
+const notesPanel = initNotesPanel({
+  getCurrentPaper: () => currentPaper,
+  savePaper: saveCurrentPaper,
+  apiFetch,
+  copyText: copyTextToClipboard,
+  showCopiedFeedback,
+  triggerBlobDownload,
+});
+
 initPaneResizer();
 initReaderSideRail();
 initSummaryPaneToggle();
@@ -270,7 +269,6 @@ initPdfToolbar();
 initPdfOutlineResizer();
 initCollapsibleSummaryCards();
 initReaderLibraryDrawer();
-initNotesPanel();
 initWithAiScrollBottom();
 openReaderFromUrl();
 
@@ -1322,6 +1320,11 @@ async function openReaderFromUrl() {
 }
 
 async function openLibraryPaper(paperId) {
+  try {
+    await notesPanel.save();
+  } catch (error) {
+    console.error("切换论文前保存笔记失败。", error);
+  }
   setStatus("正在打开论文...");
   const response = await apiFetch(`/api/library/paper?id=${encodeURIComponent(paperId)}`);
   const data = await readJsonResponse(response);
@@ -1334,7 +1337,7 @@ async function openLibraryPaper(paperId) {
   readerSelectedCategoryId = currentPaper.category || readerSelectedCategoryId;
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   renderDiscussionHistory(currentPaper.discussion || []);
-  renderNotes(currentPaper.notes || "");
+  notesPanel.render(currentPaper.notes || "");
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo, currentPaper);
   renderDoi(currentPaper.doi);
@@ -1552,115 +1555,6 @@ async function exportCurrentPaperPdf() {
     setStatus(error.message || "Export failed.", true);
   } finally {
     exportPdfButton.disabled = false;
-  }
-}
-
-function initNotesPanel() {
-  notesEditor?.addEventListener("input", () => {
-    renderNotesPreview(notesEditor.value);
-    window.clearTimeout(notesAutoSaveTimer);
-    notesAutoSaveTimer = window.setTimeout(() => {
-      saveNotes().catch((error) => console.error("Failed to auto-save notes.", error));
-    }, 700);
-  });
-  toggleNotesModeButton?.addEventListener("click", toggleNotesMode);
-  copyNotesButton?.addEventListener("click", copyNotes);
-  exportNotesPdfButton?.addEventListener("click", exportNotesPdf);
-  renderNotes("");
-}
-
-function renderNotes(value) {
-  const notes = String(value || "");
-  if (notesEditor) notesEditor.value = notes;
-  notesLastSavedValue = notes;
-  renderNotesPreview(notes);
-  setNotesMode("edit");
-}
-
-function renderNotesPreview(value) {
-  if (!notesPreview) return;
-  const source = String(value || "").trim();
-  notesPreview.innerHTML = source ? renderDiscussionMarkdown(source) : "<p>Notes preview</p>";
-}
-
-function setNotesMode(mode) {
-  notesMode = mode === "preview" ? "preview" : "edit";
-  if (notesWorkspace) notesWorkspace.dataset.mode = notesMode;
-  if (notesEditor) notesEditor.hidden = notesMode !== "edit";
-  if (notesPreview) notesPreview.hidden = notesMode !== "preview";
-  if (!toggleNotesModeButton) return;
-  const isPreview = notesMode === "preview";
-  toggleNotesModeButton.setAttribute("aria-label", isPreview ? "Edit notes" : "Preview notes");
-  toggleNotesModeButton.title = isPreview ? "Edit notes" : "Preview notes";
-  toggleNotesModeButton.innerHTML = isPreview
-    ? `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M12 20h9"></path>
-        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-      </svg>`
-    : `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path>
-        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path>
-      </svg>`;
-}
-
-function toggleNotesMode() {
-  if (notesMode === "edit") renderNotesPreview(notesEditor?.value || "");
-  setNotesMode(notesMode === "edit" ? "preview" : "edit");
-}
-
-async function copyNotes() {
-  const value = notesEditor?.value || "";
-  if (!value) return;
-  try {
-    await copyTextToClipboard(value);
-    showCopiedFeedback(copyNotesButton);
-  } catch (error) {
-    console.error("Failed to copy notes.", error);
-  }
-}
-
-async function saveNotes() {
-  if (!currentPaper?.id || !notesEditor || notesIsSaving) return;
-  const notes = notesEditor.value;
-  window.clearTimeout(notesAutoSaveTimer);
-  if (notes === notesLastSavedValue) {
-    return;
-  }
-  notesIsSaving = true;
-  try {
-    await saveCurrentPaper({ notes });
-    notesLastSavedValue = String(currentPaper?.notes || notes);
-  } catch (error) {
-    console.error(error);
-  } finally {
-    notesIsSaving = false;
-  }
-}
-
-async function exportNotesPdf() {
-  if (!currentPaper?.id) {
-    return;
-  }
-  await saveNotes();
-  if (exportNotesPdfButton) exportNotesPdfButton.disabled = true;
-  try {
-    const notes = notesEditor?.value || "";
-    renderNotesPreview(notes);
-    const response = await apiFetch("/api/library/notes/pdf", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: currentPaper.id, notes }),
-    });
-    const blob = await response.blob();
-    if (!response.ok) {
-      const detail = await blob.text();
-      throw new Error(detail || "Notes export failed.");
-    }
-    triggerBlobDownload(blob, `${currentPaper.title || "paper"}-notes.pdf`);
-  } catch (error) {
-    console.error(error);
-  } finally {
-    if (exportNotesPdfButton) exportNotesPdfButton.disabled = false;
   }
 }
 

@@ -13,7 +13,7 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 - AI 论文解析：生成关键词、基本信息、三行摘要、方法概览、方法拆解和结论。
 - 论文讨论：围绕当前论文上下文问答，支持多讨论线程和历史保存。
 - 划词工具：选中 PDF 文本后可以高亮、评论、翻译，或解释该段在论文中的作用。
-- 批注导出：可以导出带高亮和评论标记的 PDF；Notes 支持 Markdown 预览和 PDF 导出。
+- 批注导出：可以导出带高亮和评论标记的 PDF；笔记使用本地 Vditor 编辑，支持 Markdown、公式、表格、任务列表和 PDF 导出。
 - 本地数据保存：论文、元数据、摘要、批注、讨论历史和文本缓存都写入本地文献库。
 - 云同步：支持同步到本地文件夹或 WebDAV，并可开启自动同步。
 - Prompt 可编辑：AI 总结、方法拆解和翻译提示词集中放在 `prompts/ai/`。
@@ -26,6 +26,7 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 ├── reader.html             # PDF 阅读器页面
 ├── app.js                  # 文献库前端逻辑
 ├── reader.js               # 阅读器、批注、总结、讨论逻辑
+├── notes_panel.js          # 笔记编辑、自动保存与导出逻辑
 ├── server.py               # 本地 HTTP 服务与 API
 ├── config_store.py         # 设置保存与密钥保护
 ├── cloud_sync.py           # 本地文件夹 / WebDAV 同步
@@ -33,6 +34,7 @@ Paper Lantern 是一个本地优先、开源共享的论文阅读与文献管理
 ├── prompts/ai/             # AI 提示词模板
 ├── vendor/pdfjs/           # 本地 PDF.js
 ├── vendor/katex/           # 本地 KaTeX，用于公式渲染
+├── vendor/vditor/          # 本地 Vditor Markdown 编辑器
 ├── doc/demo.png            # README 预览图
 └── literature_library/     # 默认文献库数据目录，已被 .gitignore 忽略
 ```
@@ -126,6 +128,7 @@ literature_library/
     └── <paper-id>/
         ├── paper.pdf               # 原始 PDF
         ├── metadata.json           # 标题、分类、摘要、基本信息
+        ├── notes.md                # Markdown 阅读笔记
         ├── highlights.json         # 高亮、评论、翻译
         ├── discussion.json         # 讨论线程
         ├── extracted_text.txt      # PDF 文本缓存
@@ -147,7 +150,7 @@ WebDAV 注意事项：
 
 - 坚果云请使用 WebDAV 地址，例如 `https://dav.jianguoyun.com/dav/PaperLantern`。
 - 坚果云需要使用第三方应用密码，不是登录密码。
-- 同步会上传论文 PDF、元数据、批注、讨论和同步索引。请确认你的同步目标是私有空间。
+- 同步会上传论文 PDF、元数据、笔记、批注、讨论和同步索引。请确认你的同步目标是私有空间。
 
 ## API 概览
 

@@ -17,11 +17,13 @@ Method point:
 Writing guidance:
 - Write the content field as natural Chinese prose that fully explains how this point works. Be concrete and complete.
 - Present the explanation with clear structure: state the core idea first, then organize the rest into a few short, self-contained paragraphs separated by blank lines. Do not force a list format.
+- Inside the JSON source, encode every paragraph break within a string as `\n\n`; never place a literal newline or tab between a string's opening and closing quotation marks.
 - The motivation field is optional and should be modest and factual; use an empty string when the paper does not state the need explicitly.
 - When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, write the mention as "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation exists, or "Chinese explanation (Original English Full Term)" when not; never use only the Chinese translation. Use the exact original English term from the paper when available.
 - Place formulas where they belong in the prose: wrap inline or short notation in "$...$" and block formulas in "$$...$$", then explain the symbols in plain Chinese in the sentence that follows; never put the explanation inside the math delimiters.
 - Only write formulas the paper actually includes.
-- Keep LaTeX simple, for example $p_i$, $p_{{current}}$, $d_i = ...$, $G=(V,E)$, $O(n)$, or $$\frac{{a}}{{b}}$$. For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, $c_{{obs}}$, not $P_target$, $p_current$, $c_obs$. Write partial derivatives as \frac{{\partial c_{{i}}}}{{\partial p}}.
+- Because the response itself is JSON, escape every LaTeX backslash inside a JSON string as `\\`; for example, the JSON source for theta must contain `$\\theta$`.
+- Keep LaTeX simple, for example $p_i$, $p_{{current}}$, $d_i = ...$, $G=(V,E)$, $O(n)$, or $$\\frac{{a}}{{b}}$$. For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, $c_{{obs}}$, not $P_target$, $p_current$, $c_obs$. Write partial derivatives as \\frac{{\\partial c_{{i}}}}{{\\partial p}}.
 - Do not invent details; if something is not in the paper, say it is not explicit.
 
 Paper content:

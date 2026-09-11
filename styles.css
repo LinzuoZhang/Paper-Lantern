@@ -4277,10 +4277,28 @@ body.selecting-pdf-text .selection-menu {
   border-bottom: 1px solid var(--line);
 }
 
+.notes-title {
+  position: relative;
+}
+
+.notes-dirty-indicator {
+  position: absolute;
+  top: -5px;
+  right: -10px;
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.notes-dirty-indicator.error {
+  color: #b54436;
+}
+
 .notes-toolbar {
   display: flex;
   margin-left: auto;
-  overflow: hidden;
+  overflow: visible;
   gap: 6px;
   border: 0;
   border-radius: 0;
@@ -4299,43 +4317,292 @@ body.selecting-pdf-text .selection-menu {
   height: 20px;
 }
 
+.notes-export-control {
+  position: relative;
+  display: flex;
+}
+
+.notes-export-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  overflow: hidden;
+  padding: 5px 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(33, 43, 38, 0.16);
+}
+
+.notes-export-menu[hidden] {
+  display: none;
+}
+
+.notes-export-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  justify-content: flex-start;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  transform: none;
+}
+
+.notes-export-menu button:hover,
+.notes-export-menu button:focus-visible {
+  background: var(--soft);
+  box-shadow: none;
+  transform: none;
+}
+
+.notes-export-menu button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .notes-workspace {
   display: flex;
+  overflow: visible;
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
   padding-top: 12px;
 }
 
-.notes-editor,
-.notes-preview {
+.notes-editor-host {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 0;
+  min-height: 260px;
+  overflow: visible;
+}
+
+.notes-editor-host.vditor {
+  display: flex;
+  width: 100%;
+  height: 100% !important;
+  min-height: 260px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: visible;
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 8px;
   background: #fff;
 }
 
-.notes-editor[hidden],
-.notes-preview[hidden] {
-  display: none;
+.notes-editor-host .vditor-toolbar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  overflow: visible;
+  flex: 0 0 auto;
+  padding: 5px 7px !important;
+  border-bottom-color: var(--line);
+  background: #f8f7f3;
+  text-align: left;
 }
 
-.notes-editor {
+.notes-editor-host .vditor-toolbar__item,
+.notes-editor-host .vditor-toolbar__divider {
+  float: none;
+  flex: 0 0 auto;
+}
+
+.notes-editor-host .vditor-toolbar__br {
+  flex: 0 0 100%;
+}
+
+.notes-editor-host .notes-toolbar-right-start {
+  margin-left: auto;
+}
+
+.notes-editor-host .vditor-panel,
+.notes-editor-host .vditor-hint {
+  z-index: 20;
+}
+
+.notes-editor-host .vditor-toolbar__item > .vditor-panel:not(.vditor-panel--none),
+.notes-editor-host .vditor-toolbar__item > .vditor-hint {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+.notes-editor-host .vditor-hint button {
+  display: block;
   width: 100%;
-  resize: none;
-  padding: 12px;
-  color: var(--ink);
-  font: 13px/1.55 "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+  height: auto;
+  min-height: 0;
+  justify-content: flex-start;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--toolbar-icon-color);
+  box-shadow: none;
+  line-height: 20px;
+  text-align: left;
+  transform: none;
+  transition: none;
 }
 
-.notes-preview {
-  overflow: auto;
-  padding: 12px;
+.notes-editor-host .vditor-hint button:hover:not(:disabled) {
+  background: var(--toolbar-background-color);
+  color: var(--toolbar-icon-hover-color);
+  box-shadow: none;
+  transform: none;
+}
+
+.notes-editor-host .vditor-hint button.notes-mode-option,
+.notes-editor-host .vditor-hint button.notes-more-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-editor-host .notes-mode-option svg,
+.notes-editor-host .notes-more-option svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  fill: currentColor;
+}
+
+.notes-editor-host .vditor-toolbar__item > button {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #59645f;
+  font-weight: 400;
+}
+
+.notes-editor-host .vditor-toolbar__item > button:hover,
+.notes-editor-host .vditor-menu--current {
+  background: #ebe8df;
+  color: var(--accent-strong);
+}
+
+.notes-editor-host .vditor-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  background: #fff;
+}
+
+.notes-editor-host .vditor-preview__action {
+  display: none !important;
+}
+
+.notes-editor-host.notes-source-mode .vditor-preview {
+  display: none !important;
+}
+
+.notes-editor-host.notes-source-mode .vditor-sv {
+  display: block !important;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.notes-editor-host .vditor-ir,
+.notes-editor-host .vditor-sv,
+.notes-editor-host .vditor-wysiwyg,
+.notes-editor-host .vditor-preview {
+  min-height: 0;
   color: var(--ink);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.65;
+}
+
+.notes-editor-host .vditor-ir,
+.notes-editor-host .vditor-wysiwyg,
+.notes-editor-host .vditor-sv textarea {
+  padding: 16px 18px 44px !important;
+}
+
+.notes-editor-host .vditor-ir {
+  padding: 0 !important;
+}
+
+.notes-editor-host .vditor-ir > pre.vditor-reset {
+  padding: 12px 8px 44px !important;
+}
+
+.notes-editor-host .vditor-ir > pre.vditor-reset > :first-child {
+  margin-top: 0 !important;
+}
+
+.notes-editor-host .vditor-ir .vditor-reset > h1::before,
+.notes-editor-host .vditor-ir .vditor-reset > h2::before,
+.notes-editor-host .vditor-ir .vditor-reset > h3::before,
+.notes-editor-host .vditor-ir .vditor-reset > h4::before,
+.notes-editor-host .vditor-ir .vditor-reset > h5::before,
+.notes-editor-host .vditor-ir .vditor-reset > h6::before {
+  display: none;
+  content: none;
+}
+
+/* Markdown soft breaks stay on the same rendered line. A blank source line
+   creates the next paragraph, without being displayed as an extra empty row. */
+.notes-editor-host .vditor-ir pre.vditor-reset > p {
+  margin-block: 0;
+  min-height: 1.65em;
+  white-space: normal;
+}
+
+.notes-editor-host .vditor-preview .vditor-reset p {
+  margin-block: 0;
+}
+
+.notes-editor-host .vditor-content > .vditor-counter {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 8px;
+  float: none;
+  margin: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(248, 247, 243, 0.92);
+  color: var(--muted);
+}
+
+.notes-editor-host.vditor--fullscreen {
+  border: 0;
+  border-radius: 0;
+}
+
+.notes-editor-fallback {
+  width: 100%;
+  min-height: 260px;
+  flex: 1 1 auto;
+  resize: none;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: 13px/1.55 "Cascadia Code", Consolas, "SFMono-Regular", monospace;
 }
 
 .summary-scroll {
@@ -7414,8 +7681,7 @@ button.ghost:hover,
   padding-top: 0;
 }
 
-#notesPanel .notes-editor,
-#notesPanel .notes-preview {
+#notesPanel .notes-editor-host {
   flex: 1 1 auto;
   min-height: 0;
 }

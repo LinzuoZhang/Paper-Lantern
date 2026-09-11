@@ -42,6 +42,26 @@ export async function importRemotePdf(source, options = {}) {
   return { base, data };
 }
 
+export async function importLocalPdf(source, options = {}) {
+  const base = await getApiBase();
+  const file = await readLocalPdfFile(source);
+  const formData = new FormData();
+  formData.append("pdf", file);
+  formData.append("title", options.title || file.name.replace(/\.pdf$/i, ""));
+  formData.append("category", options.category || "");
+  const response = await fetch(`${base}/api/library/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "PDF upload failed.");
+  return { base, data };
+}
+
+export async function importPdfSource(source, options = {}) {
+  return isLocalFileSource(source) ? importLocalPdf(source, options) : importRemotePdf(source, options);
+}
+
 export function readerUrl(base, paperId) {
   return `${base}/reader.html?${new URLSearchParams({ id: paperId }).toString()}`;
 }
@@ -49,19 +69,111 @@ export function readerUrl(base, paperId) {
 export function normalizeImportSource(url) {
   const value = String(url || "").trim();
   if (!value) return "";
+
+  const visited = new Set();
+  const candidates = collectImportSourceCandidates(value, visited);
+  for (const candidate of candidates) {
+    const normalized = normalizeDirectImportSource(candidate);
+    if (normalized) return normalized;
+  }
+
+  return "";
+}
+
+function collectImportSourceCandidates(value, visited) {
+  const text = String(value || "").trim();
+  if (!text || visited.has(text)) return [];
+  visited.add(text);
+
+  const candidates = [text];
+  try {
+    const parsed = new URL(text);
+    for (const name of ["src", "file", "url", "pdf", "href", "download", "target"]) {
+      const nested = parsed.searchParams.get(name);
+      if (!nested) continue;
+      candidates.push(...collectImportSourceCandidates(nested, visited));
+    }
+  } catch {
+    // Plain arXiv IDs are handled by normalizeDirectImportSource below.
+  }
+
+  return candidates;
+}
+
+function normalizeDirectImportSource(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
   try {
     const parsed = new URL(value);
-    if (parsed.hostname === "arxiv.org" && /^\/abs\//i.test(parsed.pathname)) {
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const pathname = decodeURIComponent(parsed.pathname || "");
+    const search = parsed.searchParams;
+    if (hostname === "arxiv.org" && /^\/abs\//i.test(pathname)) {
       return value;
     }
-    if (parsed.hostname === "arxiv.org" && /^\/pdf\//i.test(parsed.pathname)) {
+    if (hostname === "arxiv.org" && /^\/pdf\//i.test(pathname)) {
       return value;
     }
-    if (/\.pdf(?:$|[?#])/i.test(parsed.pathname)) return value;
+    if (hostname === "export.arxiv.org" && /^\/(?:abs|pdf)\//i.test(pathname)) {
+      return value;
+    }
+    if (/\.(?:pdf|PDF)$/i.test(pathname)) return value;
+    if (/(?:^|\/)(?:pdf|download|fulltext|viewcontent)(?:\/|$)/i.test(pathname)) {
+      return value;
+    }
+    if (hostname === "par.nsf.gov" && /^\/servlets\/purl\//i.test(pathname)) {
+      return value;
+    }
+    if (Array.from(search.keys()).some((key) => /^(?:pdf|download)$/i.test(key))) {
+      return value;
+    }
+    if (["pdf", "application/pdf"].some((item) => String(search.get("format") || search.get("type") || "").toLowerCase() === item)) {
+      return value;
+    }
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return value;
+    }
+    if (parsed.protocol === "file:") {
+      return value;
+    }
   } catch {
     if (/^\d{4}\.\d{4,5}(?:v\d+)?$/i.test(value)) return value;
   }
   return "";
+}
+
+function isLocalFileSource(source) {
+  try {
+    return new URL(String(source || "")).protocol === "file:";
+  } catch {
+    return false;
+  }
+}
+
+async function readLocalPdfFile(source) {
+  let response;
+  try {
+    response = await fetch(source);
+  } catch (error) {
+    throw new Error("无法读取本地文件。请在扩展详情页开启“允许访问文件网址”后重试。");
+  }
+  if (!response.ok) {
+    throw new Error("无法读取本地文件。请确认文件仍然存在，并允许扩展访问文件网址。");
+  }
+  const blob = await response.blob();
+  const filename = getFilenameFromFileUrl(source);
+  return new File([blob], filename, { type: blob.type || "application/pdf" });
+}
+
+function getFilenameFromFileUrl(source) {
+  try {
+    const parsed = new URL(String(source || ""));
+    const pathname = decodeURIComponent(parsed.pathname || "");
+    const name = pathname.split(/[\\/]/).filter(Boolean).pop();
+    return /\.pdf$/i.test(name || "") ? name : "paper.pdf";
+  } catch {
+    return "paper.pdf";
+  }
 }
 
 async function readJsonResponse(response) {
