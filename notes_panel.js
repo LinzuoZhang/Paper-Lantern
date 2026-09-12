@@ -36,6 +36,16 @@ const NOTES_MORE_ICONS = {
   table: "table",
 };
 
+// 论文卡片在笔记中显示的文本：第一个作者名 + "et al."，无作者时回退到标题。
+export function formatPaperCardLabel(paper) {
+  const authors = Array.isArray(paper?.authors)
+    ? paper.authors.map((author) => String(author).trim()).filter(Boolean)
+    : [];
+  if (authors.length > 1) return `${authors[0]} et al.`;
+  if (authors.length === 1) return authors[0];
+  return String(paper?.title || paper?.id || "").trim();
+}
+
 export function initNotesPanel({
   getCurrentPaper,
   savePaper,
@@ -62,6 +72,7 @@ export function initNotesPanel({
   let savePromise = null;
   let paperLinkPopover = null;
   let paperLinkRequestId = 0;
+  let paperDropCaret = null;
   const paperLinkCache = new Map();
 
   function getStoredEditorMode() {
@@ -120,11 +131,30 @@ export function initNotesPanel({
     }
   }
 
+  function scheduleEmptyModeSwitchCleanup(wasEmpty) {
+    if (!wasEmpty) return;
+    window.setTimeout(() => {
+      if (!vditor) return;
+      const value = getValue();
+      if (value === "" || String(value).trim()) return;
+      applyingValue = true;
+      vditor.setValue("", true);
+      applyingValue = false;
+      pendingValue = "";
+      if (!String(lastSavedValue).trim()) {
+        lastSavedValue = "";
+        setDirty(false);
+      }
+    }, 0);
+  }
+
   function activateSourceMode() {
     const splitModeButton = editorHost?.querySelector('button[data-mode="sv"]');
     if (!vditor || !splitModeButton) return;
+    const wasEmpty = !getValue().trim();
     splitModeButton.click();
     setEditorMode("source");
+    scheduleEmptyModeSwitchCleanup(wasEmpty);
   }
 
   function arrangeEditorChrome() {
@@ -169,9 +199,17 @@ export function initNotesPanel({
       setModeOptionContent(splitModeButton, "分屏预览", NOTES_MODE_ICONS.sv);
       splitModeButton.title = "快捷键：Alt+Ctrl+9";
       splitModeButton.setAttribute("aria-label", "分屏预览，快捷键 Alt+Ctrl+9");
-      splitModeButton.addEventListener("click", () => setEditorMode("sv"));
+      splitModeButton.addEventListener("click", () => {
+        const wasEmpty = !getValue().trim();
+        setEditorMode("sv");
+        scheduleEmptyModeSwitchCleanup(wasEmpty);
+      });
       setModeOptionContent(instantModeButton, "即时渲染", NOTES_MODE_ICONS.ir);
-      instantModeButton?.addEventListener("click", () => setEditorMode("ir"));
+      instantModeButton?.addEventListener("click", () => {
+        const wasEmpty = !getValue().trim();
+        setEditorMode("ir");
+        scheduleEmptyModeSwitchCleanup(wasEmpty);
+      });
     }
 
     const content = editorHost?.querySelector(".vditor-content");
@@ -201,15 +239,196 @@ export function initNotesPanel({
       .trim();
   }
 
-  function insertPaperReference(paper) {
+  function getTextareaCaretAtPoint(textarea, clientX, clientY) {
+    const textareaRect = textarea.getBoundingClientRect();
+    if (
+      clientX < textareaRect.left || clientX > textareaRect.right ||
+      clientY < textareaRect.top || clientY > textareaRect.bottom
+    ) return null;
+
+    const computed = window.getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || 22;
+    const borderLeft = Number.parseFloat(computed.borderLeftWidth) || 0;
+    const borderTop = Number.parseFloat(computed.borderTopWidth) || 0;
+    const mirror = document.createElement("div");
+    Object.assign(mirror.style, {
+      position: "fixed",
+      zIndex: "9999",
+      left: `${textareaRect.left + borderLeft - textarea.scrollLeft}px`,
+      top: `${textareaRect.top + borderTop - textarea.scrollTop}px`,
+      width: `${textarea.clientWidth}px`,
+      height: "auto",
+      margin: "0",
+      border: "0",
+      padding: computed.padding,
+      boxSizing: "border-box",
+      opacity: "0",
+      overflow: "visible",
+      whiteSpace: "pre-wrap",
+      overflowWrap: computed.overflowWrap,
+      wordBreak: computed.wordBreak,
+      tabSize: computed.tabSize,
+      font: computed.font,
+      lineHeight: computed.lineHeight,
+      letterSpacing: computed.letterSpacing,
+      textTransform: computed.textTransform,
+    });
+    const value = textarea.value;
+    const textNode = document.createTextNode(value);
+    const marker = document.createElement("span");
+    marker.textContent = "\u200b";
+    marker.style.display = "inline-block";
+    marker.style.width = "1px";
+    marker.style.height = `${lineHeight}px`;
+    marker.style.verticalAlign = "text-bottom";
+    mirror.append(textNode, marker);
+    document.body.appendChild(mirror);
+
+    let hitRange = null;
+    if (document.caretRangeFromPoint) {
+      hitRange = document.caretRangeFromPoint(clientX, clientY);
+    } else if (document.caretPositionFromPoint) {
+      const position = document.caretPositionFromPoint(clientX, clientY);
+      if (position) {
+        hitRange = document.createRange();
+        hitRange.setStart(position.offsetNode, position.offset);
+      }
+    }
+    let offset = value.length;
+    if (hitRange?.startContainer === textNode) {
+      offset = Math.min(value.length, Math.max(0, hitRange.startOffset));
+    } else if (hitRange?.startContainer === mirror) {
+      offset = hitRange.startOffset > 0 ? value.length : 0;
+    }
+    mirror.replaceChildren(
+      document.createTextNode(value.slice(0, offset)),
+      marker,
+      document.createTextNode(value.slice(offset)),
+    );
+    const rect = marker.getBoundingClientRect();
+    const result = { offset, left: rect.left, top: rect.top, height: rect.height || lineHeight };
+    mirror.remove();
+    return result;
+  }
+
+  // 将编辑器选区移动到拖动坐标，并返回用于绘制落点光标的位置。
+  function positionCaretAtPoint(clientX, clientY) {
+    const mode = vditor?.vditor.currentMode;
+    const editable = mode ? vditor.vditor[mode]?.element : fallbackEditor;
+    if (!editable) return null;
+
+    if (editable instanceof HTMLTextAreaElement) {
+      const point = getTextareaCaretAtPoint(editable, clientX, clientY);
+      if (!point) return null;
+      editable.focus({ preventScroll: true });
+      editable.setSelectionRange(point.offset, point.offset);
+      return { editable, rect: point };
+    }
+
+    if (mode !== "ir" && mode !== "wysiwyg") return null;
+
+    let range = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    } else if (document.caretPositionFromPoint) {
+      const position = document.caretPositionFromPoint(clientX, clientY);
+      if (position) {
+        range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+      }
+    }
+    if (!range) return null;
+    if (range.startContainer !== editable && !editable.contains(range.startContainer)) return null;
+    range.collapse(true);
+    editable.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return { editable, rect: range.getClientRects()[0] || null };
+  }
+
+  function hidePaperDropCaret() {
+    paperDropCaret?.remove();
+    paperDropCaret = null;
+  }
+
+  function showPaperDropCaret(clientX, clientY) {
+    const caret = positionCaretAtPoint(clientX, clientY);
+    if (!caret) {
+      hidePaperDropCaret();
+      return;
+    }
+
+    const { editable, rect: rangeRect } = caret;
+    const editableRect = editable?.getBoundingClientRect();
+    const computed = editable ? window.getComputedStyle(editable) : null;
+    const fallbackHeight = Number.parseFloat(computed?.lineHeight) || 22;
+    const height = Math.max(16, rangeRect?.height || fallbackHeight);
+    const left = rangeRect?.left ?? Math.min(Math.max(clientX, editableRect?.left || clientX), editableRect?.right || clientX);
+    const top = rangeRect?.top ?? Math.min(Math.max(clientY - height / 2, editableRect?.top || clientY), (editableRect?.bottom || clientY + height) - height);
+
+    if (!paperDropCaret) {
+      paperDropCaret = document.createElement("span");
+      paperDropCaret.className = "notes-paper-drop-caret";
+      paperDropCaret.setAttribute("aria-hidden", "true");
+      document.body.appendChild(paperDropCaret);
+    }
+    paperDropCaret.style.left = `${left}px`;
+    paperDropCaret.style.top = `${top}px`;
+    paperDropCaret.style.height = `${height}px`;
+  }
+
+  // 插入后重新聚焦编辑器并把光标显示在卡片链接之后。Vditor 重绘 DOM 后
+  // 拖放路径上的光标很容易丢失，这里在下一轮任务里显式恢复。
+  function revealCaretAfterPaperCard(id) {
+    window.setTimeout(() => {
+      if (!editorReady || !vditor) {
+        fallbackEditor?.focus();
+        return;
+      }
+      const mode = vditor.vditor.currentMode;
+      const editable = vditor.vditor[mode]?.element;
+      if (!editable) return;
+      if (mode !== "ir" && mode !== "wysiwyg") {
+        // sv / 源码模式基于 textarea，插入后选区本就在卡片之后，只需聚焦。
+        editable.focus();
+        return;
+      }
+      let linkNode = null;
+      if (mode === "ir") {
+        linkNode =
+          Array.from(editable.querySelectorAll(".vditor-ir__marker--link"))
+            .find((marker) => String(marker.textContent || "").trim() === `hash:${id}`)
+            ?.closest(".vditor-ir__node") || null;
+      } else {
+        linkNode = editable.querySelector(`a[href="hash:${id}"]`);
+      }
+      editable.focus();
+      const range = document.createRange();
+      if (linkNode?.parentNode) {
+        range.setStartAfter(linkNode);
+      } else {
+        range.selectNodeContents(editable);
+        range.collapse(false);
+      }
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }, 0);
+  }
+
+  function insertPaperReference(paper, clientX, clientY) {
     const id = String(paper?.id || "").trim();
-    const title = escapeMarkdownLinkText(paper?.title || id);
-    if (!/^[a-zA-Z0-9_-]+$/.test(id) || !title) return;
-    const markdown = `[${title}](hash:${id})`;
+    const label = escapeMarkdownLinkText(formatPaperCardLabel(paper) || id);
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || !label) return;
+    const markdown = `[${label}](hash:${id})`;
 
     if (editorReady && vditor) {
       vditor.focus();
+      positionCaretAtPoint(clientX, clientY);
       vditor.insertValue(markdown, true);
+      revealCaretAfterPaperCard(id);
       return;
     }
     if (fallbackEditor) {
@@ -541,9 +760,13 @@ export function initNotesPanel({
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     editorHost.classList.add("paper-link-drag-over");
+    showPaperDropCaret(event.clientX, event.clientY);
   }, true);
   editorHost?.addEventListener("dragleave", (event) => {
-    if (!editorHost.contains(event.relatedTarget)) editorHost.classList.remove("paper-link-drag-over");
+    if (!editorHost.contains(event.relatedTarget)) {
+      editorHost.classList.remove("paper-link-drag-over");
+      hidePaperDropCaret();
+    }
   });
   editorHost?.addEventListener("drop", (event) => {
     const raw = event.dataTransfer?.getData(PAPER_NOTE_DRAG_TYPE);
@@ -551,12 +774,17 @@ export function initNotesPanel({
     event.preventDefault();
     event.stopImmediatePropagation();
     editorHost.classList.remove("paper-link-drag-over");
+    hidePaperDropCaret();
     try {
-      insertPaperReference(JSON.parse(raw));
+      insertPaperReference(JSON.parse(raw), event.clientX, event.clientY);
     } catch (error) {
       console.error("论文链接插入失败。", error);
     }
   }, true);
+  document.addEventListener("dragend", () => {
+    editorHost?.classList.remove("paper-link-drag-over");
+    hidePaperDropCaret();
+  });
   editorHost?.addEventListener("click", (event) => {
     const anchor = event.target instanceof Element
       ? event.target.closest('a[href^="hash:"], .vditor-ir__node[data-type="a"]')
@@ -578,9 +806,13 @@ export function initNotesPanel({
       event.stopImmediatePropagation();
       activateSourceMode();
     } else if (event.altKey && event.ctrlKey && event.key === "8") {
+      const wasEmpty = !getValue().trim();
       setEditorMode("ir");
+      scheduleEmptyModeSwitchCleanup(wasEmpty);
     } else if (event.altKey && event.ctrlKey && event.key === "9") {
+      const wasEmpty = !getValue().trim();
       setEditorMode("sv");
+      scheduleEmptyModeSwitchCleanup(wasEmpty);
     }
   }, true);
   window.addEventListener("pagehide", () => {

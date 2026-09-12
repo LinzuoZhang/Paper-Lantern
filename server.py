@@ -46,6 +46,7 @@ DB_FILE = LIBRARY_DIR / "library_db.json"
 FLAGS_FILE = LIBRARY_DIR / "paperlantern-flags.json"
 KEYWORD_EXPLANATIONS_FILE = LIBRARY_DIR / "keyword_explanations.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
+NOTE_STORAGE_DIR = LIBRARY_DIR / "notes"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
 MAX_REMOTE_PDF_BYTES = 200 * 1024 * 1024
@@ -809,6 +810,7 @@ def new_db():
 def load_library_db():
     LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     PAPER_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    NOTE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     if DB_FILE.exists():
         db = read_json(DB_FILE, new_db())
     else:
@@ -816,6 +818,7 @@ def load_library_db():
         migrate_existing_library(db)
         save_library_db(db)
     reconcile_paper_storage(db)
+    reconcile_note_storage(db)
     ensure_uncategorized(db)
     save_library_db(db)
     return db
@@ -903,6 +906,29 @@ def reconcile_paper_storage(db):
         }
 
 
+def reconcile_note_storage(db):
+    db.setdefault("papers", {})
+    if not NOTE_STORAGE_DIR.exists():
+        return
+    for note_dir in sorted(NOTE_STORAGE_DIR.iterdir(), key=lambda item: item.name.lower()):
+        if not note_dir.is_dir() or not (note_dir / NOTES_FILE).exists():
+            continue
+        note_id = note_dir.name
+        if note_id in db["papers"]:
+            continue
+        metadata = read_json(note_dir / "metadata.json", default_metadata(note_id, UNCATEGORIZED_ID))
+        category_id = ensure_category_path(db, metadata.get("category") or UNCATEGORIZED_ID)
+        uploaded_at = metadata.get("uploadedAt") or datetime.fromtimestamp(note_dir.stat().st_mtime, timezone.utc).isoformat()
+        db["papers"][note_id] = {
+            "id": note_id,
+            "title": metadata.get("title") or note_id,
+            "categoryId": category_id,
+            "folder": f"notes/{note_id}",
+            "uploadedAt": uploaded_at,
+            "itemType": "note",
+        }
+
+
 def ensure_category_path(db, category_path):
     value = str(category_path or "").strip().strip("/\\")
     if not value or value == "Uncategorized" or value == UNCATEGORIZED_NAME:
@@ -975,16 +1001,18 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
     read_flag, todo_flag = paper_read_todo(record["id"], metadata)
     local_path = str(paper_dir.resolve())
     pdf_path = str((paper_dir / "paper.pdf").resolve())
+    item_type = "note" if record.get("itemType") == "note" or metadata.get("itemType") == "note" else "paper"
     return {
         "id": record["id"],
         "title": metadata.get("title") or record.get("title") or record["id"],
         "category": category_id,
         "categoryName": db["categories"].get(category_id, {}).get("name", UNCATEGORIZED_NAME),
         "uploadedAt": record.get("uploadedAt") or metadata.get("uploadedAt") or utc_now(),
-        "pdfUrl": f"/api/library/pdf?id={record['id']}",
+        "itemType": item_type,
+        "pdfUrl": "" if item_type == "note" else f"/api/library/pdf?id={record['id']}",
         "folder": record.get("folder", f"papers/{record['id']}"),
         "localPath": local_path,
-        "pdfPath": pdf_path,
+        "pdfPath": "" if item_type == "note" else pdf_path,
         "highlights": highlights if isinstance(highlights, list) else [],
         "keywords": normalize_keywords(metadata.get("keywords", [])),
         "keywordExplanations": normalize_keyword_explanations(metadata.get("keywordExplanations", {}), metadata.get("keywords", [])),
@@ -1232,6 +1260,32 @@ def add_paper_to_db(title, category, pdf_file):
     return read_paper(paper_id, db)
 
 
+def add_note_to_db(title, category):
+    db = load_library_db()
+    category_id = ensure_category_path(db, category)
+    clean_title = clean_folder_name(title) or "新建笔记"
+    note_id = make_paper_id(f"note-{clean_title}-{category_id}-{utc_now()}")
+    note_dir = NOTE_STORAGE_DIR / note_id
+    while note_dir.exists() or note_id in db["papers"]:
+        note_id = make_paper_id(f"{note_id}-retry")
+        note_dir = NOTE_STORAGE_DIR / note_id
+    note_dir.mkdir(parents=True, exist_ok=True)
+    metadata = default_metadata(clean_title, category_id)
+    metadata["itemType"] = "note"
+    write_json(note_dir / "metadata.json", metadata)
+    write_paper_notes(note_dir, "")
+    db["papers"][note_id] = {
+        "id": note_id,
+        "title": clean_title,
+        "categoryId": category_id,
+        "folder": f"notes/{note_id}",
+        "uploadedAt": metadata["uploadedAt"],
+        "itemType": "note",
+    }
+    save_library_db(db)
+    return read_paper(note_id, db)
+
+
 class PaperReaderHandler(SimpleHTTPRequestHandler):
     extensions_map = {
         **SimpleHTTPRequestHandler.extensions_map,
@@ -1260,6 +1314,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
         if request_path in {"/api/library/arxiv", "/api/library/remote-pdf"}:
             self._handle_library_remote_pdf_upload()
+            return
+        if request_path == "/api/library/note":
+            self._handle_library_note_create()
             return
         if request_path == "/api/library/paper":
             self._handle_library_save()
@@ -1357,8 +1414,10 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/discuss":
             paper_text = str(payload.get("paperText", "")).strip()
             question = str(payload.get("question", "")).strip()
+            context_type = "note" if str(payload.get("contextType", "")).strip().lower() == "note" else "paper"
+            task_instruction = str(payload.get("taskInstruction", "")).strip()[:2000]
             selection_reference = normalize_selection_reference(payload.get("selectionReference"))
-            if len(paper_text) < 80:
+            if context_type == "paper" and len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
             if not question:
@@ -1374,6 +1433,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     payload.get("summary", {}),
                     payload.get("history", []),
                     selection_reference,
+                    context_type=context_type,
+                    task_instruction=task_instruction,
                     stream=bool(payload.get("stream")),
                 )
                 if bool(payload.get("stream")):
@@ -1747,6 +1808,20 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         save_library_db(db)
         sync = maybe_auto_sync_library() if sync_relevant_changed else None
         self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree(), "sync": sync})
+
+    def _handle_library_note_create(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            title = str(payload.get("title", "")).strip() or "新建笔记"
+            category = str(payload.get("category", "")).strip() or UNCATEGORIZED_ID
+            note = add_note_to_db(title, category)
+            sync = maybe_auto_sync_library()
+            self._send_json(200, {"note": note, "tree": read_library_tree(), "sync": sync})
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Invalid JSON request."})
+        except OSError as exc:
+            self._send_json(400, {"error": str(exc)})
 
     def _handle_library_category(self):
         try:
@@ -2353,8 +2428,17 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, selection_reference=None, stream=False):
-    upstream_payload = build_discussion_payload(model, paper_text, question, summary, history, selection_reference)
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, selection_reference=None, context_type="paper", task_instruction="", stream=False):
+    upstream_payload = build_discussion_payload(
+        model,
+        paper_text,
+        question,
+        summary,
+        history,
+        selection_reference,
+        context_type=context_type,
+        task_instruction=task_instruction,
+    )
     if stream:
         return stream_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=90)
 
@@ -2432,7 +2516,7 @@ def explain_keywords(api_key, model, chat_completions_url, keywords, run_dir=Non
     return normalize_keyword_explanations(result, keyword_list)
 
 
-def build_discussion_payload(model, paper_text, question, summary=None, history=None, selection_reference=None):
+def build_discussion_payload(model, paper_text, question, summary=None, history=None, selection_reference=None, context_type="paper", task_instruction=""):
     marked_paper_text = mark_selected_text_in_paper(paper_text, selection_reference)
     paper_excerpt = marked_paper_text[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
@@ -2448,22 +2532,39 @@ def build_discussion_payload(model, paper_text, question, summary=None, history=
             f"{selection_reference.get('before', '')} ⟦{selection_reference.get('text', '')}⟧ {selection_reference.get('after', '')}\n\n"
         )
 
+    is_note = context_type == "note"
+    note_instruction = (
+        "You are a note-writing assistant. Answer in the user's language. Your task is to help the user write and improve the current note. "
+        "The user may ask seemingly random questions. "
+        "Use the full current note as the primary context, keep answers centered on it whenever relevant, and offer text or suggestions "
+        "that can be incorporated into the note. Do not claim the note contains information that it does not contain. "
+        "When the note does not provide enough context, answer helpfully while clearly distinguishing new information from existing note content."
+        if is_note
+        else ""
+    )
+    context_label = "Current note Markdown" if is_note else "Paper context"
+    summary_label = "Note metadata JSON" if is_note else "Existing AI summary JSON"
+
     messages = [
         {
             "role": "system",
-            "content": render_prompt("discussion_system.txt"),
+            "content": "\n\n".join(
+                part
+                for part in ((note_instruction if is_note else render_prompt("discussion_system.txt")), str(task_instruction or "").strip())
+                if part
+            ),
         },
         {
             "role": "user",
             "content": (
-                "Paper context:\n"
+                f"{context_label}:\n"
                 f"{paper_excerpt}\n\n"
-                "Existing AI summary JSON:\n"
+                f"{summary_label}:\n"
                 f"{summary_context}\n\n"
                 "Selected text, if any:\n"
                 f"{selection_reference.get('text', '') if selection_reference else ''}\n\n"
                 f"{location_context}"
-                "Use this context for the following discussion."
+                "Use this complete, current context for the following discussion."
             ),
         },
         *history_messages,

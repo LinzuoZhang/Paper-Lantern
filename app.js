@@ -17,6 +17,7 @@ const librarySearchInput = document.querySelector("#librarySearchInput");
 const uploadForm = document.querySelector("#uploadForm");
 const libraryPdfInput = document.querySelector("#libraryPdfInput");
 const uploadMenuButton = document.querySelector("#uploadMenuButton");
+const createNoteButton = document.querySelector("#createNoteButton");
 const uploadMenu = document.querySelector("#uploadMenu");
 const arxivUploadInput = document.querySelector("#arxivUploadInput");
 const arxivUploadButton = document.querySelector("#arxivUploadButton");
@@ -57,6 +58,10 @@ const todoCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
 const plusCircleSvg =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
+const noteItemSvg =
+  '<svg class="paper-title-type-icon note-type-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
+const paperItemSvg =
+  '<svg class="paper-title-type-icon paper-type-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l4 4v16H6z"></path><path d="M14 2v5h5"></path><path d="M9 12h6M9 16h6"></path></svg>';
 
 let libraryTree = null;
 let selectedCategoryId = RECENT_CATEGORY_ID;
@@ -214,6 +219,29 @@ libraryPdfInput.addEventListener("change", async () => {
 uploadMenuButton.addEventListener("click", () => {
   uploadMenu.hidden ? openUploadMenu() : closeUploadMenu();
 });
+
+createNoteButton?.addEventListener("click", createLibraryNote);
+
+async function createLibraryNote() {
+  createNoteButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/library/note", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "新建笔记", category: getActiveUploadCategory() }),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "新建笔记失败。");
+    const note = data.note;
+    if (!note?.id) throw new Error("新建笔记失败：服务器未返回笔记编号。");
+    window.location.href = `./note.html?${new URLSearchParams({ id: note.id }).toString()}`;
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "新建笔记失败。", true);
+  } finally {
+    createNoteButton.disabled = false;
+  }
+}
 
 uploadForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -426,12 +454,22 @@ function hideArxivDownloadOverlay() {
 }
 
 function getActiveUploadCategory() {
-  return selectedCategoryId && selectedCategoryId !== RECENT_CATEGORY_ID ? selectedCategoryId : UNCATEGORIZED_LABEL;
+  return selectedCategoryId && ![RECENT_CATEGORY_ID, TODO_CATEGORY_ID].includes(selectedCategoryId)
+    ? selectedCategoryId
+    : UNCATEGORIZED_LABEL;
 }
 
 function openPaperReader(paperId) {
   recordPaperViewed(paperId);
   window.open(`./reader.html?${new URLSearchParams({ id: paperId }).toString()}`, "_blank", "noopener,noreferrer");
+}
+
+function openLibraryItem(item) {
+  if (item?.itemType === "note") {
+    window.open(`./note.html?${new URLSearchParams({ id: item.id }).toString()}`, "_blank", "noopener,noreferrer");
+    return;
+  }
+  openPaperReader(item.id);
 }
 
 async function loadLibrary(focusPaperId = "") {
@@ -720,7 +758,7 @@ function renderPaperList(papers) {
         ? "暂无最近阅读记录。"
         : selectedCategoryId === TODO_CATEGORY_ID
           ? "暂无待办论文。"
-          : "No papers in this category yet.";
+          : "此分类中暂无论文或笔记。";
     paperList.appendChild(empty);
     return;
   }
@@ -737,8 +775,8 @@ function renderPaperList(papers) {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  const sortableHeaders = { "论文标题": "title", "上传时间": "uploadedAt", "上次阅读": "lastRead" };
-  ["论文标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
+  const sortableHeaders = { "标题": "title", "上传时间": "uploadedAt", "上次阅读": "lastRead" };
+  ["标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
     const th = document.createElement("th");
     const sortKey = sortableHeaders[label];
     if (sortKey) {
@@ -779,18 +817,21 @@ function renderPaperList(papers) {
     tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
     tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
     tr.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") openPaperReader(paper.id);
+      if (event.key === "Enter") openLibraryItem(paper);
     });
 
     const titleTd = document.createElement("td");
     titleTd.className = "paper-title-cell";
     const titleButton = document.createElement("span");
     titleButton.className = "paper-title-button";
-    titleButton.textContent = paper.title;
+    titleButton.innerHTML = paper.itemType === "note" ? noteItemSvg : paperItemSvg;
+    const titleText = document.createElement("span");
+    titleText.textContent = paper.title;
+    titleButton.appendChild(titleText);
     titleButton.title = paper.title;
     titleTd.appendChild(titleButton);
     // The whole title cell is clickable.
-    titleTd.addEventListener("click", () => openPaperReader(paper.id));
+    titleTd.addEventListener("click", () => openLibraryItem(paper));
 
     const uploadTd = document.createElement("td");
     uploadTd.className = "paper-date-cell";
@@ -949,6 +990,14 @@ function renderPaperInfoPanel(paper) {
   const meta = document.createElement("p");
   meta.textContent = paper.categoryName || paper.category || "Uncategorized";
   header.append(title, meta);
+
+  if (paper.itemType === "note") {
+    const preview = document.createElement("p");
+    preview.className = "paper-info-note-preview";
+    preview.textContent = String(paper.notes || "").trim().slice(0, 360) || "空笔记";
+    paperInfoPanel.append(header, preview);
+    return;
+  }
 
   const basicInfo = paper.basicInfo || {};
   const basicSection = createPaperInfoSection("Basic Info", [
@@ -1272,7 +1321,7 @@ function showCategoryMenu(category, anchor) {
   deleteButton.disabled = category.locked || !category.id;
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`确定删除分类"${category.name}"？其中论文将移入未分类。`)) return;
+    if (!window.confirm(`确定删除分类"${category.name}"？其中条目将移入未分类。`)) return;
     await updateCategory({ action: "delete", id: category.id });
   });
 
@@ -1402,11 +1451,13 @@ function showPaperMenu(paper, anchor) {
   deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>删除';
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`确定删除论文"${paper.title}"？`)) return;
+    if (!window.confirm(`确定删除${paper.itemType === "note" ? "笔记" : "论文"}"${paper.title}"？`)) return;
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton, exportLink, deleteButton);
+  menu.append(moveButton);
+  if (paper.itemType !== "note") menu.append(exportLink);
+  menu.append(deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
 }

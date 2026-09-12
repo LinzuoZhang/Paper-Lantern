@@ -423,6 +423,64 @@ body {
   box-shadow: none;
 }
 
+.library-create-note-button {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 10px;
+}
+
+.library-create-note-button svg {
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.paper-title-button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.paper-title-button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paper-title-type-icon {
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.paper-title-button .paper-type-icon {
+  color: #65736d;
+}
+
+.paper-title-button .note-type-icon {
+  color: var(--accent-strong);
+}
+
+.paper-info-note-preview {
+  overflow: hidden;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
 .library-layout {
   align-items: stretch;
   flex: 1;
@@ -1181,9 +1239,11 @@ body.resizing-columns * {
 }
 
 .paper-title-button {
-  display: block;
+  display: flex;
   width: 100%;
   min-height: auto;
+  align-items: center;
+  gap: 10px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1194,6 +1254,10 @@ body.resizing-columns * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.paper-title-button > span {
+  min-width: 0;
 }
 
 .paper-title-button:hover {
@@ -4418,9 +4482,191 @@ body.selecting-pdf-text .selection-menu {
   background: #fff;
 }
 
+body.standalone-note-page {
+  min-width: 0;
+  overflow: hidden;
+  background: #f3f2ed;
+}
+
+.standalone-note-shell {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  grid-template-columns: 54px minmax(0, 1fr) 54px;
+}
+
+.standalone-note-shell.reader-pinned {
+  grid-template-columns: 272px minmax(0, 1fr) 54px;
+}
+
+.standalone-note-shell.discussion-open {
+  grid-template-columns: 54px minmax(0, 1fr) minmax(320px, 420px) 54px;
+}
+
+.standalone-note-shell.reader-pinned.discussion-open {
+  grid-template-columns: 272px minmax(0, 1fr) minmax(320px, 420px) 54px;
+}
+
+.standalone-note-main {
+  grid-column: 2;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  padding: 20px clamp(20px, 5vw, 72px) 28px;
+}
+
+.standalone-note-discussion-pane {
+  grid-column: 3;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: #fbfcfa;
+}
+
+.standalone-note-discussion-pane[hidden] {
+  display: none;
+}
+
+.standalone-note-discussion-header {
+  flex: 0 0 auto;
+  padding: 20px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.standalone-note-discussion-header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.standalone-note-discussion-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.standalone-discussion-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.standalone-note-discussion-pane .discussion-list-view,
+.standalone-note-discussion-pane .discussion-thread-list {
+  align-content: start;
+}
+
+.standalone-note-discussion-pane .discussion-list-create {
+  min-height: 38px;
+  align-self: start;
+}
+
+.standalone-note-discussion-pane .discussion-empty {
+  align-self: start;
+  padding: 14px 8px;
+}
+
+.standalone-note-discussion-pane .discussion-thread-view {
+  min-height: 100%;
+  grid-template-rows: auto minmax(180px, 1fr);
+}
+
+.standalone-note-discussion-pane .discussion-messages {
+  overflow-y: auto;
+}
+
+.standalone-note-discussion-pane .discussion-form {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.standalone-note-side-rail {
+  grid-column: 3;
+}
+
+.standalone-note-shell.discussion-open .standalone-note-side-rail {
+  grid-column: 4;
+}
+
+.standalone-note-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(1120px, 100%);
+  margin: 0 auto 14px;
+}
+
+.standalone-note-header input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 2px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.standalone-note-header input:focus {
+  border-bottom-color: var(--line-strong);
+}
+
+#standaloneNoteStatus {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#standaloneNoteStatus.error {
+  color: #b54436;
+}
+
+.standalone-notes-card {
+  width: min(1120px, 100%);
+  min-height: 0;
+  margin: 0 auto;
+  flex: 1 1 auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 34px rgba(24, 35, 30, 0.08);
+}
+
+.standalone-notes-card .notes-workspace,
+.standalone-notes-card .notes-editor-host {
+  min-height: 0;
+}
+
+@media (max-width: 700px) {
+  .standalone-note-main {
+    padding: 14px 10px;
+  }
+
+}
+
 .notes-editor-host.paper-link-drag-over {
   border-color: var(--accent-strong);
   box-shadow: inset 0 0 0 2px rgba(23, 75, 94, 0.18);
+}
+
+.notes-paper-drop-caret {
+  position: fixed;
+  z-index: 3200;
+  width: 2px;
+  min-height: 16px;
+  border-radius: 1px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.72);
+  pointer-events: none;
 }
 
 .notes-paper-link-popover {
@@ -8041,17 +8287,44 @@ button.ghost:hover,
 }
 
 .reader-left-rail .reader-paper-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-height: 0;
   padding: 0 8px 0 12px;
   font-size: 13px;
   font-weight: 560;
   line-height: 1.3;
   white-space: normal;
+  overflow: hidden;
+}
+
+.reader-paper-type-icon {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.reader-paper-open .paper-type-icon {
+  color: #65736d;
+}
+
+.reader-paper-open .note-type-icon {
+  color: var(--accent-strong);
+}
+
+.reader-paper-open-label {
+  min-width: 0;
+  overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-clamp: 2;
-  overflow: hidden;
 }
 
 .reader-left-rail .reader-paper-item:hover {

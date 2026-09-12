@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>笔记 - Paper Lantern</title>
+    <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
+    <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
+    <link rel="stylesheet" href="./vendor/vditor/dist/index.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./vendor/markdown-it/markdown-it.min.js"></script>
+    <script defer src="./vendor/katex/katex.min.js"></script>
+    <script defer src="./vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script defer src="./vendor/vditor/dist/index.min.js"></script>
+  </head>
+  <body class="standalone-note-page">
+    <main class="standalone-note-shell">
+      <nav id="readerLeftRail" class="reader-left-rail" aria-label="文献库">
+        <div class="reader-left-header">
+          <button id="openLibraryDrawerButton" class="reader-logo-button" type="button" aria-label="打开文献库" aria-controls="readerLibraryDrawer" aria-expanded="false">
+            <img class="site-logo reader-rail-logo" src="./assets/figure.jpg" alt="" aria-hidden="true" />
+            <span>Paper Lantern</span>
+          </button>
+          <button id="readerPinButton" class="reader-pin-button" type="button" aria-label="固定文献库" title="固定文献库" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 17v5"></path>
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"></path>
+            </svg>
+          </button>
+        </div>
+        <aside id="readerLibraryDrawer" class="reader-library-drawer" aria-label="文献库" aria-hidden="true">
+          <div class="reader-library-toolbar">
+            <label class="reader-library-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              <input id="readerSearchInput" type="text" placeholder="搜索文献或笔记…" aria-label="搜索文献库" autocomplete="off" />
+            </label>
+            <button id="readerPaperUploadButton" class="reader-category-upload-button menu-button reader-library-upload-button" type="button" aria-label="上传论文" title="上传论文" aria-haspopup="menu" aria-expanded="false" aria-controls="readerUploadMenu">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12"></path><path d="m7 8 5-5 5 5"></path><path d="M5 15v4h14v-4"></path></svg>
+              <span>上传论文</span>
+            </button>
+            <div id="readerUploadMenu" class="reader-upload-menu upload-menu" role="menu" hidden>
+              <label class="upload-drop-option" role="menuitem">
+                <input id="readerPaperUploadInput" type="file" accept="application/pdf" />
+                <span class="upload-drop-box">
+                  <svg class="upload-drop-arrow" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 34V12"></path><path d="m14 22 10-10 10 10"></path><path d="M12 36h24"></path></svg>
+                  <strong>上传 PDF</strong>
+                  <small>拖拽文件到这里，或点击选择</small>
+                </span>
+              </label>
+              <div class="arxiv-upload-panel" role="menuitem">
+                <label for="readerArxivUploadInput">PDF URL or arXiv</label>
+                <div class="arxiv-upload-row">
+                  <input id="readerArxivUploadInput" type="url" placeholder="https://example.com/paper.pdf or 2401.12345" autocomplete="off" />
+                  <button id="readerArxivUploadButton" type="button" aria-label="上传" title="上传"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4"></path><path d="m6 9 6-6 6 6"></path><path d="M5 20h14"></path></svg></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="reader-library-location">
+            <button id="readerLocationBackButton" class="reader-location-back" type="button" aria-label="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></button>
+            <span id="readerLocationCurrentButton" class="reader-location-current"><span id="readerLocationCurrentName" class="reader-location-name">文献库</span><span id="readerLocationCurrentCount" class="reader-location-count"></span></span>
+            <h2 id="readerLibraryTitle" class="reader-location-title">文献库</h2>
+            <button id="readerSortButton" class="reader-sort-button" type="button" aria-label="排序" title="排序" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 4h12"></path><path d="M1 9h8"></path><path d="M1 14h4"></path></svg></button>
+          </div>
+          <div id="readerLibraryBody" class="reader-library-body">
+            <div id="readerCategoryList" class="reader-category-list" aria-label="选择目录"></div>
+            <div id="readerPaperList" class="reader-paper-list"></div>
+          </div>
+        </aside>
+      </nav>
+
+      <section class="standalone-note-main">
+        <header class="standalone-note-header">
+          <input id="standaloneNoteTitle" type="text" maxlength="240" aria-label="笔记标题" placeholder="笔记标题" />
+          <span id="standaloneNoteStatus" role="status"></span>
+        </header>
+        <section class="notes-card standalone-notes-card">
+          <div class="summary-group-header notes-header">
+            <h2 class="notes-title">笔记<span id="notesDirtyIndicator" class="notes-dirty-indicator" hidden>*</span></h2>
+            <div class="notes-toolbar" aria-label="笔记工具">
+              <button id="copyNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="复制笔记" title="复制笔记">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+              <div class="notes-export-control">
+                <button id="exportNotesButton" class="icon-button refresh-button notes-action-button" type="button" aria-label="导出笔记" title="导出" aria-haspopup="menu" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"></path><path d="m7 9 5 5 5-5"></path><path d="M5 19h14"></path></svg>
+                </button>
+                <div id="notesExportMenu" class="notes-export-menu" role="menu" hidden>
+                  <button id="exportNotesPdfButton" type="button" role="menuitem">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l4 4v16H6z"></path><path d="M14 2v5h5"></path><path d="M9 13h6M9 17h4"></path></svg>
+                    <span>PDF</span>
+                  </button>
+                  <button id="exportNotesMarkdownButton" type="button" role="menuitem">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l4 4v16H6z"></path><path d="M14 2v5h5"></path><path d="M9 17v-5l2 2 2-2v5"></path></svg>
+                    <span>Markdown</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="notesWorkspace" class="notes-workspace">
+            <div id="notesEditor" class="notes-editor-host" aria-label="Markdown 笔记编辑器"></div>
+          </div>
+        </section>
+      </section>
+      <aside id="noteDiscussionPane" class="standalone-note-discussion-pane" aria-label="笔记讨论" hidden>
+        <div class="standalone-note-discussion-header">
+          <h2>讨论</h2>
+          <span>AI 将结合当前笔记回答</span>
+        </div>
+        <div class="discussion-content standalone-discussion-content">
+          <div id="discussionListView" class="discussion-list-view">
+            <button id="newDiscussionListButton" class="discussion-list-create" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              <span>新讨论</span>
+            </button>
+            <div id="discussionThreadList" class="discussion-thread-list" aria-label="讨论列表"></div>
+          </div>
+          <div id="discussionThreadView" class="discussion-thread-view" hidden>
+            <div class="discussion-thread-header">
+              <button id="backToDiscussionsButton" class="icon-button discussion-back-button" type="button" aria-label="返回讨论列表" title="返回">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+              </button>
+              <div class="discussion-thread-title-group"><div id="discussionThreadTitle" class="discussion-thread-title"></div></div>
+              <button id="discussionTitleEditButton" class="icon-button discussion-title-edit" type="button" aria-label="重命名讨论" title="重命名">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              </button>
+              <button id="newDiscussionFromThreadButton" class="icon-button discussion-new-thread-button" type="button" aria-label="新讨论" title="新讨论">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              </button>
+            </div>
+            <div id="discussionMessages" class="discussion-messages" aria-live="polite"></div>
+          </div>
+        </div>
+        <form id="discussionForm" class="discussion-form">
+          <div id="discussionReferenceBox" class="discussion-reference-box" hidden><span id="discussionReferenceText" class="discussion-reference-text"></span></div>
+          <textarea id="discussionInput" rows="3" placeholder="围绕当前笔记提问…" aria-label="讨论问题"></textarea>
+          <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="发送" title="发送"></button>
+        </form>
+      </aside>
+      <nav class="reader-side-rail standalone-note-side-rail" aria-label="笔记侧栏">
+        <div class="reader-tabs" role="tablist" aria-orientation="vertical">
+          <button id="noteDiscussionTab" class="reader-tab" type="button" role="tab" aria-selected="false" aria-controls="noteDiscussionPane" aria-label="讨论" title="讨论">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 1 1 21 11.5z"></path></svg>
+          </button>
+        </div>
+      </nav>
+    </main>
+    <script src="./note.js" type="module"></script>
+  </body>
+</html>
