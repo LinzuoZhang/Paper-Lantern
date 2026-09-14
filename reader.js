@@ -219,6 +219,10 @@ discussionPanel = initDiscussionPanel({
     setSummaryPaneCollapsed(false);
   },
   onOpenReference: () => openActiveDiscussionReference(),
+  onReferenceChange: (reference) => {
+    clearDiscussionReferenceHighlights();
+    if (reference) retryApplyReferenceHighlight(14);
+  },
   contextType: "paper",
 });
 initWithAiScrollBottom();

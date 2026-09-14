@@ -1,5 +1,8 @@
 const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>';
+const EDIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"></path></svg>';
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>';
+const REFERENCE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 12 4 16l4 4"></path><path d="M4 16h10a4 4 0 0 0 4-4V4"></path></svg>';
 
 export function initDiscussionPanel({
   root = document,
@@ -12,6 +15,7 @@ export function initDiscussionPanel({
   showConfirm = async (message) => window.confirm(message),
   onActivate = () => {},
   onOpenReference = () => {},
+  onReferenceChange = () => {},
   contextType = "paper",
   taskInstruction = "",
 } = {}) {
@@ -29,14 +33,22 @@ export function initDiscussionPanel({
   const newButtons = [find("#newDiscussionListButton"), find("#newDiscussionFromThreadButton"), find("#discussionCompactNewButton")].filter(Boolean);
   const back = find("#backToDiscussionsButton");
   const titleEdit = find("#discussionTitleEditButton");
+  const compactBar = find("#discussionCompactBar");
   const compactTitle = find("#discussionCompactTitle");
   const historyButtons = [find("#discussionHistoryButton"), find("#discussionCompactHistoryButton")].filter(Boolean);
+  const threadHeader = threadView?.querySelector(".discussion-thread-header");
+  const listHeader = find("#newDiscussionListButton") || listView;
+  const documentNode = root.ownerDocument || root;
 
   let threads = [];
   let activeId = null;
   let busy = false;
   let abortController = null;
   let markdownRenderer = null;
+  let historyPopover = null;
+  let historyOutsideHandler = null;
+  let discussionThreadHeaderVisible = false;
+  let discussionListHeaderVisible = false;
 
   if (!form || !input || !messages) {
     return emptyController();
@@ -57,13 +69,14 @@ export function initDiscussionPanel({
   newButtons.forEach((button) => button.addEventListener("click", createBlank));
   back?.addEventListener("click", showList);
   titleEdit?.addEventListener("click", renameActiveThread);
-  historyButtons.forEach((button) => button.addEventListener("click", showList));
+  historyButtons.forEach((button) => button.addEventListener("click", (event) => toggleHistoryPopover(button, event)));
   title?.addEventListener("click", scrollToLatest);
   compactTitle?.addEventListener("click", scrollToLatest);
   referenceBox?.addEventListener("click", () => {
     const reference = getActiveReference();
     if (reference) onOpenReference(reference);
   });
+  initCompactBar();
 
   async function submit(event) {
     event.preventDefault();
@@ -71,9 +84,11 @@ export function initDiscussionPanel({
     const question = input.value.trim();
     if (!question) return;
     const thread = ensureActive(question);
+    const isFirstTurn = thread.messages.length === 0;
     thread.messages.push({ role: "user", content: question });
     thread.updatedAt = new Date().toISOString();
     input.value = "";
+    syncNewDiscussionButtons();
     renderMessages(thread);
     const pending = appendMessage("assistant", "正在思考…", true);
     setBusy(true);
@@ -91,12 +106,14 @@ export function initDiscussionPanel({
         },
       });
       thread.messages.push({ role: "assistant", content: answer || "未返回内容。" });
-      if (!thread.title || thread.title === "新讨论") thread.title = makeTitle(question);
+      const provisionalTitle = makeTitle(question);
+      if (isFirstTurn) thread.title = provisionalTitle;
       thread.updatedAt = new Date().toISOString();
       await persist();
       renderThreadList();
       renderHeader(thread);
       renderMessages(thread);
+      if (isFirstTurn) generateAndApplyTitle(thread, question, answer, provisionalTitle);
     } catch (error) {
       if (error.name === "AbortError") {
         if (answer) thread.messages.push({ role: "assistant", content: answer });
@@ -141,6 +158,32 @@ export function initDiscussionPanel({
     const answer = String(data.answer || "");
     if (answer) onDelta(answer);
     return answer;
+  }
+
+  async function generateAndApplyTitle(thread, question, answer, provisionalTitle) {
+    try {
+      const response = await apiFetch("/api/discussion-title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paperTitle: String(getItem?.()?.title || ""),
+          question,
+          answer,
+          selectionReference: normalizeReference(thread.reference),
+        }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) throw new Error(data.detail || data.error || "生成讨论标题失败。");
+      const generatedTitle = String(data.title || "").replace(/\s+/g, " ").trim().slice(0, 42);
+      if (!generatedTitle || thread.title !== provisionalTitle || !threads.some((entry) => entry.id === thread.id)) return;
+      thread.title = generatedTitle;
+      thread.updatedAt = new Date().toISOString();
+      renderThreadList();
+      if (activeId === thread.id) renderHeader(thread);
+      await persist();
+    } catch (error) {
+      console.warn("Failed to generate discussion title.", error);
+    }
   }
 
   async function readEventStream(response, onDelta) {
@@ -216,11 +259,15 @@ export function initDiscussionPanel({
   }
 
   function showList() {
+    closeHistoryPopover();
     if (listView) listView.hidden = false;
     if (threadView) threadView.hidden = true;
     activeId = null;
     renderThreadList();
     renderReference(null);
+    notifyReferenceChange(null);
+    syncNewDiscussionButtons();
+    syncCompactBar();
   }
 
   function showThread(id) {
@@ -232,7 +279,219 @@ export function initDiscussionPanel({
     renderHeader(thread);
     renderMessages(thread);
     renderReference(thread.messages.length ? null : thread.reference);
+    syncNewDiscussionButtons();
     onActivate();
+    notifyReferenceChange(thread.reference);
+    window.requestAnimationFrame(syncCompactBar);
+  }
+
+  function initCompactBar() {
+    if (!compactBar) return;
+    if (window.IntersectionObserver) {
+      if (threadHeader) {
+        const threadObserver = new IntersectionObserver(([entry]) => {
+          discussionThreadHeaderVisible = Boolean(entry?.isIntersecting);
+          syncCompactBar();
+        }, { threshold: 0.25 });
+        threadObserver.observe(threadHeader);
+      }
+      if (listHeader) {
+        const listObserver = new IntersectionObserver(([entry]) => {
+          discussionListHeaderVisible = Boolean(entry?.isIntersecting);
+          syncCompactBar();
+        }, { threshold: 0.25 });
+        listObserver.observe(listHeader);
+      }
+    }
+    window.addEventListener("resize", syncCompactBar);
+    syncCompactBar();
+  }
+
+  function syncCompactBar() {
+    if (!compactBar) return;
+    const thread = threads.find((entry) => entry.id === activeId);
+    const isThreadOpen = Boolean(thread && threadView && !threadView.hidden);
+    const activeHeaderVisible = isThreadOpen ? discussionThreadHeaderVisible : discussionListHeaderVisible;
+    const show = !activeHeaderVisible;
+    compactBar.classList.toggle("discussion-compact-visible", show);
+    compactBar.setAttribute("aria-hidden", String(!show));
+    if (compactTitle) {
+      compactTitle.textContent = thread?.title || "新讨论";
+      compactTitle.title = thread?.title || "新讨论";
+    }
+  }
+
+  function syncNewDiscussionButtons() {
+    const thread = threads.find((entry) => entry.id === activeId);
+    const disabled = Boolean(thread && thread.messages.length === 0);
+    newButtons.forEach((button) => {
+      button.disabled = disabled;
+      button.setAttribute("aria-disabled", String(disabled));
+    });
+  }
+
+  function toggleHistoryPopover(anchor, event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (historyPopover) {
+      closeHistoryPopover();
+      return;
+    }
+
+    const popover = documentNode.createElement("div");
+    popover.className = "discussion-history-popover";
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("aria-label", "历史讨论");
+
+    const searchWrap = documentNode.createElement("div");
+    searchWrap.className = "discussion-history-search-wrap";
+    searchWrap.innerHTML = SEARCH_ICON;
+    const search = documentNode.createElement("input");
+    search.type = "search";
+    search.className = "discussion-history-search";
+    search.placeholder = "搜索历史讨论";
+    search.setAttribute("aria-label", "搜索历史讨论");
+    searchWrap.appendChild(search);
+
+    const list = documentNode.createElement("div");
+    list.className = "discussion-history-list";
+    popover.append(searchWrap, list);
+    documentNode.body.appendChild(popover);
+    historyPopover = popover;
+    historyButtons.forEach((button) => button.setAttribute("aria-expanded", "true"));
+
+    const render = () => renderHistoryPopoverList(list, search.value);
+    search.addEventListener("input", render);
+    popover.addEventListener("click", (clickEvent) => clickEvent.stopPropagation());
+    render();
+    positionHistoryPopover(popover, anchor);
+    window.requestAnimationFrame(() => search.focus());
+    historyOutsideHandler = closeHistoryPopover;
+    documentNode.addEventListener("click", historyOutsideHandler);
+  }
+
+  function renderHistoryPopoverList(list, query = "") {
+    list.replaceChildren();
+    const normalizedQuery = String(query).trim().toLocaleLowerCase();
+    const matches = threads.filter((thread) => !normalizedQuery || String(thread.title || "").toLocaleLowerCase().includes(normalizedQuery));
+    if (!matches.length) {
+      const empty = documentNode.createElement("div");
+      empty.className = "discussion-history-empty";
+      empty.textContent = normalizedQuery ? "没有匹配的讨论" : "暂无历史讨论";
+      list.appendChild(empty);
+      return;
+    }
+
+    matches.forEach((thread) => {
+      const item = documentNode.createElement("div");
+      item.className = `discussion-history-item${thread.id === activeId ? " active" : ""}`;
+      item.setAttribute("role", "button");
+      item.tabIndex = 0;
+      const titleWrap = documentNode.createElement("span");
+      titleWrap.className = "discussion-history-title-wrap";
+      const itemTitle = documentNode.createElement("span");
+      itemTitle.className = "discussion-history-title";
+      itemTitle.textContent = thread.title || "新讨论";
+      itemTitle.title = thread.title || "新讨论";
+      const edit = documentNode.createElement("button");
+      edit.type = "button";
+      edit.className = "discussion-history-edit";
+      edit.title = "重命名对话";
+      edit.setAttribute("aria-label", `重命名对话“${thread.title || "新讨论"}”`);
+      edit.innerHTML = EDIT_ICON;
+      edit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        startRenamingHistoryThread(titleWrap, thread, list, query);
+      });
+      titleWrap.append(itemTitle, edit);
+      const meta = documentNode.createElement("span");
+      meta.className = "discussion-history-meta";
+      meta.textContent = `${thread.messages.length} 条`;
+      item.append(titleWrap, meta);
+      const openThread = () => {
+        showThread(thread.id);
+        closeHistoryPopover();
+      };
+      item.addEventListener("click", openThread);
+      item.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openThread();
+      });
+      list.appendChild(item);
+    });
+  }
+
+  function startRenamingHistoryThread(titleWrap, thread, list, query) {
+    const renameForm = documentNode.createElement("form");
+    renameForm.className = "discussion-history-rename-form";
+    const renameInput = documentNode.createElement("input");
+    renameInput.type = "text";
+    renameInput.className = "discussion-history-rename-input";
+    renameInput.value = thread.title || "新讨论";
+    renameInput.maxLength = 120;
+    renameInput.setAttribute("aria-label", "对话标题");
+    renameForm.appendChild(renameInput);
+    titleWrap.replaceChildren(renameForm);
+
+    let settled = false;
+    const finish = (shouldSave) => {
+      if (settled) return;
+      settled = true;
+      const nextTitle = renameInput.value.trim();
+      if (shouldSave && nextTitle && nextTitle !== thread.title) {
+        thread.title = nextTitle.slice(0, 120);
+        thread.updatedAt = new Date().toISOString();
+        if (activeId === thread.id) renderHeader(thread);
+        renderThreadList();
+        persist();
+      }
+      renderHistoryPopoverList(list, query);
+    };
+    renameForm.addEventListener("click", (event) => event.stopPropagation());
+    renameForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(true);
+    });
+    renameInput.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    renameInput.addEventListener("blur", () => finish(true));
+    renameInput.focus();
+    renameInput.select();
+  }
+
+  function positionHistoryPopover(popover, anchor) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const gap = 6;
+    const width = popover.offsetWidth;
+    const height = popover.offsetHeight;
+    const left = Math.min(Math.max(8, anchorRect.right - width), window.innerWidth - width - 8);
+    const spaceBelow = window.innerHeight - anchorRect.bottom;
+    const top = spaceBelow >= height + gap
+      ? anchorRect.bottom + gap
+      : Math.max(8, anchorRect.top - height - gap);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+  }
+
+  function closeHistoryPopover() {
+    historyPopover?.remove();
+    historyPopover = null;
+    if (historyOutsideHandler) {
+      documentNode.removeEventListener("click", historyOutsideHandler);
+      historyOutsideHandler = null;
+    }
+    historyButtons.forEach((button) => button.setAttribute("aria-expanded", "false"));
+  }
+
+  function notifyReferenceChange(reference) {
+    onReferenceChange(normalizeReference(reference));
   }
 
   function renderThreadList() {
@@ -248,17 +507,25 @@ export function initDiscussionPanel({
     threads.forEach((thread) => {
       const row = document.createElement("div");
       row.className = "discussion-thread-item";
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "discussion-thread-item-title-wrap";
       const open = document.createElement("button");
       open.type = "button";
-      open.className = "discussion-thread-open";
-      const name = document.createElement("span");
-      name.className = "discussion-thread-item-title";
-      name.textContent = thread.title || "新讨论";
+      open.className = "discussion-thread-open discussion-thread-item-title";
+      open.textContent = thread.title || "新讨论";
+      open.title = thread.title || "新讨论";
+      open.addEventListener("click", () => showThread(thread.id));
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "icon-button discussion-thread-item-edit";
+      edit.title = "重命名对话";
+      edit.setAttribute("aria-label", `重命名对话“${thread.title || "新讨论"}”`);
+      edit.innerHTML = EDIT_ICON;
+      edit.addEventListener("click", () => startRenamingThread(row, thread));
+      titleWrap.append(open, edit);
       const meta = document.createElement("span");
       meta.className = "discussion-thread-item-meta";
       meta.textContent = `${thread.messages.length} 条消息`;
-      open.append(name, meta);
-      open.addEventListener("click", () => showThread(thread.id));
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "icon-button discussion-thread-delete";
@@ -272,9 +539,50 @@ export function initDiscussionPanel({
         renderThreadList();
         persist();
       });
-      row.append(open, remove);
+      row.append(titleWrap, meta, remove);
       threadList.appendChild(row);
     });
+  }
+
+  function startRenamingThread(row, thread) {
+    const form = document.createElement("form");
+    form.className = "discussion-thread-rename-form";
+    const renameInput = document.createElement("input");
+    renameInput.className = "discussion-thread-rename-input";
+    renameInput.type = "text";
+    renameInput.value = thread.title || "新讨论";
+    renameInput.maxLength = 120;
+    renameInput.setAttribute("aria-label", "对话标题");
+    form.appendChild(renameInput);
+    row.replaceChildren(form);
+
+    let settled = false;
+    const finish = (shouldSave) => {
+      if (settled) return;
+      settled = true;
+      const nextTitle = renameInput.value.trim();
+      if (shouldSave && nextTitle && nextTitle !== thread.title) {
+        thread.title = nextTitle.slice(0, 120);
+        thread.updatedAt = new Date().toISOString();
+        if (activeId === thread.id) renderHeader(thread);
+        persist();
+      }
+      renderThreadList();
+    };
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      finish(true);
+    });
+    renameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    renameInput.addEventListener("blur", () => finish(true));
+    renameInput.focus();
+    renameInput.select();
   }
 
   function renderHeader(thread) {
@@ -291,19 +599,38 @@ export function initDiscussionPanel({
       messages.appendChild(empty);
       return;
     }
-    thread.messages.forEach((message) => appendMessage(message.role, message.content));
+    let referenceRendered = false;
+    thread.messages.forEach((message) => {
+      const messageReference = !referenceRendered && message.role === "user" ? thread.reference : null;
+      if (messageReference) referenceRendered = true;
+      appendMessage(message.role, message.content, false, messageReference);
+    });
   }
 
-  function appendMessage(role, content, pending = false) {
+  function appendMessage(role, content, pending = false, reference = null) {
     messages.querySelector(".discussion-empty")?.remove();
     const node = document.createElement("article");
     node.className = `discussion-message ${role === "user" ? "user" : "assistant"}${pending ? " pending" : ""}`;
-    const label = document.createElement("div");
-    label.className = "discussion-message-label";
-    label.textContent = role === "user" ? "你" : "AI";
+    const normalizedReference = normalizeReference(reference);
+    if (normalizedReference) {
+      const referenceCard = document.createElement("button");
+      referenceCard.type = "button";
+      referenceCard.className = "discussion-reference-card";
+      referenceCard.title = "跳转到论文原文";
+      referenceCard.setAttribute("aria-label", `跳转到引用原文：${normalizedReference.text}`);
+      const icon = document.createElement("span");
+      icon.className = "discussion-reference-icon";
+      icon.innerHTML = REFERENCE_ICON;
+      const text = document.createElement("span");
+      text.className = "discussion-reference-text";
+      text.textContent = normalizedReference.text;
+      referenceCard.append(icon, text);
+      referenceCard.addEventListener("click", () => onOpenReference(normalizedReference));
+      node.appendChild(referenceCard);
+    }
     const body = document.createElement("div");
     body.className = "discussion-message-body markdown-body";
-    node.append(label, body);
+    node.appendChild(body);
     messages.appendChild(node);
     setMessageBody(node, content);
     messages.scrollTop = messages.scrollHeight;
@@ -327,12 +654,48 @@ export function initDiscussionPanel({
 
   function renameActiveThread() {
     const thread = threads.find((entry) => entry.id === activeId);
-    if (!thread) return;
-    const next = window.prompt("讨论名称", thread.title || "新讨论");
-    if (!next?.trim()) return;
-    thread.title = next.trim().slice(0, 120);
-    thread.updatedAt = new Date().toISOString();
-    renderHeader(thread); renderThreadList(); persist();
+    if (!thread || !title || !titleEdit || title.parentElement?.querySelector(".discussion-thread-title-input")) return;
+
+    const renameInput = document.createElement("input");
+    renameInput.className = "discussion-thread-title-input";
+    renameInput.type = "text";
+    renameInput.value = thread.title || "新讨论";
+    renameInput.maxLength = 120;
+    renameInput.setAttribute("aria-label", "对话标题");
+    title.hidden = true;
+    titleEdit.hidden = true;
+    title.insertAdjacentElement("afterend", renameInput);
+
+    let settled = false;
+    const finish = (shouldSave, restoreFocus = false) => {
+      if (settled) return;
+      settled = true;
+      const nextTitle = renameInput.value.trim();
+      if (shouldSave && nextTitle && nextTitle !== thread.title) {
+        thread.title = nextTitle.slice(0, 120);
+        thread.updatedAt = new Date().toISOString();
+        renderThreadList();
+        persist();
+      }
+      renderHeader(thread);
+      renameInput.remove();
+      title.hidden = false;
+      titleEdit.hidden = false;
+      if (restoreFocus) titleEdit.focus();
+    };
+
+    renameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true, true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false, true);
+      }
+    });
+    renameInput.addEventListener("blur", () => finish(true));
+    renameInput.focus();
+    renameInput.select();
   }
 
   function renderMarkdown(content) {
