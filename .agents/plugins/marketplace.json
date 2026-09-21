@@ -1,0 +1,20 @@
+{
+  "name": "paper-lantern-local",
+  "interface": {
+    "displayName": "Paper Lantern Local"
+  },
+  "plugins": [
+    {
+      "name": "paper-lantern-research-mcp",
+      "source": {
+        "source": "local",
+        "path": "./plugins/paper-lantern-research-mcp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
