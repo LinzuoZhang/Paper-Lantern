@@ -1,4 +1,5 @@
 import { formatPaperCardLabel } from "./notes_panel.js";
+import { RECENT_PAPERS_KEY, getPaperViewedAt, getRecentPaperRecords, getRecentPapers } from "./recent_papers.js";
 
 const ALL_ID = "__library";
 const RECENT_ID = "__recent";
@@ -133,6 +134,9 @@ export function initLibrarySidebar({
     if (categoryMenu && !categoryMenu.contains(event.target) && !event.target.closest?.(".reader-category-menu-button")) categoryMenu.remove();
   });
   window.addEventListener("resize", positionUploadMenu);
+  window.addEventListener("storage", (event) => {
+    if (event.key === RECENT_PAPERS_KEY && tree) render();
+  });
 
   async function open() {
     drawer.classList.add("open");
@@ -543,16 +547,15 @@ export function initLibrarySidebar({
   function uploadCategory() { return selectedId && ![ALL_ID, RECENT_ID, TODO_ID].includes(selectedId) ? selectedId : current()?.category || UNCATEGORIZED_ID; }
   function isCollapsed(id) { return localStorage.getItem(`paperLanternReaderCollapsed:${id || "__root"}`) === "true"; }
   function toggleCollapsed(id) { const key = `paperLanternReaderCollapsed:${id || "__root"}`; localStorage.setItem(key, String(localStorage.getItem(key) !== "true")); }
-  function recentPapers() { const ids = new Set(recentRecords().map((item) => item?.id)); return collectPapers(tree).filter((paper) => ids.has(paper.id)); }
-  function recentRecords() { try { const value = JSON.parse(localStorage.getItem("paperLanternRecentPapers") || "[]"); return Array.isArray(value) ? value : []; } catch { return []; } }
+  function recentPapers() { return getRecentPapers(collectPapers(tree)); }
   function sortPapers(items) {
-    const recentMap = new Map(recentRecords().map((item) => [item?.id, item?.viewedAt || ""]));
     const key = selectedId === RECENT_ID ? "lastRead" : sortKey;
     const direction = sortDirection === "asc" ? 1 : -1;
+    const recentRecords = key === "lastRead" ? getRecentPaperRecords() : [];
     return [...(items || [])].sort((a, b) => {
       if (key === "title") return direction * String(a.title || "").localeCompare(String(b.title || ""), undefined, { numeric: true, sensitivity: "base" });
-      const av = key === "lastRead" ? recentMap.get(a.id) || a.viewedAt : a.uploadedAt;
-      const bv = key === "lastRead" ? recentMap.get(b.id) || b.viewedAt : b.uploadedAt;
+      const av = key === "lastRead" ? getPaperViewedAt(a, recentRecords) : a.uploadedAt;
+      const bv = key === "lastRead" ? getPaperViewedAt(b, recentRecords) : b.uploadedAt;
       return direction * ((new Date(av || 0).getTime() || 0) - (new Date(bv || 0).getTime() || 0));
     });
   }

@@ -4,6 +4,7 @@ import { initNotesPanel } from "./notes_panel.js";
 import { initSettingsModal } from "./settings_modal.js";
 import { initLibrarySidebar } from "./library_sidebar.js";
 import { initDiscussionPanel } from "./discussion_panel.js";
+import { recordPaperViewed } from "./recent_papers.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -317,6 +318,12 @@ async function openLibraryPaper(paperId) {
   }
 
   currentPaper = data.paper;
+  currentPaper.viewedAt = recordPaperViewed(currentPaper.id);
+  try {
+    currentPaper.viewedAt = (await persistPaperViewed(currentPaper.id)) || currentPaper.viewedAt;
+  } catch (error) {
+    console.warn("Failed to persist recent paper.", error);
+  }
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   discussionPanel.renderHistory(currentPaper.discussion || []);
   notesPanel.render(currentPaper.notes || "");
@@ -644,6 +651,17 @@ function paperToSummary(paper) {
     methodSections: paper.methodSections || [],
     methodConclusion: paper.methodConclusion || "",
   };
+}
+
+async function persistPaperViewed(paperId) {
+  const response = await apiFetch("/api/library/paper", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "view", id: paperId }),
+  });
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || "Failed to record recent paper.");
+  return data.viewedAt || "";
 }
 
 function renderDiscussionMarkdown(content) {

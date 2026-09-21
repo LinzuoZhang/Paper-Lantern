@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import threading
 from datetime import datetime, timezone
 import urllib.error
 import urllib.request
@@ -44,6 +45,7 @@ AI_RUNS_DIR = "ai_runs"
 LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_library")).resolve()
 DB_FILE = LIBRARY_DIR / "library_db.json"
 FLAGS_FILE = LIBRARY_DIR / "paperlantern-flags.json"
+FLAGS_LOCK = threading.RLock()
 KEYWORD_EXPLANATIONS_FILE = LIBRARY_DIR / "keyword_explanations.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 NOTE_STORAGE_DIR = LIBRARY_DIR / "notes"
@@ -508,29 +510,41 @@ def write_json(path, data):
 
 
 def load_paper_flags():
-    """Local-only read/todo flags, stored in a library-level file that is NOT
+    """Local-only read/todo/recent state, stored in a library-level file that is NOT
     part of cloud sync."""
-    data = read_json(FLAGS_FILE, {"papers": {}})
-    if not isinstance(data, dict):
-        data = {"papers": {}}
-    if not isinstance(data.get("papers"), dict):
-        data["papers"] = {}
-    return data
+    with FLAGS_LOCK:
+        data = read_json(FLAGS_FILE, {"papers": {}})
+        if not isinstance(data, dict):
+            data = {"papers": {}}
+        if not isinstance(data.get("papers"), dict):
+            data["papers"] = {}
+        return data
 
 
 def save_paper_flags(flags):
-    write_json(FLAGS_FILE, flags)
+    with FLAGS_LOCK:
+        write_json(FLAGS_FILE, flags)
 
 
-def paper_read_todo(paper_id, metadata):
-    """Return ``(read, todo)`` from the local flags file, falling back to
-    metadata for papers saved before the flags file existed."""
+def paper_local_state(paper_id, metadata):
+    """Return local-only paper state, with legacy metadata fallbacks."""
     entry = load_paper_flags().get("papers", {}).get(paper_id, {})
     if not isinstance(entry, dict):
         entry = {}
-    read_flag = entry.get("read", metadata.get("read", False))
-    todo_flag = entry.get("todo", metadata.get("todo", False))
-    return bool(read_flag), bool(todo_flag)
+    viewed_at = entry.get("viewedAt", metadata.get("viewedAt", ""))
+    return {
+        "read": bool(entry.get("read", metadata.get("read", False))),
+        "todo": bool(entry.get("todo", metadata.get("todo", False))),
+        "viewedAt": str(viewed_at).strip() if isinstance(viewed_at, str) else "",
+    }
+
+
+def update_paper_local_state(paper_id, updates):
+    with FLAGS_LOCK:
+        flags = load_paper_flags()
+        entry = flags["papers"].setdefault(str(paper_id), {})
+        entry.update(updates)
+        save_paper_flags(flags)
 
 
 def read_text_file(path):
@@ -692,7 +706,7 @@ def read_paper(paper_id):
     metadata = read_json(paper_dir / "metadata.json", default_metadata(paper_dir.name, path_to_id(paper_dir.parent)))
     highlights = read_json(paper_dir / "highlights.json", [])
     uploaded_at = metadata.get("uploadedAt") or datetime.fromtimestamp(paper_dir.stat().st_mtime, timezone.utc).isoformat()
-    read_flag, todo_flag = paper_read_todo(path_to_id(paper_dir), metadata)
+    local_state = paper_local_state(path_to_id(paper_dir), metadata)
     return {
         "id": path_to_id(paper_dir),
         "title": metadata.get("title") or paper_dir.name,
@@ -706,8 +720,9 @@ def read_paper(paper_id):
         "methodOverview": str(metadata.get("methodOverview", "")).strip(),
         "methodSections": normalize_method_sections(metadata.get("methodSections", [])),
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
-        "read": read_flag,
-        "todo": todo_flag,
+        "read": local_state["read"],
+        "todo": local_state["todo"],
+        "viewedAt": local_state["viewedAt"],
         "notes": read_paper_notes(paper_dir, metadata),
     }
 
@@ -998,7 +1013,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
     discussion = normalize_discussion_payload(read_json(paper_dir / "discussion.json", []))
     extracted_text = read_text_file(paper_dir / EXTRACTED_TEXT_FILE) if include_extracted_text else ""
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
-    read_flag, todo_flag = paper_read_todo(record["id"], metadata)
+    local_state = paper_local_state(record["id"], metadata)
     local_path = str(paper_dir.resolve())
     pdf_path = str((paper_dir / "paper.pdf").resolve())
     item_type = "note" if record.get("itemType") == "note" or metadata.get("itemType") == "note" else "paper"
@@ -1023,8 +1038,9 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "doi": str(metadata.get("doi", "")).strip(),
         "notes": read_paper_notes(paper_dir, metadata),
-        "read": read_flag,
-        "todo": todo_flag,
+        "read": local_state["read"],
+        "todo": local_state["todo"],
+        "viewedAt": local_state["viewedAt"],
         "discussion": discussion,
         "extractedText": extracted_text,
     }
@@ -1738,6 +1754,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if not record:
             self._send_json(404, {"error": "Paper not found."})
             return
+        if action == "view":
+            viewed_at = utc_now()
+            update_paper_local_state(record["id"], {"viewedAt": viewed_at})
+            self._send_json(200, {"id": record["id"], "viewedAt": viewed_at})
+            return
         paper_dir = paper_dir_from_record(record)
 
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", record["id"]), record.get("categoryId", UNCATEGORIZED_ID)))
@@ -1791,13 +1812,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             metadata.pop("notes", None)
             sync_relevant_changed = True
         if isinstance(payload.get("read"), bool) or isinstance(payload.get("todo"), bool):
-            flags = load_paper_flags()
-            entry = flags["papers"].setdefault(record["id"], {})
+            updates = {}
             if isinstance(payload.get("read"), bool):
-                entry["read"] = payload["read"]
+                updates["read"] = payload["read"]
             if isinstance(payload.get("todo"), bool):
-                entry["todo"] = payload["todo"]
-            save_paper_flags(flags)
+                updates["todo"] = payload["todo"]
+            update_paper_local_state(record["id"], updates)
             # Read/todo markers are local-only preferences, stored outside
             # metadata.json so cloud sync is never triggered.
         if isinstance(payload.get("extractedText"), str):

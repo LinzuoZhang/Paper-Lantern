@@ -1,4 +1,12 @@
 import { initSettingsModal } from "./settings_modal.js";
+import {
+  RECENT_PAPERS_KEY,
+  getPaperViewedAt,
+  getRecentPaperRecords,
+  getRecentPapers,
+  migrateLegacyRecentPapers,
+  recordPaperViewed,
+} from "./recent_papers.js";
 
 const libraryView = document.querySelector("#libraryView");
 const libraryRoot = document.querySelector("#libraryRoot");
@@ -34,8 +42,6 @@ const libCitationOutput = document.querySelector("#libCitationOutput");
 
 const RECENT_CATEGORY_ID = "__recent";
 const TODO_CATEGORY_ID = "__todo";
-const LEGACY_RECENT_PAPERS_KEY = "openMoonlightRecentPapers";
-const RECENT_PAPERS_KEY = "paperLanternRecentPapers";
 const UNCATEGORIZED_LABEL = "Uncategorized";
 const LIBRARY_CATEGORY_PANEL_WIDTH_KEY = "paperLanternLibraryCategoryPanelWidth";
 const LIBRARY_INFO_PANEL_WIDTH_KEY = "paperLanternLibraryInfoPanelWidth";
@@ -72,14 +78,15 @@ function sortPapers(papers) {
   const { key, dir } = paperSort;
   const sign = dir === "asc" ? 1 : -1;
   const list = [...papers];
+  const recentRecords = key === "lastRead" ? getRecentPaperRecords() : [];
   list.sort((a, b) => {
     if (key === "title") {
       const va = String(a.title || "").toLowerCase();
       const vb = String(b.title || "").toLowerCase();
       return sign * va.localeCompare(vb);
     }
-    const rawA = key === "lastRead" ? getPaperViewedAt(a.id) : a.uploadedAt;
-    const rawB = key === "lastRead" ? getPaperViewedAt(b.id) : b.uploadedAt;
+    const rawA = key === "lastRead" ? getPaperViewedAt(a, recentRecords) : a.uploadedAt;
+    const rawB = key === "lastRead" ? getPaperViewedAt(b, recentRecords) : b.uploadedAt;
     const ta = rawA ? new Date(rawA).getTime() : NaN;
     const tb = rawB ? new Date(rawB).getTime() : NaN;
     if (Number.isNaN(ta) && Number.isNaN(tb)) return 0;
@@ -100,12 +107,18 @@ let cloudSyncCancelRequested = false;
 let libCitationFormats = null;
 let libCitationFormat = "gbt7714";
 
+migrateLegacyRecentPapers();
 loadLibrary();
 initLibraryLayoutResize();
 initPaperInfoPanelResize();
 initLibraryCitationOverlay();
 loadCloudSyncStatus();
-migrateLegacyRecentPapers();
+window.addEventListener("storage", (event) => {
+  if (event.key === RECENT_PAPERS_KEY && libraryTree) renderLibrary();
+});
+window.addEventListener("focus", () => {
+  loadLibrary();
+});
 initSettingsModal({
   openButtons: ["#settingsButton"],
   autoOpen: { queryParam: "settings" },
@@ -384,6 +397,7 @@ async function uploadPdfToLibrary(file, title, category) {
       return;
     }
     reportSyncResult(data.sync);
+    libraryTree = data.tree || libraryTree;
     openPaperReader(data.paper.id);
   } catch (error) {
     console.error(error);
@@ -409,6 +423,7 @@ async function uploadRemotePdf(source) {
     }
     reportSyncResult(data.sync);
     showArxivDownloadOverlay("Opening paper...", source);
+    libraryTree = data.tree || libraryTree;
     openPaperReader(data.paper.id);
   } catch (error) {
     console.error(error);
@@ -461,6 +476,7 @@ function getActiveUploadCategory() {
 
 function openPaperReader(paperId) {
   recordPaperViewed(paperId);
+  if (libraryTree) renderLibrary();
   window.open(`./reader.html?${new URLSearchParams({ id: paperId }).toString()}`, "_blank", "noopener,noreferrer");
 }
 
@@ -624,7 +640,7 @@ function renderRecentCategory() {
   button.type = "button";
   button.className = "category-item recent-category-item";
   button.classList.toggle("active", selectedCategoryId === RECENT_CATEGORY_ID);
-  button.innerHTML = `${recentCategoryIconSvg}<span>最近 (${getRecentPaperRecords().length})</span>`;
+  button.innerHTML = `${recentCategoryIconSvg}<span>最近 (${getRecentPapers(collectPapers(libraryTree)).length})</span>`;
   button.addEventListener("click", () => {
     selectedCategoryId = RECENT_CATEGORY_ID;
     renderLibrary();
@@ -764,6 +780,7 @@ function renderPaperList(papers) {
   }
 
   const isRecent = selectedCategoryId === RECENT_CATEGORY_ID;
+  const recentRecords = getRecentPaperRecords();
   // In "最近", only reading time matters: always newest-viewed first.
   const sortKeyShown = isRecent ? "lastRead" : paperSort.key;
   const sortDirShown = isRecent ? "desc" : paperSort.dir;
@@ -806,7 +823,7 @@ function renderPaperList(papers) {
 
   const tbody = document.createElement("tbody");
   (isRecent ? papers : sortPapers(papers)).forEach((paper) => {
-    const viewedAt = paper.viewedAt || getPaperViewedAt(paper.id);
+    const viewedAt = getPaperViewedAt(paper, recentRecords);
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
     tr.tabIndex = 0;
@@ -1654,46 +1671,6 @@ function filterPapers(papers, query) {
       .toLowerCase();
     return haystack.includes(query);
   });
-}
-
-function getRecentPaperRecords() {
-  try {
-    const records = JSON.parse(localStorage.getItem(RECENT_PAPERS_KEY) || "[]");
-    return Array.isArray(records) ? records.filter((record) => record?.id && record?.viewedAt) : [];
-  } catch {
-    return [];
-  }
-}
-
-function migrateLegacyRecentPapers() {
-  if (localStorage.getItem(RECENT_PAPERS_KEY)) return;
-  const legacy = localStorage.getItem(LEGACY_RECENT_PAPERS_KEY);
-  if (legacy) localStorage.setItem(RECENT_PAPERS_KEY, legacy);
-}
-
-function saveRecentPaperRecords(records) {
-  localStorage.setItem(RECENT_PAPERS_KEY, JSON.stringify(records.slice(0, 100)));
-}
-
-function getPaperViewedAt(paperId) {
-  return getRecentPaperRecords().find((record) => record.id === paperId)?.viewedAt || "";
-}
-
-function recordPaperViewed(paperId) {
-  const records = getRecentPaperRecords().filter((record) => record.id !== paperId);
-  records.unshift({ id: paperId, viewedAt: new Date().toISOString() });
-  saveRecentPaperRecords(records);
-}
-
-function getRecentPapers(allPapers) {
-  const paperById = new Map(allPapers.map((paper) => [paper.id, paper]));
-  return getRecentPaperRecords()
-    .map((record) => {
-      const paper = paperById.get(record.id);
-      return paper ? { ...paper, viewedAt: record.viewedAt } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => new Date(b.viewedAt).getTime() - new Date(a.viewedAt).getTime());
 }
 
 function findPaperCategory(node, paperId) {
