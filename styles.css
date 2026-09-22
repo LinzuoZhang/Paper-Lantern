@@ -4489,6 +4489,7 @@ body.standalone-note-page {
 }
 
 .standalone-note-shell {
+  --note-discussion-width: 420px;
   display: grid;
   width: 100vw;
   height: 100vh;
@@ -4500,11 +4501,11 @@ body.standalone-note-page {
 }
 
 .standalone-note-shell.discussion-open {
-  grid-template-columns: 54px minmax(0, 1fr) minmax(320px, 420px) 54px;
+  grid-template-columns: 54px minmax(0, 1fr) 8px var(--note-discussion-width) 54px;
 }
 
 .standalone-note-shell.reader-pinned.discussion-open {
-  grid-template-columns: 272px minmax(0, 1fr) minmax(320px, 420px) 54px;
+  grid-template-columns: 272px minmax(0, 1fr) 8px var(--note-discussion-width) 54px;
 }
 
 .standalone-note-main {
@@ -4516,8 +4517,47 @@ body.standalone-note-page {
   padding: 20px clamp(20px, 5vw, 72px) 28px;
 }
 
-.standalone-note-discussion-pane {
+.standalone-note-discussion-resizer {
   grid-column: 3;
+  position: relative;
+  z-index: 30;
+  min-width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  background: #fbfcfa;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.standalone-note-discussion-resizer[hidden] {
+  display: none;
+}
+
+.standalone-note-discussion-resizer::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 56px;
+  border-radius: 999px;
+  background: #aeb8b1;
+  transform: translate(-50%, -50%);
+}
+
+.standalone-note-discussion-resizer:hover::before,
+.standalone-note-discussion-resizer:focus-visible::before,
+body.resizing-note-discussion .standalone-note-discussion-resizer::before {
+  background: var(--accent);
+}
+
+body.resizing-note-discussion {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.standalone-note-discussion-pane {
+  grid-column: 4;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -4591,23 +4631,104 @@ body.standalone-note-page {
 }
 
 .standalone-note-shell.discussion-open .standalone-note-side-rail {
-  grid-column: 4;
+  grid-column: 5;
 }
 
 .standalone-note-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: min(1120px, 100%);
-  margin: 0 auto 14px;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--line);
 }
 
-.standalone-note-header input {
+.standalone-note-title-section {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 2px;
+  align-items: center;
+  gap: 10px;
+}
+
+.standalone-note-title-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.standalone-note-title {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: visible;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#standaloneNoteTitleText {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standalone-note-title-edit {
+  flex: 0 0 auto;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
   border: 0;
-  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.standalone-note-title-group:hover .standalone-note-title-edit,
+.standalone-note-title-edit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.standalone-note-title-edit:hover,
+.standalone-note-title-edit:focus-visible {
+  background: transparent;
+  color: var(--accent);
+}
+
+.standalone-note-title-edit svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.standalone-note-title-group input {
+  flex: 1 1 auto;
+  width: min(680px, 58vw);
+  min-width: 220px;
+  padding: 3px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
   outline: 0;
   background: transparent;
   color: var(--ink);
@@ -4616,8 +4737,17 @@ body.standalone-note-page {
   font-weight: 800;
 }
 
-.standalone-note-header input:focus {
-  border-bottom-color: var(--line-strong);
+.standalone-note-title-group input[hidden] {
+  display: none;
+}
+
+.standalone-note-title .notes-dirty-indicator {
+  right: -9px;
+}
+
+.standalone-note-toolbar {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 #standaloneNoteStatus {
@@ -4630,20 +4760,65 @@ body.standalone-note-page {
 }
 
 .standalone-notes-card {
-  width: min(1120px, 100%);
+  width: 100%;
   min-height: 0;
-  margin: 0 auto;
+  margin: 0;
   flex: 1 1 auto;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 12px 34px rgba(24, 35, 30, 0.08);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .standalone-notes-card .notes-workspace,
 .standalone-notes-card .notes-editor-host {
   min-height: 0;
+}
+
+.standalone-notes-card .notes-workspace {
+  --notes-content-font-size: 14px;
+  position: relative;
+  padding-top: 0;
+}
+
+.standalone-notes-card .notes-editor-host.vditor {
+  border: 0;
+  border-radius: 0;
+}
+
+.standalone-note-page .notes-editor-host .vditor-ir > pre.vditor-reset,
+.standalone-note-page .notes-editor-host .vditor-sv textarea,
+.standalone-note-page .notes-editor-host .vditor-wysiwyg,
+.standalone-note-page .notes-editor-host .vditor-preview .vditor-reset,
+.standalone-note-page .notes-editor-fallback {
+  font-size: var(--notes-content-font-size) !important;
+}
+
+.note-zoom-feedback {
+  position: absolute;
+  z-index: 30;
+  right: 14px;
+  bottom: 14px;
+  min-width: 52px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  box-shadow: var(--shadow-xs);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.note-zoom-feedback.show {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 @media (max-width: 700px) {
