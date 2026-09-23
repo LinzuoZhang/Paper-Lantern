@@ -12,7 +12,7 @@ export function initDiscussionPanel({
   saveItem,
   apiFetch,
   readJsonResponse,
-  showConfirm = async (message) => window.confirm(message),
+  showConfirm = showDiscussionConfirm,
   onActivate = () => {},
   onOpenReference = () => {},
   onReferenceChange = () => {},
@@ -134,7 +134,8 @@ export function initDiscussionPanel({
     const context = String(getContextText?.() || "");
     const response = await apiFetch("/api/discuss", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+      cache: "no-store",
       body: JSON.stringify({
         paperText: context,
         question,
@@ -194,10 +195,11 @@ export function initDiscussionPanel({
     while (true) {
       const { value, done } = await reader.read();
       buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      const events = buffer.split("\n\n");
+      const events = buffer.split(/\r?\n\r?\n/);
       buffer = events.pop() || "";
+      if (done && buffer.trim()) events.push(buffer);
       for (const block of events) {
-        for (const line of block.split("\n")) {
+        for (const line of block.split(/\r?\n/)) {
           if (!line.startsWith("data:")) continue;
           const raw = line.slice(5).trim();
           if (!raw || raw === "[DONE]") continue;
@@ -738,6 +740,61 @@ export function initDiscussionPanel({
   setBusy(false);
   renderHistory(getItem?.()?.discussion || []);
   return { renderHistory, renderMarkdown, getMarkdownRenderer, startFromReference, showList, getActiveReference, focus: () => input.focus(), getThreads: () => threads };
+}
+
+function showDiscussionConfirm(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "reader-floating-confirm-overlay";
+    const title = document.createElement("strong");
+    title.className = "reader-floating-confirm-title";
+    title.textContent = "确认操作";
+    const body = document.createElement("p");
+    body.className = "reader-floating-confirm-message";
+    body.textContent = message;
+    const actions = document.createElement("div");
+    actions.className = "reader-floating-confirm-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "reader-floating-confirm-cancel";
+    cancel.textContent = "取消";
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "reader-floating-confirm-ok danger";
+    confirm.textContent = "删除";
+    actions.append(cancel, confirm);
+
+    const previouslyFocused = document.activeElement;
+    let settled = false;
+    const close = (value) => {
+      if (settled) return;
+      settled = true;
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      previouslyFocused?.focus?.();
+      resolve(value);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+    cancel.addEventListener("click", () => close(false));
+    confirm.addEventListener("click", () => close(true));
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKeydown);
+
+    const card = document.createElement("section");
+    card.className = "reader-floating-confirm-card";
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-modal", "true");
+    card.setAttribute("aria-labelledby", "discussionDeleteConfirmTitle");
+    title.id = "discussionDeleteConfirmTitle";
+    card.append(title, body, actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    confirm.focus();
+  });
 }
 
 function normalizeThreads(value) {
