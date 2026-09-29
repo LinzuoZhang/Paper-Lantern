@@ -2410,7 +2410,9 @@ def translate_text(api_key, model, chat_completions_url, text, paper_text="", su
         ],
     }
 
-    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60)
+    # Translation should stay fast and deterministic even when the global
+    # Think switch is enabled.
+    raw = post_chat_completion(api_key, chat_completions_url, upstream_payload, timeout=60, think_mode=False)
     return raw["choices"][0]["message"]["content"].strip()
 
 
@@ -2888,7 +2890,7 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
 
 
 def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_without_response_format=False, think_mode=None):
-    payload = apply_ai_think_mode(payload, think_mode)
+    payload = apply_ai_think_mode(payload, think_mode, chat_completions_url)
     try:
         return send_chat_completion(api_key, chat_completions_url, payload, timeout)
     except urllib.error.HTTPError as exc:
@@ -2899,11 +2901,23 @@ def post_chat_completion(api_key, chat_completions_url, payload, timeout, retry_
         return send_chat_completion(api_key, chat_completions_url, fallback_payload, timeout)
 
 
-def apply_ai_think_mode(payload, think_mode=None):
+def apply_ai_think_mode(payload, think_mode=None, chat_completions_url=""):
     next_payload = dict(payload)
     enabled = is_ai_think_mode_enabled() if think_mode is None else bool(think_mode)
+
+    # DeepSeek's OpenAI-compatible API uses the explicit `thinking.type`
+    # switch. Detect both the official endpoint and DeepSeek model names so
+    # the setting also works through compatible gateways/proxies.
+    model = str(next_payload.get("model", "")).strip().lower()
+    endpoint = str(chat_completions_url or "").strip().lower()
+    is_deepseek = "deepseek" in model or "deepseek" in endpoint
+    if is_deepseek:
+        next_payload["thinking"] = {"type": "enabled" if enabled else "disabled"}
+
     if enabled:
-        next_payload.setdefault("reasoning_effort", "medium")
+        next_payload.setdefault("reasoning_effort", "high" if is_deepseek else "medium")
+    else:
+        next_payload.pop("reasoning_effort", None)
     return next_payload
 
 
@@ -2927,7 +2941,7 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
 
 
 def stream_chat_completion(api_key, chat_completions_url, payload, timeout, think_mode=None):
-    stream_payload = apply_ai_think_mode(payload, think_mode)
+    stream_payload = apply_ai_think_mode(payload, think_mode, chat_completions_url)
     stream_payload["stream"] = True
     request = urllib.request.Request(
         chat_completions_url,

@@ -57,6 +57,7 @@ export function initLibrarySidebar({
   let tree = null;
   let selectedId = "";
   let query = "";
+  const explicitlyCollapsed = new Set();
   let pinned = false;
   let pickerOpen = false;
   let inlineEditing = false;
@@ -195,7 +196,7 @@ export function initLibrarySidebar({
     categoryList.appendChild(specialRow(TODO_ID, "待办", icons.todo, collectPapers(tree).filter((item) => item.todo).length, toggleCurrentTodo, false, isCurrentTodo() ? icons.bookmarked : icons.bookmark, isCurrentTodo() ? "移除待办" : "加入待办", isCurrentTodo()));
     const showPath = containsCategory(tree, current()?.category);
     categoryList.appendChild(specialRow(ALL_ID, "文献库", icons.library, collectPapers(tree).length, (button) => startCreate(null, button), true, icons.plus, "新建分类", false, showPath));
-    if (!isCollapsed(ALL_ID) || showPath) renderCategoryChildren(tree, 0);
+    if (!isCollapsedForDisplay(ALL_ID, showPath)) renderCategoryChildren(tree, 0);
 
     let papers;
     if (!selectedId || selectedId === ALL_ID) papers = collectPapers(tree);
@@ -225,21 +226,37 @@ export function initLibrarySidebar({
     papers.forEach((paper) => paperList.appendChild(createPaperRow(paper)));
   }
 
+  function paperAuthors(paper) {
+    return Array.isArray(paper?.basicInfo?.authors)
+      ? paper.basicInfo.authors.map(String).map((value) => value.trim()).filter(Boolean)
+      : [];
+  }
+
   function createPaperRow(paper) {
     const row = document.createElement("div");
     row.className = "reader-paper-item";
     row.classList.toggle("active", current()?.id === paper.id);
     row.classList.toggle("reader-note-item", paper.itemType === "note");
     row.draggable = paper.itemType !== "note";
+    const authors = paperAuthors(paper);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "reader-paper-open";
-    button.title = paper.title || "";
+    button.title = authors.length ? `${paper.title || ""}\n${authors.join("、")}` : paper.title || "";
     button.innerHTML = paper.itemType === "note" ? icons.noteType : icons.paperType;
+    const text = document.createElement("span");
+    text.className = "reader-paper-open-text";
     const label = document.createElement("span");
     label.className = "reader-paper-open-label";
     label.textContent = paper.title || paper.id;
-    button.appendChild(label);
+    text.appendChild(label);
+    if (authors.length) {
+      const authorLine = document.createElement("span");
+      authorLine.className = "reader-paper-open-authors";
+      authorLine.textContent = authors.join("、");
+      text.appendChild(authorLine);
+    }
+    button.appendChild(text);
     button.addEventListener("click", () => openUrl(`./${paper.itemType === "note" ? "note.html" : "reader.html"}?${new URLSearchParams({ id: paper.id })}`));
     if (paper.itemType !== "note") {
       row.addEventListener("dragstart", (event) => startPaperDrag(event, paper, row));
@@ -276,7 +293,7 @@ export function initLibrarySidebar({
     row.classList.add("dragging");
   }
 
-  function specialRow(id, label, icon, count, action = null, collapsible = false, actionIcon = icons.plus, actionTitle = "新建分类", actionActive = false, forceExpanded = false) {
+  function specialRow(id, label, icon, count, action = null, collapsible = false, actionIcon = icons.plus, actionTitle = "新建分类", actionActive = false, holdsCurrent = false) {
     const row = document.createElement("div");
     row.className = "reader-category-row reader-special-row";
     const button = document.createElement("button");
@@ -292,7 +309,8 @@ export function initLibrarySidebar({
     if (collapsible) {
       const toggle = document.createElement("span");
       toggle.className = "reader-category-collapse-toggle";
-      toggle.textContent = isCollapsed(id) && !forceExpanded ? "▸" : "▾";
+      toggle.setAttribute("aria-label", "展开/收起");
+      toggle.textContent = isCollapsedForDisplay(id, holdsCurrent) ? "▸" : "▾";
       toggle.addEventListener("click", (event) => { event.stopPropagation(); toggleCollapsed(id); render(); });
       button.appendChild(toggle);
     }
@@ -316,7 +334,7 @@ export function initLibrarySidebar({
   function renderCategoryChildren(node, depth) {
     (node?.folders || []).forEach((folder) => {
       categoryList.appendChild(categoryRow(folder, depth));
-      if (folder.folders?.length && (!isCollapsed(folder.id) || containsCategory(folder, current()?.category))) renderCategoryChildren(folder, depth + 1);
+      if (folder.folders?.length && !isCollapsedForDisplay(folder.id, containsCategory(folder, current()?.category))) renderCategoryChildren(folder, depth + 1);
     });
   }
 
@@ -328,6 +346,7 @@ export function initLibrarySidebar({
     button.className = "reader-category-item";
     button.classList.toggle("active", category.id === selectedId);
     button.classList.toggle("reader-current-category-path", containsCategory(category, current()?.category));
+    button.classList.toggle("reader-category-has-children", Boolean(category.folders?.length));
     button.style.paddingLeft = `${8 + (depth + 1) * 12}px`;
     const iconNode = document.createElement("span");
     iconNode.className = "reader-category-folder-icon";
@@ -336,7 +355,8 @@ export function initLibrarySidebar({
     if (category.folders?.length) {
       const toggle = document.createElement("span");
       toggle.className = "reader-category-collapse-toggle";
-      toggle.textContent = isCollapsed(category.id) && !containsCategory(category, current()?.category) ? "▸" : "▾";
+      toggle.setAttribute("aria-label", "展开/收起");
+      toggle.textContent = isCollapsedForDisplay(category.id, containsCategory(category, current()?.category)) ? "▸" : "▾";
       toggle.addEventListener("click", (event) => { event.stopPropagation(); toggleCollapsed(category.id); render(); });
       button.appendChild(toggle);
     }
@@ -545,8 +565,19 @@ export function initLibrarySidebar({
   }
 
   function uploadCategory() { return selectedId && ![ALL_ID, RECENT_ID, TODO_ID].includes(selectedId) ? selectedId : current()?.category || UNCATEGORIZED_ID; }
-  function isCollapsed(id) { return localStorage.getItem(`paperLanternReaderCollapsed:${id || "__root"}`) === "true"; }
-  function toggleCollapsed(id) { const key = `paperLanternReaderCollapsed:${id || "__root"}`; localStorage.setItem(key, String(localStorage.getItem(key) !== "true")); }
+  function collapseKey(id) { return `paperLanternReaderCollapsed:${id || "__root"}`; }
+  function isCollapsed(id) { return localStorage.getItem(collapseKey(id)) === "true"; }
+  function toggleCollapsed(id) {
+    const key = collapseKey(id);
+    const next = localStorage.getItem(key) !== "true";
+    localStorage.setItem(key, String(next));
+    if (next) explicitlyCollapsed.add(key);
+    else explicitlyCollapsed.delete(key);
+  }
+  // 当前条目所在的分类路径会自动展开；用户手动收起后，以手动结果为准。
+  function isCollapsedForDisplay(id, holdsCurrent = false) {
+    return isCollapsed(id) && (!holdsCurrent || explicitlyCollapsed.has(collapseKey(id)));
+  }
   function recentPapers() { return getRecentPapers(collectPapers(tree)); }
   function sortPapers(items) {
     const key = selectedId === RECENT_ID ? "lastRead" : sortKey;

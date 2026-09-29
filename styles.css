@@ -4928,6 +4928,228 @@ body.resizing-note-discussion {
   transform: none;
 }
 
+.notes-paper-picker {
+  position: fixed;
+  z-index: 3100;
+  width: min(390px, calc(100vw - 20px));
+  max-height: min(510px, calc(100vh - 20px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d9d6cc;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(36, 42, 39, 0.18), 0 3px 10px rgba(36, 42, 39, 0.08);
+  color: #26312c;
+}
+
+.notes-paper-picker-header {
+  min-height: 45px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #ebe8df;
+}
+
+.notes-paper-picker-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 返回键靠 hidden 隐藏（全局 [hidden] { display: none !important }），
+   用 flex 时它会直接退出布局，标题自然贴左，无需再占位。 */
+.notes-paper-picker-back {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #69736e;
+  font-size: 24px;
+  line-height: 30px;
+}
+
+.notes-paper-picker-back:hover,
+.notes-paper-picker-back:focus-visible {
+  background: #f0eee8;
+  color: #276450;
+}
+
+.notes-paper-picker-search-wrap {
+  position: relative;
+  display: block;
+  padding: 10px 10px 8px;
+}
+
+.notes-paper-picker-search-wrap svg {
+  position: absolute;
+  left: 20px;
+  top: 19px;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: #89918d;
+  stroke-width: 2;
+}
+
+.notes-paper-picker-search {
+  width: 100%;
+  height: 34px;
+  padding: 5px 10px 5px 32px;
+  border: 1px solid #dcd9d0;
+  border-radius: 8px;
+  outline: none;
+  background: #f8f7f3;
+  color: #26312c;
+  font: inherit;
+  font-size: 13px;
+}
+
+.notes-paper-picker-search:focus {
+  border-color: #75a38e;
+  box-shadow: 0 0 0 2px rgba(69, 126, 100, 0.13);
+  background: #fff;
+}
+
+.notes-paper-picker-list {
+  min-height: 96px;
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+}
+
+.notes-paper-picker-category-row {
+  display: flex;
+  align-items: stretch;
+  margin-left: calc(var(--paper-picker-depth, 0) * 18px);
+}
+
+.notes-paper-picker-category-row .notes-paper-picker-item {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  padding-left: 3px;
+}
+
+.notes-paper-picker-disclosure {
+  width: 25px;
+  min-width: 25px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7b8580;
+}
+
+.notes-paper-picker-disclosure:hover:not(:disabled),
+.notes-paper-picker-disclosure:focus-visible:not(:disabled) {
+  background: #eeeee8;
+  color: #235f4a;
+}
+
+.notes-paper-picker-disclosure:disabled {
+  opacity: 0;
+}
+
+.notes-paper-picker-disclosure svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  transition: transform 120ms ease;
+}
+
+.notes-paper-picker-disclosure[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.notes-paper-picker-item {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #35413b;
+  text-align: left;
+}
+
+.notes-paper-picker-item:hover,
+.notes-paper-picker-item.active,
+.notes-paper-picker-item:focus-visible {
+  background: #eeeee8;
+  color: #235f4a;
+}
+
+.notes-paper-picker-item > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.notes-paper-picker-item-text {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notes-paper-picker-item-text strong,
+.notes-paper-picker-item-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-paper-picker-item-text strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notes-paper-picker-item-text small {
+  color: #7a847f;
+  font-size: 11px;
+}
+
+.notes-paper-picker-arrow {
+  color: #909894;
+  font-size: 20px;
+}
+
+.notes-paper-picker-empty {
+  margin: 0;
+  padding: 30px 16px;
+  color: #8a918d;
+  font-size: 13px;
+  text-align: center;
+}
+
+.notes-paper-picker-empty.error {
+  color: #a14d45;
+}
+
 .notes-editor-host .vditor-toolbar {
   position: relative;
   z-index: 5;
@@ -5018,6 +5240,16 @@ body.resizing-note-discussion {
   background: transparent;
   color: #59645f;
   font-weight: 400;
+}
+
+.notes-editor-host .notes-paper-reference-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .notes-editor-host .vditor-toolbar__item > button:hover,
@@ -8467,7 +8699,7 @@ button.ghost:hover,
   color: var(--ink);
 }
 
-/* Paper list rows: uniform two-line titles, gentle spacing, light divider */
+/* Paper list rows: title on the first line, authors on the second, gentle spacing, light divider */
 .reader-left-rail .reader-paper-item {
   min-height: 50px;
   padding: 6px 0;
@@ -8511,13 +8743,26 @@ button.ghost:hover,
   color: var(--accent-strong);
 }
 
-.reader-paper-open-label {
+.reader-paper-open-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.reader-paper-open-label,
+.reader-paper-open-authors {
   min-width: 0;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-paper-open-authors {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .reader-left-rail .reader-paper-item:hover {

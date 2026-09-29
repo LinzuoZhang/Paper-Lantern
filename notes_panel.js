@@ -17,6 +17,7 @@ const NOTES_TOOLBAR = [
   "ordered-list",
   "check",
   "link",
+  "paper-reference",
   "undo",
   "redo",
   {
@@ -73,7 +74,16 @@ export function initNotesPanel({
   let paperLinkPopover = null;
   let paperLinkRequestId = 0;
   let paperDropCaret = null;
+  let paperPicker = null;
+  let paperPickerTree = null;
+  let paperPickerBookmark = null;
+  let paperPickerCategory = null;
+  let paperPickerActiveIndex = 0;
+  let paperPickerRequest = null;
+  const paperPickerExpandedCategories = new Set();
   const paperLinkCache = new Map();
+
+  const PAPER_REFERENCE_ICON = '<span class="notes-paper-reference-icon" aria-hidden="true">@</span>';
 
   function getStoredEditorMode() {
     try {
@@ -223,6 +233,319 @@ export function initNotesPanel({
       splitModeButton?.click();
     } else {
       setEditorMode("ir", false);
+    }
+  }
+
+  function getActiveEditable() {
+    if (!editorReady || !vditor) return fallbackEditor;
+    const mode = vditor.vditor.currentMode;
+    return vditor.vditor[mode]?.element || null;
+  }
+
+  function captureInsertionBookmark() {
+    const editable = getActiveEditable();
+    if (!editable) return null;
+    if (editable instanceof HTMLTextAreaElement) {
+      return { editable, start: editable.selectionStart, end: editable.selectionEnd };
+    }
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    if (range.startContainer !== editable && !editable.contains(range.startContainer)) return null;
+    return { editable, range: range.cloneRange() };
+  }
+
+  function restoreInsertionBookmark(bookmark) {
+    if (!bookmark?.editable?.isConnected) return false;
+    bookmark.editable.focus({ preventScroll: true });
+    if (bookmark.editable instanceof HTMLTextAreaElement) {
+      bookmark.editable.setSelectionRange(bookmark.start, bookmark.end);
+      return true;
+    }
+    if (!bookmark.range?.startContainer?.isConnected) return false;
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(bookmark.range);
+    return true;
+  }
+
+  function categoryPapers(category) {
+    if (!category) return [];
+    return [
+      ...(category.papers || []),
+      ...(category.folders || []).flatMap(categoryPapers),
+    ].filter((paper) => paper.itemType !== "note" && paper.id !== getCurrentPaper?.()?.id);
+  }
+
+  function visiblePaperCategories(category, depth = 0, parents = []) {
+    if (!category) return [];
+    const items = [];
+    (category.folders || []).forEach((folder) => {
+      const pathParts = [...parents, folder.name];
+      const hasChildren = Boolean(folder.folders?.length);
+      const expanded = hasChildren && paperPickerExpandedCategories.has(folder.id);
+      items.push({
+        type: "category",
+        category: folder,
+        path: pathParts.join(" / "),
+        count: categoryPapers(folder).length,
+        depth,
+        hasChildren,
+        expanded,
+      });
+      if (expanded) items.push(...visiblePaperCategories(folder, depth + 1, pathParts));
+    });
+    return items;
+  }
+
+  function paperAuthors(paper) {
+    return Array.isArray(paper?.basicInfo?.authors)
+      ? paper.basicInfo.authors.map(String).map((value) => value.trim()).filter(Boolean)
+      : [];
+  }
+
+  function paperPickerItems() {
+    if (!paperPickerTree) return [];
+    const input = paperPicker?.querySelector(".notes-paper-picker-search");
+    const query = String(input?.value || "").trim().toLocaleLowerCase();
+    if (query) {
+      return categoryPapers(paperPickerTree)
+        .filter((paper) => [paper.title, ...paperAuthors(paper), paper.categoryName]
+          .some((value) => String(value || "").toLocaleLowerCase().includes(query)))
+        .map((paper) => ({ type: "paper", paper }));
+    }
+    if (paperPickerCategory) {
+      return categoryPapers(paperPickerCategory).map((paper) => ({ type: "paper", paper }));
+    }
+    const rootPapers = (paperPickerTree.papers || [])
+      .filter((paper) => paper.itemType !== "note" && paper.id !== getCurrentPaper?.()?.id);
+    const categories = visiblePaperCategories(paperPickerTree);
+    return [
+      ...(rootPapers.length ? [{ type: "category", category: paperPickerTree, path: "文献库根目录", count: rootPapers.length, directOnly: true, depth: 0, hasChildren: false, expanded: false }] : []),
+      ...categories,
+    ];
+  }
+
+  function togglePaperPickerCategory(item) {
+    if (!item?.hasChildren) return;
+    if (paperPickerExpandedCategories.has(item.category.id)) {
+      paperPickerExpandedCategories.delete(item.category.id);
+    } else {
+      paperPickerExpandedCategories.add(item.category.id);
+    }
+    renderPaperPicker();
+  }
+
+  function updatePaperPickerActive(items) {
+    const buttons = Array.from(paperPicker?.querySelectorAll(".notes-paper-picker-item") || []);
+    if (!buttons.length) {
+      paperPickerActiveIndex = 0;
+      return;
+    }
+    paperPickerActiveIndex = Math.min(Math.max(paperPickerActiveIndex, 0), buttons.length - 1);
+    buttons.forEach((button, index) => {
+      button.classList.toggle("active", index === paperPickerActiveIndex);
+      button.setAttribute("aria-selected", String(index === paperPickerActiveIndex));
+    });
+    buttons[paperPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  function choosePaperPickerItem(item) {
+    if (item.type === "category") {
+      paperPickerCategory = item.directOnly ? { ...item.category, folders: [] } : item.category;
+      paperPickerActiveIndex = 0;
+      renderPaperPicker();
+      return;
+    }
+    const bookmark = paperPickerBookmark;
+    closePaperPicker(false);
+    insertPaperReference({
+      id: item.paper.id,
+      title: item.paper.title,
+      authors: paperAuthors(item.paper),
+    }, undefined, undefined, bookmark);
+  }
+
+  function renderPaperPicker() {
+    if (!paperPicker) return;
+    const input = paperPicker.querySelector(".notes-paper-picker-search");
+    const query = String(input?.value || "").trim();
+    const title = paperPicker.querySelector(".notes-paper-picker-title");
+    const back = paperPicker.querySelector(".notes-paper-picker-back");
+    if (title) title.textContent = query ? "搜索结果" : paperPickerCategory?.name || "选择目录";
+    if (back) back.hidden = !paperPickerCategory || Boolean(query);
+    const list = paperPicker.querySelector(".notes-paper-picker-list");
+    const items = paperPickerItems();
+    list.replaceChildren();
+
+    if (!items.length) {
+      const empty = document.createElement("p");
+      empty.className = "notes-paper-picker-empty";
+      empty.textContent = query ? "没有匹配的论文" : (paperPickerCategory ? "此目录中没有论文" : "文献库中没有可插入的论文");
+      list.appendChild(empty);
+      return;
+    }
+
+    items.forEach((item, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `notes-paper-picker-item notes-paper-picker-${item.type}`;
+      button.setAttribute("role", "option");
+      if (item.type === "category") {
+        const row = document.createElement("div");
+        row.className = "notes-paper-picker-category-row";
+        row.style.setProperty("--paper-picker-depth", String(item.depth || 0));
+        const disclosure = document.createElement("button");
+        disclosure.type = "button";
+        disclosure.className = "notes-paper-picker-disclosure";
+        disclosure.disabled = !item.hasChildren;
+        disclosure.setAttribute("aria-label", item.expanded ? `收起 ${item.category.name}` : `展开 ${item.category.name}`);
+        disclosure.setAttribute("aria-expanded", String(Boolean(item.expanded)));
+        disclosure.innerHTML = item.hasChildren
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>'
+          : "";
+        disclosure.addEventListener("click", () => togglePaperPickerCategory(item));
+        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h6l2 3h10v11H3z"></path></svg>';
+        button.title = item.path;
+        const text = document.createElement("span");
+        text.className = "notes-paper-picker-item-text";
+        const name = document.createElement("strong");
+        name.textContent = item.category.name || item.path;
+        const meta = document.createElement("small");
+        meta.textContent = `${item.count} 篇论文`;
+        text.append(name, meta);
+        const arrow = document.createElement("span");
+        arrow.className = "notes-paper-picker-arrow";
+        arrow.textContent = "›";
+        button.append(text, arrow);
+        row.append(disclosure, button);
+        list.appendChild(row);
+      } else {
+        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"></path><path d="M14 3v5h5"></path></svg>';
+        const text = document.createElement("span");
+        text.className = "notes-paper-picker-item-text";
+        const name = document.createElement("strong");
+        name.textContent = item.paper.title || "未命名论文";
+        const meta = document.createElement("small");
+        meta.textContent = paperAuthors(item.paper).join("、") || item.paper.categoryName || "论文";
+        text.append(name, meta);
+        button.appendChild(text);
+        list.appendChild(button);
+      }
+      button.addEventListener("mouseenter", () => {
+        paperPickerActiveIndex = index;
+        updatePaperPickerActive(items);
+      });
+      button.addEventListener("click", () => choosePaperPickerItem(item));
+    });
+    updatePaperPickerActive(items);
+  }
+
+  function positionPaperPicker(anchorRect) {
+    if (!paperPicker) return;
+    const rect = paperPicker.getBoundingClientRect();
+    const margin = 10;
+    const anchor = anchorRect || { left: window.innerWidth / 2, bottom: window.innerHeight / 2, top: window.innerHeight / 2 };
+    let left = Math.min(anchor.left, window.innerWidth - rect.width - margin);
+    let top = anchor.bottom + 8;
+    if (top + rect.height > window.innerHeight - margin) top = anchor.top - rect.height - 8;
+    paperPicker.style.left = `${Math.max(margin, left)}px`;
+    paperPicker.style.top = `${Math.max(margin, top)}px`;
+  }
+
+  function closePaperPicker(restoreFocus = true) {
+    paperPicker?.remove();
+    paperPicker = null;
+    paperPickerCategory = null;
+    paperPickerActiveIndex = 0;
+    if (restoreFocus) restoreInsertionBookmark(paperPickerBookmark);
+    paperPickerBookmark = null;
+  }
+
+  async function loadPaperPickerTree() {
+    if (paperPickerTree) return paperPickerTree;
+    if (!paperPickerRequest) {
+      paperPickerRequest = (async () => {
+        const response = await apiFetch("/api/library");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "文献库加载失败");
+        paperPickerTree = data.tree;
+        return paperPickerTree;
+      })().finally(() => { paperPickerRequest = null; });
+    }
+    return paperPickerRequest;
+  }
+
+  async function openPaperPicker(anchor, bookmark = captureInsertionBookmark()) {
+    closePaperPicker(false);
+    closePaperLinkPopover();
+    paperPickerBookmark = bookmark;
+    const picker = document.createElement("section");
+    picker.className = "notes-paper-picker";
+    picker.setAttribute("role", "dialog");
+    picker.setAttribute("aria-label", "插入其它论文");
+    picker.innerHTML = `
+      <header class="notes-paper-picker-header">
+        <button class="notes-paper-picker-back" type="button" aria-label="返回目录" title="返回目录" hidden>‹</button>
+        <strong class="notes-paper-picker-title">选择目录</strong>
+      </header>
+      <label class="notes-paper-picker-search-wrap">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+        <input class="notes-paper-picker-search" type="search" placeholder="搜索论文、作者或目录…" autocomplete="off" />
+      </label>
+      <div class="notes-paper-picker-list" role="listbox"><p class="notes-paper-picker-empty">正在加载文献库…</p></div>`;
+    picker.addEventListener("click", (event) => event.stopPropagation());
+    const input = picker.querySelector(".notes-paper-picker-search");
+    input.addEventListener("input", () => {
+      paperPickerActiveIndex = 0;
+      renderPaperPicker();
+    });
+    input.addEventListener("keydown", (event) => {
+      const items = paperPickerItems();
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        paperPickerActiveIndex = (paperPickerActiveIndex + direction + items.length) % Math.max(items.length, 1);
+        updatePaperPickerActive(items);
+      } else if (event.key === "ArrowRight" && items[paperPickerActiveIndex]?.type === "category") {
+        const item = items[paperPickerActiveIndex];
+        if (item.hasChildren && !item.expanded) {
+          event.preventDefault();
+          togglePaperPickerCategory(item);
+        }
+      } else if (event.key === "ArrowLeft" && items[paperPickerActiveIndex]?.type === "category") {
+        const item = items[paperPickerActiveIndex];
+        if (item.hasChildren && item.expanded) {
+          event.preventDefault();
+          togglePaperPickerCategory(item);
+        }
+      } else if (event.key === "Enter" && items[paperPickerActiveIndex]) {
+        event.preventDefault();
+        choosePaperPickerItem(items[paperPickerActiveIndex]);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closePaperPicker();
+      }
+    });
+    picker.querySelector(".notes-paper-picker-back").addEventListener("click", () => {
+      paperPickerCategory = null;
+      paperPickerActiveIndex = 0;
+      renderPaperPicker();
+    });
+    document.body.appendChild(picker);
+    paperPicker = picker;
+    positionPaperPicker(anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor);
+    input.focus();
+    try {
+      await loadPaperPickerTree();
+      if (paperPicker === picker) renderPaperPicker();
+    } catch (error) {
+      if (paperPicker === picker) {
+        const empty = document.createElement("p");
+        empty.className = "notes-paper-picker-empty error";
+        empty.textContent = String(error.message || "文献库加载失败");
+        picker.querySelector(".notes-paper-picker-list").replaceChildren(empty);
+      }
     }
   }
 
@@ -418,15 +741,17 @@ export function initNotesPanel({
     }, 0);
   }
 
-  function insertPaperReference(paper, clientX, clientY) {
+  function insertPaperReference(paper, clientX, clientY, bookmark = null) {
     const id = String(paper?.id || "").trim();
     const label = escapeMarkdownLinkText(formatPaperCardLabel(paper) || id);
     if (!/^[a-zA-Z0-9_-]+$/.test(id) || !label) return;
     const markdown = `[${label}](hash:${id})`;
 
     if (editorReady && vditor) {
-      vditor.focus();
-      positionCaretAtPoint(clientX, clientY);
+      if (!restoreInsertionBookmark(bookmark)) {
+        vditor.focus();
+        if (Number.isFinite(clientX) && Number.isFinite(clientY)) positionCaretAtPoint(clientX, clientY);
+      }
       vditor.insertValue(markdown, true);
       revealCaretAfterPaperCard(id);
       return;
@@ -691,7 +1016,16 @@ export function initNotesPanel({
         tab: "    ",
         cache: { enable: false },
         counter: { enable: true, type: "markdown" },
-        toolbar: NOTES_TOOLBAR,
+        toolbar: NOTES_TOOLBAR.map((item) => item === "paper-reference" ? {
+          name: "paper-reference",
+          tip: "插入其它论文 <@>",
+          tipPosition: "n",
+          icon: PAPER_REFERENCE_ICON,
+          click: (event) => {
+            event.stopPropagation();
+            openPaperPicker(event.currentTarget, captureInsertionBookmark());
+          },
+        } : item),
         toolbarConfig: { pin: false },
         fullscreen: { index: 2000 },
         preview: {
@@ -748,11 +1082,13 @@ export function initNotesPanel({
   document.addEventListener("click", () => {
     setExportMenuOpen(false);
     closePaperLinkPopover();
+    closePaperPicker();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       setExportMenuOpen(false);
       closePaperLinkPopover();
+      closePaperPicker();
     }
   });
   editorHost?.addEventListener("dragover", (event) => {
@@ -801,7 +1137,23 @@ export function initNotesPanel({
     showPaperLinkPopover(anchor, id);
   }, true);
   editorHost?.addEventListener("keydown", (event) => {
-    if (event.altKey && event.ctrlKey && event.key === "7") {
+    if (event.key === "@" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+      const editable = getActiveEditable();
+      if (editable && (event.target === editable || editable.contains?.(event.target))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const bookmark = captureInsertionBookmark();
+        let anchor = null;
+        if (editable instanceof HTMLTextAreaElement) {
+          const rect = editable.getBoundingClientRect();
+          anchor = { left: rect.left + 24, top: rect.top + 24, bottom: rect.top + 24 };
+        } else {
+          const rangeRect = bookmark?.range?.getBoundingClientRect();
+          anchor = rangeRect?.width || rangeRect?.height ? rangeRect : editable.getBoundingClientRect();
+        }
+        openPaperPicker(anchor, bookmark);
+      }
+    } else if (event.altKey && event.ctrlKey && event.key === "7") {
       event.preventDefault();
       event.stopImmediatePropagation();
       activateSourceMode();

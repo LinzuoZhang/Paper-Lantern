@@ -14,17 +14,86 @@ Analyze method point {index} of {total}. Use the full paper content as evidence.
 Method point:
 {point_json}
 
+Primary writing objective:
+Explain the complete logic of this method point without turning the response into a line-by-line translation or an exhaustive implementation description.
+
+Preserve the full method chain:
+core idea → key components or stages → information flow or transformation → key formula or operation when relevant → resulting effect.
+
+Completeness means preserving all necessary logical links, not reproducing every technical detail in the paper.
+
 Writing guidance:
-- Write the content field as natural Chinese prose that fully explains how this point works. Be concrete and complete.
-- Present the explanation with clear structure: state the core idea first, then organize the rest into a few short, self-contained paragraphs separated by blank lines. Do not force a list format.
-- Inside the JSON source, encode every paragraph break within a string as `\n\n`; never place a literal newline or tab between a string's opening and closing quotation marks.
-- The motivation field is optional and should be modest and factual; use an empty string when the paper does not state the need explicitly.
-- When mentioning domain-specific terms, model/module names, algorithms, metrics, datasets, or coined concepts, write the mention as "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation exists, or "Chinese explanation (Original English Full Term)" when not; never use only the Chinese translation. Use the exact original English term from the paper when available.
-- Place formulas where they belong in the prose: wrap inline or short notation in "$...$" and block formulas in "$$...$$", then explain the symbols in plain Chinese in the sentence that follows; never put the explanation inside the math delimiters.
-- Only write formulas the paper actually includes.
+- Begin by stating the core idea of this method point directly.
+- Then explain the essential mechanism in logical order.
+- Use a few short, self-contained paragraphs separated by blank lines.
+- Prefer explaining what each component or operation contributes to the method over reproducing implementation details.
+- Compress multiple low-level operations into their shared functional role when this does not remove an important logical distinction.
+- Do not reproduce the paper sentence by sentence.
+- Do not expand standard background knowledge unless it is necessary to understand this method point.
+- Do not include architecture parameters, training hyperparameters, tensor dimensions, optimization settings, experimental details, or secondary implementation choices unless they directly affect the logic of this method point.
+- Do not repeat the same mechanism in different wording.
+- When several modules or operations serve the same conceptual purpose, explain their common role first, and distinguish them only where their functions materially differ.
+- Focus on explaining "what happens, how the key parts connect, and why this operation is needed".
+
+Detail selection rule:
+Include a technical detail when it is necessary to understand at least one of the following:
+1. the role of a key component;
+2. the input-output or information flow of a key stage;
+3. how information is transformed, selected, aligned, aggregated, or optimized;
+4. an important difference between stages, branches, modules, or representations;
+5. how a formula or operation realizes the stated mechanism;
+6. what is specific or novel about this method point.
+
+Details that do not affect these logical relationships should be omitted or compressed.
+
+Terminology requirements:
+- Domain-specific terms, model/module names, algorithms, metrics, datasets, and coined concepts must retain their original English terminology.
+- On the first occurrence of every relevant domain-specific term, model/module name, algorithm, metric, dataset, or coined concept, write it as "Chinese explanation (Original English Full Term, ABBR)" when an abbreviation exists, or "Chinese explanation (Original English Full Term)" when not.
+- Use the exact original English term from the paper whenever available.
+- Never use only the Chinese translation for such terms.
+- After the first complete occurrence, the abbreviation or concise Chinese name may be used when unambiguous.
+- Do not omit the full-term expansion merely for brevity.
+- At the same time, do not introduce unrelated terminology solely because it appears elsewhere in the paper.
+
+Formula requirements:
+- Preserve formulas that are part of the method point's actual mechanism or are needed to explain how a key operation is defined.
+- Only write formulas that explicitly appear in the paper. Never invent, reconstruct, or derive an unstated formula.
+- Place each formula at the point in the explanation where the corresponding operation is introduced.
+- Wrap inline or short notation in "$...$" and block formulas in "$$...$$".
+- After every included formula, explain in plain Chinese what the formula does and explain every symbol needed to understand it.
+- Do not omit symbol definitions merely for brevity.
+- If a symbol has already been clearly defined earlier in the same content field, do not redefine it unless its meaning changes.
+- Explain symbols concisely: state what each symbol represents, but do not expand into unrelated mathematical background or derivation.
+- Do not reproduce derivation steps unless the derivation itself is an explicit and necessary part of the proposed method.
+
+LaTeX and JSON requirements:
 - Because the response itself is JSON, escape every LaTeX backslash inside a JSON string as `\\`; for example, the JSON source for theta must contain `$\\theta$`.
-- Keep LaTeX simple, for example $p_i$, $p_{{current}}$, $d_i = ...$, $G=(V,E)$, $O(n)$, or $$\\frac{{a}}{{b}}$$. For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, $c_{{obs}}$, not $P_target$, $p_current$, $c_obs$. Write partial derivatives as \\frac{{\\partial c_{{i}}}}{{\\partial p}}.
-- Do not invent details; if something is not in the paper, say it is not explicit.
+- Keep LaTeX faithful to the paper.
+- For multi-character subscripts, braces are mandatory: write $P_{{target}}$, $p_{{current}}$, $c_{{obs}}$, not $P_target$, $p_current$, $c_obs$.
+- Write partial derivatives as `\\frac{{\\partial c_{{i}}}}{{\\partial p}}`.
+- Inside the JSON source, encode every paragraph break within a string as `\n\n`; never place a literal newline or tab between a string's opening and closing quotation marks.
+
+Motivation:
+- The motivation field should contain at most one concise sentence.
+- State only the limitation, problem, or design need explicitly supported by the paper.
+- Use an empty string when the paper does not make the motivation explicit.
+- Do not infer broad motivations from general background discussion.
+
+Style:
+- Write as a method explanation, not as a translated paper passage.
+- Assume the reader is technically literate but has not read the paper.
+- Be precise, compact, and explanatory.
+- Prefer direct causal structure such as "先……，再……，从而……" when appropriate.
+- Avoid repeatedly using phrases such as "论文提出""作者首先""作者随后""具体来说".
+- Avoid rhetorical repetition, broad background discussion, and generic statements of significance.
+- Do not discuss experiments, ablations, benchmark results, implementation settings, or datasets unless they are directly part of how this method point works.
+
+Length control:
+- Use the shortest explanation that preserves the complete mechanism, all necessary terminology expansions, and all necessary formula/symbol explanations.
+- Normally use 2–4 short paragraphs.
+- A paragraph should usually correspond to one major logical stage rather than one technical operation.
+- If formulas or symbol definitions make the explanation longer, prioritize their completeness and compress the surrounding prose instead.
+- Do not shorten by removing required terminology expansions, formulas, or symbol definitions.
 
 Paper content:
 {paper_text}
