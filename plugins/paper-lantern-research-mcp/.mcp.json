@@ -6,7 +6,7 @@
         "./scripts/paper_lantern_research_mcp.py"
       ],
       "env": {
-        "PAPER_LANTERN_PROJECT_DIR": "../../"
+        "PAPER_LANTERN_PROJECT_DIR": "D:/Paper-Lantern"
       }
     }
   }

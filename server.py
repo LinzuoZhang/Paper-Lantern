@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import difflib
 import hashlib
 import html
+import io
 import json
 import mimetypes
 import os
@@ -13,6 +14,7 @@ import re
 import shutil
 import tempfile
 import threading
+import uuid
 from datetime import datetime, timezone
 import urllib.error
 import urllib.request
@@ -52,6 +54,30 @@ NOTE_STORAGE_DIR = LIBRARY_DIR / "notes"
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "\u672a\u5206\u7c7b"
 MAX_REMOTE_PDF_BYTES = 200 * 1024 * 1024
+IMPORT_JOBS_FILE = BASE_DIR / ".cache" / "import_jobs.json"
+IMPORT_JOB_STATES = {
+    "queued",
+    "resolving_metadata",
+    "downloading",
+    "validating_pdf",
+    "deduplicating",
+    "writing_library",
+    "completed",
+    "failed",
+    "cancelled",
+}
+IMPORT_JOB_TERMINAL_STATES = {"completed", "failed", "cancelled"}
+IMPORT_JOBS_LOCK = threading.RLock()
+IMPORT_CANCEL_EVENTS = {}
+IMPORT_THREADS = {}
+LIBRARY_LOCK = threading.RLock()
+ARCHIVE_ROOT = LIBRARY_DIR / ".trash"
+ARCHIVE_ITEMS_DIR = ARCHIVE_ROOT / "items"
+ARCHIVE_INDEX_FILE = ARCHIVE_ROOT / "index.json"
+
+
+class ImportCancelled(RuntimeError):
+    pass
 
 
 def load_env_file(path):
@@ -145,10 +171,12 @@ def normalize_remote_pdf_source(value):
     return {"url": text, "label": text, "arxiv_id": ""}
 
 
-def read_limited_response(response, limit=MAX_REMOTE_PDF_BYTES):
+def read_limited_response(response, limit=MAX_REMOTE_PDF_BYTES, progress_callback=None, cancel_event=None):
     chunks = []
     total = 0
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ImportCancelled("Import cancelled.")
         chunk = response.read(1024 * 1024)
         if not chunk:
             break
@@ -156,6 +184,8 @@ def read_limited_response(response, limit=MAX_REMOTE_PDF_BYTES):
         if total > limit:
             raise ValueError("Remote PDF is too large.")
         chunks.append(chunk)
+        if progress_callback:
+            progress_callback(total)
     return b"".join(chunks)
 
 
@@ -181,7 +211,7 @@ def remote_pdf_title(source, final_url, headers):
     return title or "Remote PDF"
 
 
-def download_remote_pdf(source):
+def download_remote_pdf(source, progress_callback=None, cancel_event=None, stage_callback=None, return_details=False):
     request = urllib.request.Request(
         source["url"],
         headers={
@@ -191,12 +221,24 @@ def download_remote_pdf(source):
     )
     with urllib.request.urlopen(request, timeout=45) as response:
         content_type = response.headers.get("Content-Type", "")
-        data = read_limited_response(response)
         final_url = response.geturl()
         headers = response.headers
+        total_bytes = int(response.headers.get("Content-Length", "0") or 0)
+        data = read_limited_response(
+            response,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+    if stage_callback:
+        stage_callback("validating_pdf")
+    if cancel_event is not None and cancel_event.is_set():
+        raise ImportCancelled("Import cancelled.")
     if b"%PDF" not in data[:4096] and "pdf" not in content_type.lower():
         raise ValueError("The URL did not return a PDF.")
-    return data, remote_pdf_title(source, final_url, headers)
+    title = remote_pdf_title(source, final_url, headers)
+    if return_details:
+        return data, title, final_url, total_bytes
+    return data, title
 
 
 def export_annotated_pdf(pdf_path, highlights):
@@ -657,6 +699,273 @@ def maybe_auto_sync_library():
     return auto_sync_library(LIBRARY_DIR, get_cloud_sync_config())
 
 
+def _load_import_jobs():
+    data = read_json(IMPORT_JOBS_FILE, {"jobs": {}})
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), dict):
+        return {"jobs": {}}
+    return data
+
+
+def _write_import_jobs(data):
+    IMPORT_JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    write_json(IMPORT_JOBS_FILE, data)
+
+
+def _public_import_job(job):
+    return {
+        key: job.get(key)
+        for key in (
+            "jobId",
+            "state",
+            "stage",
+            "downloadedBytes",
+            "totalBytes",
+            "finalUrl",
+            "existingItem",
+            "paperId",
+            "error",
+            "cancellationRequested",
+            "canSafelyRetry",
+            "createdAt",
+            "updatedAt",
+        )
+        if key in job
+    }
+
+
+def _update_import_job(job_id, **updates):
+    with IMPORT_JOBS_LOCK:
+        data = _load_import_jobs()
+        job = data["jobs"].get(str(job_id))
+        if not job:
+            raise FileNotFoundError("Import job not found.")
+        if job.get("state") == "cancelled" and updates.get("state") not in {"cancelled", None}:
+            return _public_import_job(job)
+        job.update(updates)
+        if "state" in updates:
+            job["stage"] = updates["state"]
+        job["updatedAt"] = utc_now()
+        _write_import_jobs(data)
+        return _public_import_job(job)
+
+
+def _import_request_key(source_url, title, category):
+    value = json.dumps(
+        {
+            "url": str(source_url).strip(),
+            "title": str(title).strip(),
+            "category": str(category or UNCATEGORIZED_ID).strip(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def get_import_status(job_id):
+    with IMPORT_JOBS_LOCK:
+        data = _load_import_jobs()
+        job = data["jobs"].get(str(job_id))
+        if not job:
+            raise FileNotFoundError("Import job not found.")
+        state = job.get("state")
+        thread = IMPORT_THREADS.get(str(job_id))
+        if state not in IMPORT_JOB_TERMINAL_STATES and (thread is None or not thread.is_alive()):
+            job.update(
+                {
+                    "state": "failed",
+                    "stage": "failed",
+                    "error": "Import worker stopped before completion. It is safe to retry.",
+                    "canSafelyRetry": True,
+                    "updatedAt": utc_now(),
+                }
+            )
+            _write_import_jobs(data)
+        return _public_import_job(job)
+
+
+def start_import(source_url, title="", category=UNCATEGORIZED_ID):
+    raw_source = str(source_url or "").strip()
+    if not raw_source:
+        raise ValueError("A PDF URL or arXiv ID is required.")
+    normalized = normalize_remote_pdf_source(raw_source)
+    category = str(category or UNCATEGORIZED_ID).strip() or UNCATEGORIZED_ID
+    request_key = _import_request_key(normalized["url"], title, category)
+
+    with IMPORT_JOBS_LOCK:
+        data = _load_import_jobs()
+        for existing in data["jobs"].values():
+            if existing.get("requestKey") != request_key:
+                continue
+            state = existing.get("state")
+            if state == "completed" and existing.get("paperId"):
+                if read_paper(existing["paperId"]):
+                    return _public_import_job(existing)
+            thread = IMPORT_THREADS.get(existing.get("jobId", ""))
+            if state not in IMPORT_JOB_TERMINAL_STATES and thread and thread.is_alive():
+                return _public_import_job(existing)
+
+        job_id = uuid.uuid4().hex
+        now = utc_now()
+        job = {
+            "jobId": job_id,
+            "requestKey": request_key,
+            "state": "queued",
+            "stage": "queued",
+            "sourceUrl": raw_source,
+            "normalizedUrl": normalized["url"],
+            "title": str(title or "").strip(),
+            "category": category,
+            "downloadedBytes": 0,
+            "totalBytes": 0,
+            "finalUrl": "",
+            "existingItem": False,
+            "paperId": "",
+            "error": "",
+            "cancellationRequested": False,
+            "canSafelyRetry": True,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        data["jobs"][job_id] = job
+        _write_import_jobs(data)
+        cancel_event = threading.Event()
+        IMPORT_CANCEL_EVENTS[job_id] = cancel_event
+        thread = threading.Thread(
+            target=_run_import_job,
+            args=(job_id, cancel_event),
+            name=f"paper-import-{job_id[:8]}",
+            daemon=True,
+        )
+        IMPORT_THREADS[job_id] = thread
+        thread.start()
+        return _public_import_job(job)
+
+
+def cancel_import(job_id):
+    job_id = str(job_id or "").strip()
+    with IMPORT_JOBS_LOCK:
+        data = _load_import_jobs()
+        job = data["jobs"].get(job_id)
+        if not job:
+            raise FileNotFoundError("Import job not found.")
+        state = job.get("state")
+        if state in IMPORT_JOB_TERMINAL_STATES:
+            return _public_import_job(job)
+        if state == "writing_library":
+            job["canSafelyRetry"] = False
+            job["updatedAt"] = utc_now()
+            _write_import_jobs(data)
+            return _public_import_job(job)
+        IMPORT_CANCEL_EVENTS.setdefault(job_id, threading.Event()).set()
+        job.update(
+            {
+                "state": "cancelled",
+                "stage": "cancelled",
+                "cancellationRequested": True,
+                "canSafelyRetry": True,
+                "updatedAt": utc_now(),
+            }
+        )
+        _write_import_jobs(data)
+        return _public_import_job(job)
+
+
+def _raise_if_import_cancelled(cancel_event):
+    if cancel_event.is_set():
+        raise ImportCancelled("Import cancelled.")
+
+
+def _run_import_job(job_id, cancel_event):
+    try:
+        with IMPORT_JOBS_LOCK:
+            stored = _load_import_jobs()["jobs"].get(job_id, {})
+            source_url = stored.get("sourceUrl", "")
+            requested_title = stored.get("title", "")
+            category = stored.get("category", UNCATEGORIZED_ID)
+
+        _update_import_job(job_id, state="resolving_metadata")
+        source = normalize_remote_pdf_source(source_url)
+        _raise_if_import_cancelled(cancel_event)
+        _update_import_job(job_id, state="downloading", finalUrl=source["url"])
+
+        def report_progress(downloaded):
+            _update_import_job(job_id, downloadedBytes=downloaded)
+
+        def report_stage(stage):
+            _update_import_job(job_id, state=stage)
+
+        data, downloaded_title, final_url, total_bytes = download_remote_pdf(
+            source,
+            progress_callback=report_progress,
+            cancel_event=cancel_event,
+            stage_callback=report_stage,
+            return_details=True,
+        )
+        _update_import_job(
+            job_id,
+            downloadedBytes=len(data),
+            totalBytes=total_bytes,
+            finalUrl=final_url,
+        )
+        _raise_if_import_cancelled(cancel_event)
+        _update_import_job(job_id, state="deduplicating")
+        pdf_hash = hashlib.sha256(data).hexdigest()
+        source_urls = [source_url, source["url"], final_url]
+        with LIBRARY_LOCK:
+            existing = find_existing_import(pdf_hash, source_urls, source.get("arxiv_id", ""))
+            if existing:
+                _update_import_job(
+                    job_id,
+                    state="completed",
+                    existingItem=True,
+                    paperId=existing["id"],
+                    canSafelyRetry=True,
+                )
+                return
+
+            _raise_if_import_cancelled(cancel_event)
+            _update_import_job(job_id, state="writing_library", canSafelyRetry=False)
+            paper_title = clean_folder_name(requested_title or downloaded_title)
+            paper = add_paper_to_db(
+                paper_title,
+                category,
+                io.BytesIO(data),
+                metadata_updates={
+                    "sourceUrls": unique_strings(source_urls),
+                    "sourceUrl": source_url,
+                    "finalUrl": final_url,
+                    "arxivId": source.get("arxiv_id", ""),
+                    "pdfSha256": pdf_hash,
+                },
+            )
+        _update_import_job(
+            job_id,
+            state="completed",
+            existingItem=False,
+            paperId=paper["id"],
+            canSafelyRetry=True,
+        )
+        maybe_auto_sync_library()
+    except ImportCancelled:
+        _update_import_job(
+            job_id,
+            state="cancelled",
+            cancellationRequested=True,
+            canSafelyRetry=True,
+        )
+    except Exception as exc:
+        _update_import_job(
+            job_id,
+            state="failed",
+            error=str(exc),
+            canSafelyRetry=True,
+        )
+    finally:
+        IMPORT_CANCEL_EVENTS.pop(job_id, None)
+        IMPORT_THREADS.pop(job_id, None)
+
+
 def default_metadata(title, category):
     return {
         "title": str(title),
@@ -1037,6 +1346,9 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "basicInfo": normalize_basic_info(metadata.get("basicInfo", {})),
         "doi": str(metadata.get("doi", "")).strip(),
+        "tags": unique_strings(metadata.get("tags", [])) if isinstance(metadata.get("tags"), list) else [],
+        "sourceUrls": paper_source_urls(metadata),
+        "mergedCategoryIds": unique_strings(metadata.get("mergedCategoryIds", [])) if isinstance(metadata.get("mergedCategoryIds"), list) else [],
         "notes": read_paper_notes(paper_dir, metadata),
         "read": local_state["read"],
         "todo": local_state["todo"],
@@ -1248,32 +1560,92 @@ def delete_paper(paper_id):
     save_library_db(db)
 
 
-def add_paper_to_db(title, category, pdf_file):
+def unique_strings(values):
+    result = []
+    seen = set()
+    for value in values or []:
+        text = str(value or "").strip()
+        key = text.casefold()
+        if text and key not in seen:
+            seen.add(key)
+            result.append(text)
+    return result
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def paper_source_urls(metadata):
+    values = metadata.get("sourceUrls", []) if isinstance(metadata.get("sourceUrls"), list) else []
+    values = list(values) + [metadata.get("sourceUrl", ""), metadata.get("finalUrl", "")]
+    arxiv_id = str(metadata.get("arxivId", "")).strip()
+    if arxiv_id:
+        values.extend([f"https://arxiv.org/abs/{arxiv_id}", f"https://arxiv.org/pdf/{arxiv_id}.pdf"])
+    return unique_strings(values)
+
+
+def find_existing_import(pdf_hash, source_urls=None, arxiv_id=""):
     db = load_library_db()
-    category_id = ensure_category_path(db, category)
-    paper_id = make_paper_id(f"{title}-{category_id}")
-    paper_dir = PAPER_STORAGE_DIR / paper_id
-    while paper_dir.exists() or paper_id in db["papers"]:
-        paper_id = make_paper_id(f"{paper_id}-retry")
+    wanted_urls = {value.casefold() for value in unique_strings(source_urls)}
+    for record in db.get("papers", {}).values():
+        if record.get("itemType") == "note":
+            continue
+        paper_dir = paper_dir_from_record(record)
+        metadata_path = paper_dir / "metadata.json"
+        metadata = read_json(metadata_path, {})
+        existing_urls = {value.casefold() for value in paper_source_urls(metadata)}
+        if wanted_urls and wanted_urls.intersection(existing_urls):
+            return read_paper(record["id"], db)
+        if arxiv_id and str(metadata.get("arxivId", "")).strip().casefold() == str(arxiv_id).casefold():
+            return read_paper(record["id"], db)
+        existing_hash = str(metadata.get("pdfSha256", "")).strip().lower()
+        pdf_path = paper_dir / "paper.pdf"
+        if not existing_hash and pdf_path.exists():
+            existing_hash = file_sha256(pdf_path)
+            metadata["pdfSha256"] = existing_hash
+            write_json(metadata_path, metadata)
+        if pdf_hash and existing_hash == str(pdf_hash).lower():
+            return read_paper(record["id"], db)
+    return None
+
+
+def add_paper_to_db(title, category, pdf_file, metadata_updates=None):
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        category_id = ensure_category_path(db, category)
+        paper_id = make_paper_id(f"{title}-{category_id}")
         paper_dir = PAPER_STORAGE_DIR / paper_id
-    paper_dir.mkdir(parents=True, exist_ok=True)
-    with (paper_dir / "paper.pdf").open("wb") as output:
-        shutil.copyfileobj(pdf_file, output)
-    metadata = default_metadata(title, category_id)
-    write_json(paper_dir / "metadata.json", metadata)
-    write_json(paper_dir / "highlights.json", [])
-    write_json(paper_dir / "discussion.json", default_discussion_payload())
-    write_paper_notes(paper_dir, "")
-    update_paper_sync_hash(paper_dir)
-    db["papers"][paper_id] = {
-        "id": paper_id,
-        "title": title,
-        "categoryId": category_id,
-        "folder": f"papers/{paper_id}",
-        "uploadedAt": metadata["uploadedAt"],
-    }
-    save_library_db(db)
-    return read_paper(paper_id, db)
+        while paper_dir.exists() or paper_id in db["papers"]:
+            paper_id = make_paper_id(f"{paper_id}-retry")
+            paper_dir = PAPER_STORAGE_DIR / paper_id
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        with (paper_dir / "paper.pdf").open("wb") as output:
+            shutil.copyfileobj(pdf_file, output)
+        metadata = default_metadata(title, category_id)
+        if isinstance(metadata_updates, dict):
+            metadata.update(metadata_updates)
+        write_json(paper_dir / "metadata.json", metadata)
+        write_json(paper_dir / "highlights.json", [])
+        write_json(paper_dir / "discussion.json", default_discussion_payload())
+        write_paper_notes(paper_dir, "")
+        update_paper_sync_hash(paper_dir)
+        db["papers"][paper_id] = {
+            "id": paper_id,
+            "title": title,
+            "categoryId": category_id,
+            "folder": f"papers/{paper_id}",
+            "uploadedAt": metadata["uploadedAt"],
+        }
+        save_library_db(db)
+        return read_paper(paper_id, db)
 
 
 def add_note_to_db(title, category):
@@ -1302,6 +1674,272 @@ def add_note_to_db(title, category):
     return read_paper(note_id, db)
 
 
+def _load_archive_index():
+    data = read_json(ARCHIVE_INDEX_FILE, {"items": {}})
+    if not isinstance(data, dict) or not isinstance(data.get("items"), dict):
+        return {"items": {}}
+    return data
+
+
+def _save_archive_index(data):
+    ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    write_json(ARCHIVE_INDEX_FILE, data)
+
+
+def archive_item(item_id):
+    item_id = str(item_id or "").strip()
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        record = db.get("papers", {}).get(item_id)
+        if not record:
+            archived = _load_archive_index().get("items", {}).get(item_id)
+            if archived:
+                return archived
+            raise FileNotFoundError("Item not found.")
+        source_dir = paper_dir_from_record(record)
+        ARCHIVE_ITEMS_DIR.mkdir(parents=True, exist_ok=True)
+        target_dir = ARCHIVE_ITEMS_DIR / item_id
+        if target_dir.exists():
+            raise FileExistsError("An archived item with this id already exists.")
+        if source_dir.exists():
+            shutil.move(str(source_dir), str(target_dir))
+        archive = _load_archive_index()
+        entry = {
+            "id": item_id,
+            "title": record.get("title", item_id),
+            "itemType": record.get("itemType", "paper"),
+            "categoryId": record.get("categoryId", UNCATEGORIZED_ID),
+            "record": record,
+            "archivedAt": utc_now(),
+            "archivePath": str(target_dir.resolve()),
+        }
+        archive["items"][item_id] = entry
+        _save_archive_index(archive)
+        db["papers"].pop(item_id, None)
+        save_library_db(db)
+        return entry
+
+
+def restore_item(item_id):
+    item_id = str(item_id or "").strip()
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        if item_id in db.get("papers", {}):
+            live_item = read_paper(item_id, db)
+            if live_item:
+                return live_item
+        archive = _load_archive_index()
+        entry = archive.get("items", {}).get(item_id)
+        if not entry:
+            raise FileNotFoundError("Archived item not found.")
+        record = dict(entry.get("record", {}))
+        record["id"] = item_id
+        item_type = "note" if record.get("itemType") == "note" else "paper"
+        destination = (NOTE_STORAGE_DIR if item_type == "note" else PAPER_STORAGE_DIR) / item_id
+        source = ARCHIVE_ITEMS_DIR / item_id
+        if destination.exists():
+            raise FileExistsError("The restore destination already exists.")
+        if not source.exists():
+            raise FileNotFoundError("Archived item data is missing.")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+        category_id = str(record.get("categoryId", UNCATEGORIZED_ID))
+        if category_id not in db.get("categories", {}):
+            category_id = UNCATEGORIZED_ID
+        record["categoryId"] = category_id
+        record["folder"] = f"{'notes' if item_type == 'note' else 'papers'}/{item_id}"
+        db["papers"][item_id] = record
+        save_library_db(db)
+        archive["items"].pop(item_id, None)
+        _save_archive_index(archive)
+        metadata_path = destination / "metadata.json"
+        metadata = read_json(metadata_path, default_metadata(record.get("title", item_id), category_id))
+        metadata["category"] = category_id
+        write_json(metadata_path, metadata)
+        return read_paper(item_id, db)
+
+
+def delete_item(item_id, permanent=False):
+    item_id = str(item_id or "").strip()
+    if not permanent:
+        return {"archived": True, "item": archive_item(item_id)}
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        record = db.get("papers", {}).pop(item_id, None)
+        archive = _load_archive_index()
+        archived = archive.get("items", {}).pop(item_id, None)
+        if not record and not archived:
+            raise FileNotFoundError("Item not found.")
+        if record:
+            item_dir = paper_dir_from_record(record)
+            if item_dir.exists():
+                shutil.rmtree(item_dir)
+            save_library_db(db)
+        archived_dir = ARCHIVE_ITEMS_DIR / item_id
+        if archived_dir.exists():
+            shutil.rmtree(archived_dir)
+        if archived:
+            _save_archive_index(archive)
+        return {"archived": False, "permanentlyDeleted": True, "id": item_id}
+
+
+def _json_unique(items):
+    result = []
+    seen = set()
+    for item in items:
+        key = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+    return result
+
+
+def _merge_basic_info(primary, secondary):
+    first = normalize_basic_info(primary)
+    second = normalize_basic_info(secondary)
+    return {
+        "authors": unique_strings(first["authors"] + second["authors"]),
+        "venue": first["venue"] or second["venue"],
+        "publishedDate": first["publishedDate"] or second["publishedDate"],
+        "institutions": unique_strings(first["institutions"] + second["institutions"]),
+    }
+
+
+def merge_duplicate_items(canonical_id, duplicate_ids):
+    canonical_id = str(canonical_id or "").strip()
+    duplicate_ids = unique_strings(duplicate_ids)
+    duplicate_ids = [item_id for item_id in duplicate_ids if item_id != canonical_id]
+    if not canonical_id or not duplicate_ids:
+        raise ValueError("canonicalId and at least one different duplicate id are required.")
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        canonical_record = db.get("papers", {}).get(canonical_id)
+        if not canonical_record:
+            raise FileNotFoundError("Canonical item not found.")
+        canonical_type = canonical_record.get("itemType", "paper")
+        missing = [item_id for item_id in duplicate_ids if item_id not in db.get("papers", {})]
+        if missing:
+            raise FileNotFoundError(f"Duplicate item not found: {missing[0]}")
+        if any(db["papers"][item_id].get("itemType", "paper") != canonical_type for item_id in duplicate_ids):
+            raise ValueError("Only items of the same type can be merged.")
+
+        canonical_dir = paper_dir_from_record(canonical_record)
+        metadata_path = canonical_dir / "metadata.json"
+        metadata = read_json(metadata_path, default_metadata(canonical_record.get("title", canonical_id), canonical_record.get("categoryId", UNCATEGORIZED_ID)))
+        notes = read_paper_notes(canonical_dir, metadata)
+        highlights = read_json(canonical_dir / "highlights.json", [])
+        highlights = highlights if isinstance(highlights, list) else []
+        discussion = normalize_discussion_payload(read_json(canonical_dir / "discussion.json", {}))
+        category_ids = [canonical_record.get("categoryId", UNCATEGORIZED_ID)]
+        read_state = paper_local_state(canonical_id, metadata)
+        merged_ids = unique_strings(metadata.get("mergedFromIds", [])) if isinstance(metadata.get("mergedFromIds"), list) else []
+
+        for duplicate_id in duplicate_ids:
+            duplicate_record = db["papers"][duplicate_id]
+            duplicate_dir = paper_dir_from_record(duplicate_record)
+            duplicate_metadata = read_json(duplicate_dir / "metadata.json", {})
+            duplicate_notes = read_paper_notes(duplicate_dir, duplicate_metadata).strip()
+            if duplicate_notes and duplicate_notes not in notes:
+                heading = duplicate_metadata.get("title") or duplicate_record.get("title") or duplicate_id
+                notes = notes.rstrip() + ("\n\n---\n\n" if notes.strip() else "") + f"## Merged from {heading}\n\n{duplicate_notes}"
+            duplicate_highlights = read_json(duplicate_dir / "highlights.json", [])
+            if isinstance(duplicate_highlights, list):
+                highlights = _json_unique(highlights + duplicate_highlights)
+            duplicate_discussion = normalize_discussion_payload(read_json(duplicate_dir / "discussion.json", {}))
+            discussion["threads"] = _json_unique(discussion.get("threads", []) + duplicate_discussion.get("threads", []))
+            metadata["basicInfo"] = _merge_basic_info(metadata.get("basicInfo", {}), duplicate_metadata.get("basicInfo", {}))
+            if not str(metadata.get("doi", "")).strip() and str(duplicate_metadata.get("doi", "")).strip():
+                metadata["doi"] = str(duplicate_metadata["doi"]).strip()
+            canonical_tags = metadata.get("tags", []) if isinstance(metadata.get("tags"), list) else []
+            duplicate_tags = duplicate_metadata.get("tags", []) if isinstance(duplicate_metadata.get("tags"), list) else []
+            metadata["tags"] = unique_strings(canonical_tags + duplicate_tags)
+            metadata["sourceUrls"] = unique_strings(paper_source_urls(metadata) + paper_source_urls(duplicate_metadata))
+            canonical_keywords = metadata.get("keywords", []) if isinstance(metadata.get("keywords"), list) else []
+            duplicate_keywords = duplicate_metadata.get("keywords", []) if isinstance(duplicate_metadata.get("keywords"), list) else []
+            metadata["keywords"] = _json_unique(canonical_keywords + duplicate_keywords)
+            category_ids.append(duplicate_record.get("categoryId", UNCATEGORIZED_ID))
+            duplicate_state = paper_local_state(duplicate_id, duplicate_metadata)
+            read_state["read"] = read_state["read"] or duplicate_state["read"]
+            read_state["todo"] = read_state["todo"] or duplicate_state["todo"]
+            read_state["viewedAt"] = max(read_state["viewedAt"], duplicate_state["viewedAt"])
+            merged_ids.append(duplicate_id)
+
+        metadata["mergedFromIds"] = unique_strings(merged_ids)
+        metadata["mergedCategoryIds"] = unique_strings(category_ids)
+        write_json(metadata_path, metadata)
+        write_paper_notes(canonical_dir, notes)
+        write_json(canonical_dir / "highlights.json", highlights)
+        write_json(canonical_dir / "discussion.json", discussion)
+        update_paper_local_state(canonical_id, read_state)
+        update_paper_sync_hash(canonical_dir)
+        archived = [archive_item(item_id) for item_id in duplicate_ids]
+        return {"canonical": read_paper(canonical_id), "archivedDuplicates": archived}
+
+
+def list_duplicates():
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        items = {}
+        signatures = {}
+        for item_id, record in db.get("papers", {}).items():
+            item = read_paper(item_id, db)
+            if not item:
+                continue
+            items[item_id] = item
+            paper_dir = paper_dir_from_record(record)
+            metadata = read_json(paper_dir / "metadata.json", {})
+            item_signatures = []
+            doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", str(metadata.get("doi", "")).strip(), flags=re.I).casefold()
+            if doi:
+                item_signatures.append(("doi", doi))
+            for source_url in paper_source_urls(metadata):
+                item_signatures.append(("sourceUrl", source_url.casefold().rstrip("/")))
+            normalized_title = re.sub(r"\W+", "", str(item.get("title", "")).casefold())
+            if len(normalized_title) >= 12:
+                item_signatures.append(("title", normalized_title))
+            pdf_path = paper_dir / "paper.pdf"
+            if pdf_path.exists():
+                pdf_hash = str(metadata.get("pdfSha256", "")).strip().lower() or file_sha256(pdf_path)
+                item_signatures.append(("pdfSha256", pdf_hash))
+            for signature in item_signatures:
+                signatures.setdefault(signature, []).append(item_id)
+
+        adjacency = {item_id: set() for item_id in items}
+        for (kind, _value), ids in signatures.items():
+            if len(ids) < 2:
+                continue
+            for item_id in ids:
+                adjacency[item_id].update(other for other in ids if other != item_id)
+
+        groups = []
+        visited = set()
+        for item_id in items:
+            if item_id in visited or not adjacency[item_id]:
+                continue
+            stack = [item_id]
+            component = set()
+            while stack:
+                current = stack.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                stack.extend(adjacency[current] - component)
+            visited.update(component)
+            component_reasons = set()
+            for signature, ids in signatures.items():
+                if len(component.intersection(ids)) >= 2:
+                    component_reasons.add(signature[0])
+            ordered = sorted(component, key=lambda value: items[value].get("uploadedAt", ""))
+            groups.append(
+                {
+                    "canonicalSuggestion": ordered[0],
+                    "reasons": sorted(component_reasons),
+                    "items": [items[value] for value in ordered],
+                }
+            )
+        return groups
+
+
 class PaperReaderHandler(SimpleHTTPRequestHandler):
     extensions_map = {
         **SimpleHTTPRequestHandler.extensions_map,
@@ -1328,8 +1966,11 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/upload":
             self._handle_library_upload()
             return
-        if request_path in {"/api/library/arxiv", "/api/library/remote-pdf"}:
-            self._handle_library_remote_pdf_upload()
+        if request_path in {"/api/library/import/start", "/api/library/arxiv", "/api/library/remote-pdf"}:
+            self._handle_library_import_start()
+            return
+        if request_path == "/api/library/import/cancel":
+            self._handle_library_import_cancel()
             return
         if request_path == "/api/library/note":
             self._handle_library_note_create()
@@ -1535,6 +2176,12 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library":
             self._send_json(200, {"root": str(LIBRARY_DIR), "tree": read_library_tree()})
             return
+        if request_path == "/api/library/import/status":
+            try:
+                self._send_json(200, {"job": get_import_status(parse_query_value(self.path, "jobId"))})
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            return
         if request_path == "/api/cloud-sync":
             self._send_json(200, public_status(get_cloud_sync_config()))
             return
@@ -1719,6 +2366,27 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
             self._send_json(400, {"error": "Failed to download remote PDF.", "detail": str(exc)})
 
+    def _handle_library_import_start(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            source = payload.get("pdfUrl", "") or payload.get("url", "") or payload.get("arxivId", "")
+            category = str(payload.get("category", payload.get("categoryId", ""))).strip() or UNCATEGORIZED_ID
+            job = start_import(source, payload.get("title", ""), category)
+            self._send_json(202 if job.get("state") != "completed" else 200, {"job": job})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+
+    def _handle_library_import_cancel(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            self._send_json(200, {"job": cancel_import(payload.get("jobId", ""))})
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except FileNotFoundError as exc:
+            self._send_json(404, {"error": str(exc)})
+
     def _handle_library_save(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1740,7 +2408,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
         if action == "delete":
             try:
-                delete_paper(str(payload.get("id", "")))
+                delete_item(str(payload.get("id", "")))
                 sync = maybe_auto_sync_library()
                 self._send_json(200, {"tree": read_library_tree(), "sync": sync})
             except FileNotFoundError as exc:

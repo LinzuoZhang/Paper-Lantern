@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import sys
@@ -139,16 +138,70 @@ def tool_get_item(args: JsonObject) -> JsonObject:
 
 
 def tool_import_paper_from_url(args: JsonObject) -> JsonObject:
+    """Backward-compatible alias for start_import."""
+    return tool_start_import(args)
+
+
+def tool_start_import(args: JsonObject) -> JsonObject:
     url = str(args.get("url", "")).strip()
     if not url:
         raise ValueError("url is required.")
     title = str(args.get("title", "")).strip()
     category = str(args.get("categoryId", "") or paper_server.UNCATEGORIZED_ID).strip()
-    source = paper_server.normalize_remote_pdf_source(url)
-    data, downloaded_title = paper_server.download_remote_pdf(source)
-    paper_title = paper_server.clean_folder_name(title or downloaded_title)
-    paper = paper_server.add_paper_to_db(paper_title, category, io.BytesIO(data))
-    return tool_text({"paper": paper, "paperLink": markdown_link(format_paper_link_label(paper), paper["id"])})
+    return tool_text({"job": paper_server.start_import(url, title, category)})
+
+
+def tool_get_import_status(args: JsonObject) -> JsonObject:
+    job_id = str(args.get("jobId", "")).strip()
+    if not job_id:
+        raise ValueError("jobId is required.")
+    return tool_text({"job": paper_server.get_import_status(job_id)})
+
+
+def tool_cancel_import(args: JsonObject) -> JsonObject:
+    job_id = str(args.get("jobId", "")).strip()
+    if not job_id:
+        raise ValueError("jobId is required.")
+    return tool_text({"job": paper_server.cancel_import(job_id)})
+
+
+def tool_archive_item(args: JsonObject) -> JsonObject:
+    item_id = str(args.get("id", "")).strip()
+    if not item_id:
+        raise ValueError("id is required.")
+    return tool_text({"archived": paper_server.archive_item(item_id)})
+
+
+def tool_restore_item(args: JsonObject) -> JsonObject:
+    item_id = str(args.get("id", "")).strip()
+    if not item_id:
+        raise ValueError("id is required.")
+    item = paper_server.restore_item(item_id)
+    return tool_text({"item": item})
+
+
+def tool_delete_item(args: JsonObject) -> JsonObject:
+    item_id = str(args.get("id", "")).strip()
+    if not item_id:
+        raise ValueError("id is required.")
+    return tool_text(paper_server.delete_item(item_id, permanent=bool(args.get("permanent", False))))
+
+
+def tool_list_duplicates(args: JsonObject) -> JsonObject:
+    groups = paper_server.list_duplicates()
+    limit = max(1, min(int(args.get("limit", 100) or 100), 500))
+    return tool_text({"duplicateGroupCount": len(groups), "groups": groups[:limit]})
+
+
+def tool_merge_duplicate_items(args: JsonObject) -> JsonObject:
+    canonical_id = str(args.get("canonicalId", "")).strip()
+    duplicate_ids = args.get("duplicateIds", [])
+    if not isinstance(duplicate_ids, list):
+        raise ValueError("duplicateIds must be an array.")
+    result = paper_server.merge_duplicate_items(canonical_id, duplicate_ids)
+    canonical = result["canonical"]
+    result["paperLink"] = markdown_link(format_paper_link_label(canonical), canonical["id"])
+    return tool_text(result)
 
 
 def tool_create_category(args: JsonObject) -> JsonObject:
@@ -280,7 +333,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
         tool_get_item,
     ),
     "import_paper_from_url": (
-        "Download a PDF URL or arXiv link into the literature library.",
+        "Backward-compatible alias for start_import. Starts an asynchronous, idempotent PDF import job.",
         {
             "type": "object",
             "properties": {"url": {"type": "string"}, "title": {"type": "string"}, "categoryId": {"type": "string"}},
@@ -288,6 +341,88 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "additionalProperties": False,
         },
         tool_import_paper_from_url,
+    ),
+    "start_import": (
+        "Start an asynchronous, idempotent import for a PDF URL or arXiv link and return its job id.",
+        {
+            "type": "object",
+            "properties": {"url": {"type": "string"}, "title": {"type": "string"}, "categoryId": {"type": "string"}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        tool_start_import,
+    ),
+    "get_import_status": (
+        "Return the current stage, byte progress, final URL, duplicate result, and retry safety for an import job.",
+        {
+            "type": "object",
+            "properties": {"jobId": {"type": "string"}},
+            "required": ["jobId"],
+            "additionalProperties": False,
+        },
+        tool_get_import_status,
+    ),
+    "cancel_import": (
+        "Request cancellation of an import job before it starts writing to the library.",
+        {
+            "type": "object",
+            "properties": {"jobId": {"type": "string"}},
+            "required": ["jobId"],
+            "additionalProperties": False,
+        },
+        tool_cancel_import,
+    ),
+    "archive_item": (
+        "Move a paper or note to Paper Lantern's recoverable archive.",
+        {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        tool_archive_item,
+    ),
+    "restore_item": (
+        "Restore a paper or note from Paper Lantern's archive.",
+        {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        tool_restore_item,
+    ),
+    "delete_item": (
+        "Archive an item by default; permanently delete it only when permanent=true is explicitly supplied.",
+        {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "permanent": {"type": "boolean", "default": False}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        tool_delete_item,
+    ),
+    "list_duplicates": (
+        "Find duplicate paper or note groups using PDF hashes, DOI, source URL, and normalized title.",
+        {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        tool_list_duplicates,
+    ),
+    "merge_duplicate_items": (
+        "Merge duplicate metadata and research content into a chosen canonical item, then archive the duplicates.",
+        {
+            "type": "object",
+            "properties": {
+                "canonicalId": {"type": "string"},
+                "duplicateIds": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            },
+            "required": ["canonicalId", "duplicateIds"],
+            "additionalProperties": False,
+        },
+        tool_merge_duplicate_items,
     ),
     "create_category": (
         "Create a literature-library category.",

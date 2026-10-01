@@ -44,6 +44,7 @@ const readerTabPanels = document.querySelectorAll(".reader-tab-panel");
 const withAiPanel = document.querySelector("#withAiPanel");
 const withAiSummaryScroll = document.querySelector("#withAiPanel .summary-scroll");
 const withAiScrollBottomButton = document.querySelector("#withAiScrollBottomButton");
+const WITH_AI_FOLLOW_THRESHOLD = 180;
 const discussionForm = document.querySelector("#discussionForm");
 const basicInfoButton = document.querySelector("#basicInfoButton");
 const basicInfoStatus = document.querySelector("#basicInfoStatus");
@@ -214,12 +215,15 @@ discussionPanel = initDiscussionPanel({
   saveItem: saveCurrentPaper,
   apiFetch,
   readJsonResponse,
+  copyText: copyTextToClipboard,
+  onCopied: (button) => showCopiedFeedback(button),
   showConfirm: (message) => showFloatingConfirm({ message, title: "确认操作", confirmLabel: "删除", danger: true }),
   onActivate: () => {
     setActiveReaderTab("withAiTab");
     setSummaryPaneCollapsed(false);
   },
   onOpenReference: () => openActiveDiscussionReference(),
+  onScrollLatest: ({ smooth, force }) => scrollWithAiPanelToBottom({ smooth, force }),
   onReferenceChange: (reference) => {
     clearDiscussionReferenceHighlights();
     if (reference) retryApplyReferenceHighlight(14);
@@ -568,7 +572,7 @@ function setActiveReaderTab(activeTabId) {
 
 function initWithAiScrollBottom() {
   if (!withAiScrollBottomButton) return;
-  withAiScrollBottomButton.addEventListener("click", scrollWithAiPanelToBottom);
+  withAiScrollBottomButton.addEventListener("click", () => scrollWithAiPanelToBottom());
   withAiSummaryScroll?.addEventListener("scroll", updateWithAiScrollBottomButton, { passive: true });
   window.addEventListener("scroll", updateWithAiScrollBottomButton, { passive: true });
   window.addEventListener("resize", () => {
@@ -582,12 +586,17 @@ function initWithAiScrollBottom() {
   updateWithAiScrollBottomButton();
 }
 
-function scrollWithAiPanelToBottom() {
+function scrollWithAiPanelToBottom({ smooth = true, force = true } = {}) {
+  const behavior = smooth ? "smooth" : "auto";
+  const scroller = isScrollableElement(withAiSummaryScroll) ? withAiSummaryScroll : document.scrollingElement;
+  // 流式输出时只在用户本来就贴着底部时跟随，避免打断向上翻阅。
+  if (!force && scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > WITH_AI_FOLLOW_THRESHOLD) return;
   if (isScrollableElement(withAiSummaryScroll)) {
-    withAiSummaryScroll.scrollTo({ top: withAiSummaryScroll.scrollHeight, behavior: "smooth" });
-    return;
+    withAiSummaryScroll.scrollTo({ top: withAiSummaryScroll.scrollHeight, behavior });
+  } else {
+    discussionForm?.scrollIntoView({ block: "end", behavior });
   }
-  discussionForm?.scrollIntoView({ block: "end", behavior: "smooth" });
+  updateWithAiScrollBottomButton();
 }
 
 function updateWithAiScrollBottomButton() {

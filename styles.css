@@ -7129,7 +7129,8 @@ body.resizing-note-discussion {
 }
 
 .discussion-message.assistant {
-  justify-self: start;
+  justify-self: stretch;
+  max-width: 100%;
 }
 
 .discussion-message-actions {
@@ -7205,11 +7206,24 @@ body.resizing-note-discussion {
   color: var(--ink);
 }
 
+/* AI 回答不再用气泡包裹，直接以正文形式排版。 */
+.discussion-message.assistant .discussion-message-body {
+  width: 100%;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.discussion-message.assistant .discussion-message-actions {
+  justify-content: flex-start;
+}
+
 .discussion-message.pending .discussion-message-body {
   color: var(--muted);
 }
 
 .discussion-message.error .discussion-message-body {
+  padding: 10px 12px;
   border-color: rgba(138, 75, 21, 0.3);
   background: #fff7ef;
   color: var(--warn);

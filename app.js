@@ -406,11 +406,11 @@ async function uploadPdfToLibrary(file, title, category) {
 }
 
 async function uploadRemotePdf(source) {
-  setLibraryStatus("Downloading PDF...");
-  showArxivDownloadOverlay("Downloading PDF...", source);
+  setLibraryStatus("Starting PDF import...");
+  showArxivDownloadOverlay("Starting PDF import...", source);
   arxivUploadButton.disabled = true;
   try {
-    const response = await apiFetch("/api/library/remote-pdf", {
+    const response = await apiFetch("/api/library/import/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pdfUrl: source, category: getActiveUploadCategory() }),
@@ -421,10 +421,27 @@ async function uploadRemotePdf(source) {
       showArxivDownloadOverlay(data.detail || data.error || "PDF import failed.", source, true);
       return;
     }
-    reportSyncResult(data.sync);
+    let job = data.job;
+    if (!job?.jobId) throw new Error("Import API did not return a job id.");
+    while (!["completed", "failed", "cancelled"].includes(job.state)) {
+      showImportJobProgress(job, source);
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      const statusResponse = await apiFetch(`/api/library/import/status?${new URLSearchParams({ jobId: job.jobId })}`);
+      const statusData = await readJsonResponse(statusResponse);
+      if (!statusResponse.ok) throw new Error(statusData.error || "Unable to read import status.");
+      job = statusData.job;
+    }
+    if (job.state !== "completed") {
+      const message = job.error || (job.state === "cancelled" ? "PDF import cancelled." : "PDF import failed.");
+      setLibraryStatus(message, true);
+      showArxivDownloadOverlay(message, `Job ${job.jobId}`, true);
+      return;
+    }
     showArxivDownloadOverlay("Opening paper...", source);
-    libraryTree = data.tree || libraryTree;
-    openPaperReader(data.paper.id);
+    const libraryResponse = await apiFetch("/api/library");
+    const libraryData = await readJsonResponse(libraryResponse);
+    if (libraryResponse.ok) libraryTree = libraryData.tree || libraryTree;
+    openPaperReader(job.paperId);
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "PDF import failed.", true);
@@ -432,6 +449,23 @@ async function uploadRemotePdf(source) {
   } finally {
     arxivUploadButton.disabled = false;
   }
+}
+
+function showImportJobProgress(job, source) {
+  const labels = {
+    queued: "Queued...",
+    resolving_metadata: "Resolving metadata...",
+    downloading: "Downloading PDF...",
+    validating_pdf: "Validating PDF...",
+    deduplicating: "Checking for duplicates...",
+    writing_library: "Writing to library...",
+  };
+  const bytes = Number(job.downloadedBytes || 0);
+  const total = Number(job.totalBytes || 0);
+  const progress = bytes > 0
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB${total > 0 ? ` / ${(total / 1024 / 1024).toFixed(1)} MB` : ""}`
+    : source;
+  showArxivDownloadOverlay(labels[job.stage] || "Importing PDF...", progress);
 }
 
 function showArxivDownloadOverlay(message, arxivId = "", isError = false) {
@@ -1975,7 +2009,7 @@ async function apiFetch(path, options = {}) {
       lastError = error;
     }
   }
-  if (url === "/api/library/remote-pdf") {
+  if (url === "/api/library/import/start") {
     throw new Error("Remote PDF import API is not available. Restart python server.py so the new backend route is loaded.");
   }
   throw new Error(`${lastError?.message || "Failed to fetch"} Tried: ${tried.join(", ")}. Please start the Python server and open http://127.0.0.1:8000/ or http://localhost:8000/.`);

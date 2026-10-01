@@ -1,6 +1,7 @@
 const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>';
 const EDIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"></path></svg>';
+const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>';
 const REFERENCE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 12 4 16l4 4"></path><path d="M4 16h10a4 4 0 0 0 4-4V4"></path></svg>';
 
@@ -12,10 +13,13 @@ export function initDiscussionPanel({
   saveItem,
   apiFetch,
   readJsonResponse,
+  copyText = copyTextToClipboard,
+  onCopied = null,
   showConfirm = showDiscussionConfirm,
   onActivate = () => {},
   onOpenReference = () => {},
   onReferenceChange = () => {},
+  onScrollLatest = null,
   contextType = "paper",
   taskInstruction = "",
 } = {}) {
@@ -90,7 +94,9 @@ export function initDiscussionPanel({
     input.value = "";
     syncNewDiscussionButtons();
     renderMessages(thread);
+    await persist();
     const pending = appendMessage("assistant", "正在思考…", true);
+    scrollLatest({ smooth: true, force: true });
     setBusy(true);
     abortController = new AbortController();
     let answer = "";
@@ -103,6 +109,7 @@ export function initDiscussionPanel({
         onDelta: (delta) => {
           answer += delta;
           setMessageBody(pending, answer || "正在思考…");
+          scrollLatest({ smooth: false, force: false });
         },
       });
       thread.messages.push({ role: "assistant", content: answer || "未返回内容。" });
@@ -220,7 +227,7 @@ export function initDiscussionPanel({
   }
 
   function renderHistory(value) {
-    threads = normalizeThreads(value);
+    threads = normalizeThreads(value).filter(hasMessages);
     activeId = null;
     renderThreadList();
     showList();
@@ -231,7 +238,6 @@ export function initDiscussionPanel({
     const thread = createThread();
     threads.unshift(thread);
     showThread(thread.id);
-    persist();
   }
 
   function startFromReference(reference) {
@@ -240,13 +246,18 @@ export function initDiscussionPanel({
     showThread(thread.id);
     onActivate();
     input.focus();
-    persist();
     return thread;
   }
 
   function createThread(reference = null) {
     const now = new Date().toISOString();
     return { id: `discussion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title: reference ? "引用提问" : "新讨论", messages: [], reference, createdAt: now, updatedAt: now };
+  }
+
+  // 从未发送过消息的讨论只是草稿：不出现在列表里，也不会写入磁盘。
+  function dropEmptyThreads(keepId = null) {
+    const kept = threads.filter((entry) => hasMessages(entry) || entry.id === keepId);
+    if (kept.length !== threads.length) threads = kept;
   }
 
   function ensureActive(question) {
@@ -262,6 +273,7 @@ export function initDiscussionPanel({
 
   function showList() {
     closeHistoryPopover();
+    dropEmptyThreads();
     if (listView) listView.hidden = false;
     if (threadView) threadView.hidden = true;
     activeId = null;
@@ -275,6 +287,7 @@ export function initDiscussionPanel({
   function showThread(id) {
     const thread = threads.find((entry) => entry.id === id);
     if (!thread) return;
+    dropEmptyThreads(id);
     activeId = id;
     if (listView) listView.hidden = true;
     if (threadView) threadView.hidden = false;
@@ -375,7 +388,7 @@ export function initDiscussionPanel({
   function renderHistoryPopoverList(list, query = "") {
     list.replaceChildren();
     const normalizedQuery = String(query).trim().toLocaleLowerCase();
-    const matches = threads.filter((thread) => !normalizedQuery || String(thread.title || "").toLocaleLowerCase().includes(normalizedQuery));
+    const matches = threads.filter((thread) => hasMessages(thread) && (!normalizedQuery || String(thread.title || "").toLocaleLowerCase().includes(normalizedQuery)));
     if (!matches.length) {
       const empty = documentNode.createElement("div");
       empty.className = "discussion-history-empty";
@@ -499,14 +512,15 @@ export function initDiscussionPanel({
   function renderThreadList() {
     if (!threadList) return;
     threadList.replaceChildren();
-    if (!threads.length) {
+    const visibleThreads = threads.filter(hasMessages);
+    if (!visibleThreads.length) {
       const empty = document.createElement("div");
       empty.className = "discussion-empty";
       empty.textContent = "在下方输入内容，开始新的讨论。";
       threadList.appendChild(empty);
       return;
     }
-    threads.forEach((thread) => {
+    visibleThreads.forEach((thread) => {
       const row = document.createElement("div");
       row.className = "discussion-thread-item";
       const titleWrap = document.createElement("div");
@@ -602,14 +616,14 @@ export function initDiscussionPanel({
       return;
     }
     let referenceRendered = false;
-    thread.messages.forEach((message) => {
+    thread.messages.forEach((message, index) => {
       const messageReference = !referenceRendered && message.role === "user" ? thread.reference : null;
       if (messageReference) referenceRendered = true;
-      appendMessage(message.role, message.content, false, messageReference);
+      appendMessage(message.role, message.content, false, messageReference, index);
     });
   }
 
-  function appendMessage(role, content, pending = false, reference = null) {
+  function appendMessage(role, content, pending = false, reference = null, index = -1) {
     messages.querySelector(".discussion-empty")?.remove();
     const node = document.createElement("article");
     node.className = `discussion-message ${role === "user" ? "user" : "assistant"}${pending ? " pending" : ""}`;
@@ -633,10 +647,128 @@ export function initDiscussionPanel({
     const body = document.createElement("div");
     body.className = "discussion-message-body markdown-body";
     node.appendChild(body);
+    if (!pending && index >= 0) appendMessageActions(node, role, index);
     messages.appendChild(node);
     setMessageBody(node, content);
-    messages.scrollTop = messages.scrollHeight;
     return node;
+  }
+
+  function appendMessageActions(node, role, index) {
+    const actions = document.createElement("div");
+    actions.className = "discussion-message-actions";
+    const copyButton = createMessageActionButton(COPY_ICON, role === "user" ? "复制提问" : "复制回答");
+    copyButton.addEventListener("click", () => copyMessage(node, index, copyButton));
+    actions.appendChild(copyButton);
+    if (role === "user") {
+      const editButton = createMessageActionButton(EDIT_ICON, "编辑提问");
+      editButton.addEventListener("click", () => startEditingMessage(node, index));
+      actions.appendChild(editButton);
+    }
+    node.appendChild(actions);
+  }
+
+  function createMessageActionButton(icon, label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon-button message-action-button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.innerHTML = icon;
+    return button;
+  }
+
+  async function copyMessage(node, index, button) {
+    const thread = threads.find((entry) => entry.id === activeId);
+    const content = thread?.messages?.[index]?.content || node.querySelector(".discussion-message-body")?.innerText || "";
+    const value = String(content).trim();
+    if (!value) return;
+    const previousLabel = button.title;
+    try {
+      await copyText(value);
+      button.classList.add("copied");
+      button.title = "已复制";
+      button.setAttribute("aria-label", "已复制");
+      onCopied?.(button);
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.classList.remove("copied");
+        button.title = previousLabel;
+        button.setAttribute("aria-label", previousLabel);
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy discussion message.", error);
+      button.title = "复制失败";
+      button.setAttribute("aria-label", "复制失败");
+    }
+  }
+
+  function startEditingMessage(node, index) {
+    if (busy) return;
+    const thread = threads.find((entry) => entry.id === activeId);
+    const message = thread?.messages?.[index];
+    if (!message || message.role !== "user" || node.querySelector(".discussion-edit-form")) return;
+
+    const body = node.querySelector(".discussion-message-body");
+    const actions = node.querySelector(".discussion-message-actions");
+    if (body) body.hidden = true;
+    if (actions) actions.hidden = true;
+
+    const form = document.createElement("form");
+    form.className = "discussion-edit-form";
+    const editInput = document.createElement("textarea");
+    editInput.className = "discussion-edit-input";
+    editInput.rows = 3;
+    editInput.setAttribute("aria-label", "编辑提问");
+    editInput.value = message.content || "";
+    const editActions = document.createElement("div");
+    editActions.className = "discussion-edit-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "discussion-edit-cancel";
+    cancelButton.textContent = "取消";
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "discussion-edit-save";
+    saveButton.textContent = "保存";
+    editActions.append(cancelButton, saveButton);
+    form.append(editInput, editActions);
+
+    let settled = false;
+    const finish = (shouldSave) => {
+      if (settled) return;
+      const next = editInput.value.trim();
+      if (!shouldSave || !next || next === message.content) {
+        settled = true;
+        form.remove();
+        if (body) body.hidden = false;
+        if (actions) actions.hidden = false;
+        return;
+      }
+      settled = true;
+      const previousContent = message.content;
+      message.content = next;
+      thread.updatedAt = new Date().toISOString();
+      // 只有仍是自动生成的标题才跟着首问更新，避免覆盖用户改过的标题。
+      if (index === 0 && thread.title === makeTitle(previousContent)) thread.title = makeTitle(next);
+      persist();
+      renderThreadList();
+      renderHeader(thread);
+      renderMessages(thread);
+    };
+
+    cancelButton.addEventListener("click", () => finish(false));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      finish(true);
+    });
+    editInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      finish(false);
+    });
+    (body || node).after(form);
+    editInput.focus();
+    editInput.setSelectionRange(editInput.value.length, editInput.value.length);
   }
 
   function setMessageBody(node, content) {
@@ -651,7 +783,19 @@ export function initDiscussionPanel({
   }
 
   function scrollToLatest() {
-    messages.lastElementChild?.scrollIntoView({ block: "end", behavior: "smooth" });
+    scrollLatest({ smooth: true, force: true });
+  }
+
+  // 把最新消息带进视野。force 为 false 时，只有用户本来就贴着底部才跟随，避免打断向上翻阅。
+  function scrollLatest({ smooth = true, force = true } = {}) {
+    if (typeof onScrollLatest === "function") {
+      onScrollLatest({ smooth, force });
+      return;
+    }
+    const target = messages.lastElementChild;
+    if (!target) return;
+    if (!force && !isNearBottom(findScrollParent(messages))) return;
+    target.scrollIntoView({ block: "end", behavior: smooth ? "smooth" : "auto" });
   }
 
   function renameActiveThread() {
@@ -725,7 +869,7 @@ export function initDiscussionPanel({
   async function persist() {
     const item = getItem?.();
     if (!item || !saveItem) return;
-    try { await saveItem({ discussion: { threads } }); }
+    try { await saveItem({ discussion: { threads: threads.filter(hasMessages) } }); }
     catch (error) { console.error("Failed to save discussion.", error); }
   }
 
@@ -816,6 +960,35 @@ function normalizeReference(reference) {
   return { ...reference, text: text.slice(0, 4000) };
 }
 
+function hasMessages(thread) { return Boolean(thread?.messages?.length); }
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+function findScrollParent(element) {
+  let node = element || null;
+  while (node) {
+    const overflowY = window.getComputedStyle(node).overflowY;
+    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight + 2) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+function isNearBottom(element, threshold = 180) {
+  if (!element) return true;
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+}
 function makeTitle(text) { const value = String(text || "新讨论").replace(/\s+/g, " ").trim(); return value.length > 42 ? `${value.slice(0, 39)}...` : value; }
 function escapeHtml(value) { return String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]); }
 function emptyController() { return { renderHistory() {}, renderMarkdown: escapeHtml, getMarkdownRenderer: () => null, startFromReference() {}, showList() {}, getActiveReference: () => null, focus() {}, getThreads: () => [] }; }

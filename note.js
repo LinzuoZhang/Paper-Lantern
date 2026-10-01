@@ -48,6 +48,8 @@ const discussionPanel = initDiscussionPanel({
   saveItem: saveCurrentNote,
   apiFetch,
   readJsonResponse,
+  copyText: copyTextToClipboard,
+  onCopied: (button) => showCopiedFeedback(button),
   onActivate: openDiscussionPane,
   contextType: "note",
   taskInstruction: "你的任务是协助用户写好和完善当前笔记。用户可能会随机询问各种问题；请优先结合已有笔记理解意图，回答尽量围绕笔记内容展开，并在合适时给出可直接写入笔记的建议或文本。",

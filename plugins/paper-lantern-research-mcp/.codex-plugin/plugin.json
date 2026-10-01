@@ -1,6 +1,6 @@
 {
   "name": "paper-lantern-research-mcp",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260929032603",
   "description": "Local MCP tools for managing a Paper Lantern literature library.",
   "author": {
     "name": "Paper Lantern"
