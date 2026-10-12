@@ -634,6 +634,7 @@ def normalize_discussion_payload(discussion):
             "id": str(item.get("id", "")).strip()[:80] or f"discussion-{index}",
             "title": str(item.get("title", "")).strip()[:120] or "New discussion",
             "messages": normalize_discussion_messages(item.get("messages", [])),
+            "reference": normalize_discussion_reference(item.get("reference")),
             "createdAt": str(item.get("createdAt", "")).strip(),
             "updatedAt": str(item.get("updatedAt", "")).strip() or str(item.get("createdAt", "")).strip(),
         }
@@ -642,6 +643,15 @@ def normalize_discussion_payload(discussion):
         thread["hash"] = make_discussion_thread_hash(thread)
         threads.append(thread)
     return {"threads": threads}
+
+
+def normalize_discussion_reference(reference):
+    if not isinstance(reference, dict):
+        return None
+    text = " ".join(str(reference.get("text", "") or "").split())
+    if not text:
+        return None
+    return {**reference, "text": text[:4000]}
 
 
 def normalize_discussion_messages(messages):

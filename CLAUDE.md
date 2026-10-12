@@ -55,8 +55,8 @@ literature_library/
 `summarize_paper` orchestrates several sequential AI calls, each writing debug output via `write_ai_stage` into `ai_runs/`:
 
 1. `extract_paper_overview` — keywords, basicInfo, methodPoints, three-line summary (`overview.txt`).
-2. `summarize_method_points` — one call per method point, parallelized via `ThreadPoolExecutor` (max 5 workers) (`method_point.txt`).
-3. `method_polish` — combine the per-point drafts into the Method Breakdown (`method_polish.txt`), then format correction (`method_format.txt`).
+2. `summarize_method_points` - one call per method point, sequentially in the summary conversation (`method_point.txt`).
+3. `method_polish` - combine the completed per-point drafts in that conversation (`method_polish.txt`), then correct formatting (`method_format.txt`). Chat Completions is stateless, so each request still transmits the conversation history; the repeated prefix may benefit from provider caching.
 
 Prompt templates live in `prompts/ai/*.txt` and are rendered with `render_prompt`, which uses Python `str.format`. Templates must escape literal JSON braces as `{{`/`}}`.
 

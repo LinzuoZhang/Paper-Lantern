@@ -260,12 +260,14 @@ export function initAnnotationPanel(options) {
     setDetailMode(detail, mode);
     detail.querySelector(".annotation-back-button").addEventListener("click", () => {
       updateDetailEntry(detail);
-      saveAnnotationEdit().catch((error) => console.error("Failed to save annotation.", error));
+      flushAnnotationEdit();
       renderAnnotationPreviewList(editor);
     });
     detail.querySelector(".annotation-detail-mode-button").addEventListener("click", () => {
       updateDetailEntry(detail);
-      setDetailMode(detail, detail.dataset.mode === "edit" ? "preview" : "edit");
+      const nextMode = detail.dataset.mode === "edit" ? "preview" : "edit";
+      setDetailMode(detail, nextMode);
+      if (nextMode === "preview") flushAnnotationEdit();
     });
     detail.querySelector(".annotation-detail-refresh-button").addEventListener("click", (event) => {
       event.stopPropagation();
@@ -274,11 +276,15 @@ export function initAnnotationPanel(options) {
     detail.querySelector(".annotation-detail-delete-button").addEventListener("click", () => {
       deleteAnnotationEntry(editor, entry.id);
     });
-    input.addEventListener("input", () => {
-      renderDetailPreview(preview, input.value);
+    const syncDetailInput = () => {
       updateDetailEntry(detail);
+      refreshCommentsNavigation();
+      renderDetailPreview(preview, input.value);
       scheduleAnnotationAutoSave();
-    });
+    };
+    input.addEventListener("input", syncDetailInput);
+    input.addEventListener("compositionend", syncDetailInput);
+    input.addEventListener("change", syncDetailInput);
     if (mode === "edit") input.focus();
   }
 
@@ -577,8 +583,15 @@ export function initAnnotationPanel(options) {
   function scheduleAnnotationAutoSave() {
     window.clearTimeout(annotationAutoSaveTimer);
     annotationAutoSaveTimer = window.setTimeout(() => {
+      annotationAutoSaveTimer = null;
       saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
     }, 450);
+  }
+
+  function flushAnnotationEdit() {
+    window.clearTimeout(annotationAutoSaveTimer);
+    annotationAutoSaveTimer = null;
+    saveAnnotationEdit().catch((error) => console.error("Failed to save annotation.", error));
   }
 
   async function saveAnnotationEdit() {
@@ -652,6 +665,7 @@ export function initAnnotationPanel(options) {
 
   function hideAnnotationEditor(options = {}) {
     window.clearTimeout(annotationAutoSaveTimer);
+    annotationAutoSaveTimer = null;
     if (!options.skipSave) {
       saveAnnotationEdit().catch((error) => console.error("Failed to auto-save annotation.", error));
     }

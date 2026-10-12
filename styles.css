@@ -5362,9 +5362,11 @@ body.resizing-note-discussion {
 .summary-scroll {
   display: flex;
   min-height: 0;
+  min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 16px;
+  overflow-x: hidden;
   overflow-y: auto;
   scroll-padding-bottom: 16px;
 }
@@ -5444,6 +5446,8 @@ body.resizing-note-discussion {
 
 .summary-group {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 14px;
 }
 
@@ -5506,6 +5510,8 @@ body.resizing-note-discussion {
 .summary-group-content,
 .discussion-content {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 16px;
 }
 
@@ -5564,6 +5570,8 @@ body.resizing-note-discussion {
 }
 
 .ai-summary-panel > .summary-card {
+  min-width: 0;
+  max-width: 100%;
   padding: 14px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -5688,6 +5696,8 @@ body.resizing-note-discussion {
 
 .three-lines {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 10px;
   margin: 0;
 }
@@ -5703,6 +5713,7 @@ body.resizing-note-discussion {
   margin: -6px 0 0;
   color: var(--ink);
   line-height: 1.65;
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
@@ -5770,6 +5781,8 @@ body.resizing-note-discussion {
 
 .method-sections {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 0;
 }
 
@@ -5794,6 +5807,7 @@ body.resizing-note-discussion {
 }
 
 .method-section {
+  min-width: 0;
   padding: 16px 0;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -5871,6 +5885,7 @@ body.resizing-note-discussion {
 }
 
 .method-content {
+  min-width: 0;
   margin-top: 10px;
 }
 
@@ -5878,6 +5893,7 @@ body.resizing-note-discussion {
   margin: 0 0 8px;
   color: #2d3832;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .method-content p:last-child {
@@ -7665,6 +7681,18 @@ body.resizing-note-discussion {
   font: inherit;
 }
 
+.method-card .formula-inline {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.method-card .formula-inline.is-overflowing {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.15em;
+}
+
 .formula-inline {
   background: transparent;
   color: inherit;
@@ -8603,6 +8631,7 @@ button.ghost:hover,
   font-size: 13px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .comments-nav-source {

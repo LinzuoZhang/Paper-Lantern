@@ -37,6 +37,7 @@ const method = document.querySelector("#method");
 const conclusion = document.querySelector("#conclusion");
 const keywords = document.querySelector("#keywords");
 const methodSections = document.querySelector("#methodSections");
+let methodFormulaOverflowFrame = 0;
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
 const copyMethodButton = document.querySelector("#copyMethodButton");
 const readerTabs = document.querySelectorAll(".reader-tab");
@@ -108,6 +109,7 @@ let renderedPdfZoom = 1;
 let zoomRenderTimer = null;
 let paneRenderTimer = null;
 let savedHighlights = [];
+let paperSaveQueue = Promise.resolve();
 let selectedPdfText = "";
 let selectedPdfRange = null;
 let lastSelectionRect = null;
@@ -197,6 +199,11 @@ initBasicInfoEditing();
 initPdfToolbar();
 initPdfOutlineResizer();
 initCollapsibleSummaryCards();
+if (window.ResizeObserver && methodSections) {
+  new ResizeObserver(scheduleMethodFormulaOverflowUpdate).observe(methodSections);
+} else {
+  window.addEventListener("resize", scheduleMethodFormulaOverflowUpdate);
+}
 librarySidebar = initLibrarySidebar({
   shell: appShell,
   getCurrentItem: () => currentPaper,
@@ -231,7 +238,12 @@ discussionPanel = initDiscussionPanel({
   contextType: "paper",
 });
 initWithAiScrollBottom();
-openReaderFromUrl();
+openReaderFromUrl().catch((error) => {
+  console.error("Failed to open paper.", error);
+  showPdfLoadError(error.message || "打开论文失败。");
+  setStatus(error.message || "打开论文失败。", true);
+  setBusy(false);
+});
 
 
 
@@ -339,19 +351,22 @@ async function openLibraryPaper(paperId) {
   setReaderPaperTitle(currentPaper.title);
   librarySidebar?.setCurrentItem(currentPaper);
 
-  const pdfResponse = await apiFetch(currentPaper.pdfUrl);
-  const blob = await pdfResponse.blob();
-  const file = new File([blob], `${currentPaper.title}.pdf`, { type: "application/pdf" });
-  lastExtractedText = "";
-  referenceEntries = new Map();
-  showPdf(file, currentPaper.title);
   setBusy(true);
-  clearStatus();
-  if (!currentPaper.threeLineSummary?.method) {
-    renderSummaryLoading("解析论文并生成总结中...");
-  }
+  setStatus("正在加载 PDF...");
+  showPdfLoading();
+  let pdfOpened = false;
 
   try {
+    const file = await fetchPaperPdf(currentPaper);
+    lastExtractedText = "";
+    referenceEntries = new Map();
+    showPdf(file, currentPaper.title);
+    pdfOpened = true;
+    clearStatus();
+    if (!currentPaper.threeLineSummary?.method) {
+      renderSummaryLoading("解析论文并生成总结中...");
+    }
+
     const cachedText = String(currentPaper.extractedText || "").trim();
     const extraction = cachedText.length >= 80 ? { text: cachedText, title: "" } : await extractPdfText(file);
     const extractedText = extraction.text;
@@ -379,11 +394,70 @@ async function openLibraryPaper(paperId) {
     }
   } catch (error) {
     console.error(error);
-    renderSummary(paperToSummary(currentPaper));
+    if (!pdfOpened) showPdfLoadError(error.message || "PDF 加载失败。");
+    else renderSummary(paperToSummary(currentPaper));
     setStatus(error.message || "Failed to read PDF.", true);
   } finally {
     setBusy(false);
   }
+}
+
+async function fetchPaperPdf(paper) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 60000);
+  try {
+    const parts = [];
+    const chunkSize = 1024 * 1024;
+    let offset = 0;
+    let total = null;
+    while (total === null || offset < total) {
+      const response = await apiFetch(paper.pdfUrl, {
+        signal: controller.signal,
+        headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` },
+      });
+      if (!response.ok) throw new Error(`PDF 下载失败：HTTP ${response.status}`);
+      if (response.status === 200 && offset === 0) {
+        const blob = await response.blob();
+        if (!blob.size) throw new Error("PDF 文件为空。");
+        return new File([blob], `${paper.title}.pdf`, { type: "application/pdf" });
+      }
+      const range = /^bytes (\d+)-(\d+)\/(\d+)$/i.exec(response.headers.get("Content-Range") || "");
+      if (response.status !== 206 || !range || Number(range[1]) !== offset) {
+        throw new Error("PDF 分段响应无效。");
+      }
+      total = Number(range[3]);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length !== Number(range[2]) - offset + 1) {
+        throw new Error(`PDF 下载不完整：${offset}-${range[2]}。`);
+      }
+      parts.push(bytes);
+      offset += bytes.length;
+      setStatus(`正在加载 PDF... ${Math.round(offset / total * 100)}%`);
+    }
+    if (!offset) throw new Error("PDF 文件为空。");
+    return new File(parts, `${paper.title}.pdf`, { type: "application/pdf" });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("PDF 加载超时，请重试。", { cause: error });
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function showPdfLoading() {
+  pdfViewer.style.display = "block";
+  emptyState.style.display = "none";
+  pdfViewer.innerHTML = '<div class="pdf-loading">正在加载 PDF...</div>';
+}
+
+function showPdfLoadError(message) {
+  pdfViewer.style.display = "block";
+  emptyState.style.display = "none";
+  pdfViewer.replaceChildren();
+  const errorNode = document.createElement("div");
+  errorNode.className = "pdf-loading";
+  errorNode.textContent = message;
+  pdfViewer.appendChild(errorNode);
 }
 
 document.addEventListener("selectionchange", handlePdfSelectionChange);
@@ -829,20 +903,27 @@ async function copyTextWithFeedback(text, button) {
 
 async function saveCurrentPaper(extra = {}) {
   if (!currentPaper) return;
+  const paperId = currentPaper.id;
   savedHighlights = normalizeHighlights(savedHighlights);
-  const response = await apiFetch("/api/library/paper", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: currentPaper.id, highlights: savedHighlights, ...extra }),
+  const body = JSON.stringify({ id: paperId, highlights: savedHighlights, ...extra });
+  const save = paperSaveQueue.catch(() => {}).then(async () => {
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "Paper save failed.");
+    if (currentPaper?.id === paperId) currentPaper = data.paper;
   });
-  const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.error || "Paper save failed.");
-  if (response.ok) currentPaper = data.paper;
+  paperSaveQueue = save;
+  return save;
 }
 
 function showPdf(file, displayTitle = "") {
   renderPdf(file).catch((error) => {
     console.error(error);
+    showPdfLoadError(error.message || "PDF 渲染失败。");
     setStatus(error.message || "Failed to render PDF.", true);
   });
   pdfViewer.style.display = "block";
@@ -1788,24 +1869,82 @@ function getCitationNumbers(value) {
 }
 
 async function summarizeText(text) {
+  const paperId = currentPaper?.id || "";
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
+    body: JSON.stringify({ paperId, paperText: text, stream: true }),
   });
-  const data = await readJsonResponse(response);
-
   if (!response.ok) {
+    const data = await readJsonResponse(response);
     throw new Error(data.detail || data.error || "Summary failed.");
   }
-
-  renderSummary(data.summary);
-  renderBasicInfo(data.summary?.basicInfo);
-  await saveCurrentPaper({ summary: data.summary });
-  if (data.summary?.paperTitle) {
-    setReaderPaperTitle(data.summary.paperTitle);
+  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
+    throw new Error("Summary stream is unavailable.");
   }
-  clearStatus();
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completed = false;
+  let summary = paperToSummary(currentPaper);
+
+  async function applyEvent(event) {
+    if (currentPaper?.id !== paperId) return;
+    if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
+    let persist = true;
+    if (event.stage === "overview") {
+      summary = {
+        ...summary,
+        paperTitle: event.summary.paperTitle || summary.paperTitle,
+        basicInfo: event.summary.basicInfo || {},
+        keywords: event.summary.keywords || [],
+        threeLineSummary: {
+          ...summary.threeLineSummary,
+          challenges: event.summary.threeLineSummary?.challenges || "",
+          conclusion: event.summary.threeLineSummary?.conclusion || "",
+        },
+      };
+      renderBasicInfo(summary.basicInfo);
+      renderKeywords(summary.keywords);
+      challenges.textContent = summary.threeLineSummary.challenges || "No response";
+      conclusion.textContent = summary.threeLineSummary.conclusion || "No response";
+    } else if (event.stage === "keywords") {
+      summary = { ...summary, keywords: event.summary.keywords || [], keywordExplanations: event.summary.keywordExplanations || {} };
+      renderKeywords(summary.keywords, summary.keywordExplanations);
+    } else if (event.stage === "method_progress") {
+      summary = { ...summary, methodSections: event.summary.methodSections || [] };
+      renderMethodSections(summary.methodSections);
+      persist = Boolean(event.summary.complete);
+    } else if (event.stage === "complete") {
+      summary = event.summary;
+      renderSummary(summary);
+      renderBasicInfo(summary.basicInfo);
+      completed = true;
+    } else {
+      return;
+    }
+    if (persist) await saveCurrentPaper({ summary });
+    if (currentPaper?.id === paperId && summary.paperTitle) {
+      setReaderPaperTitle(summary.paperTitle);
+      if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(summary.paperTitle);
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, "\n");
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const data = block.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
+      if (data) await applyEvent(JSON.parse(data));
+    }
+    if (done) break;
+  }
+  if (!completed && currentPaper?.id === paperId) throw new Error("Summary stream ended early.");
+  if (currentPaper?.id === paperId) clearStatus();
 }
 
 async function regenerateSummarySection(section) {
@@ -3224,9 +3363,7 @@ function renderCommentsNavCard(card, groups, totalCount = groups.length) {
 
     const body = document.createElement("span");
     body.className = "comments-nav-body";
-    const rawText = entry.comment || "";
-    const text = rawText.trim();
-    body.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
+    body.textContent = String(entry.comment || "").trim();
 
     if (entry.kind !== "highlight" && entry.text) {
       const source = document.createElement("span");
@@ -3358,7 +3495,7 @@ function createHighlightHash(highlight) {
     comment: highlight.comment || "",
     translation: highlight.translation || "",
     selectedText: highlight.selectedText || "",
-    text: normalizeAnnotationTextEntries(highlight.text, highlight),
+    text: normalizeAnnotationTextEntries(highlight.text, highlight).map(({ type, content }) => ({ type, content })),
     groupId: highlight.groupId || "",
   };
   return simpleHash(JSON.stringify(stable));
@@ -3372,7 +3509,8 @@ function normalizeAnnotationTextEntries(value, highlight = {}) {
           if (!entry || typeof entry !== "object") return null;
           const type = entry.type === "translation" ? "translation" : "comment";
           const content = String(entry.content || entry.text || "").trim();
-          return content ? { type, content } : null;
+          const id = String(entry.id || "").trim();
+          return content ? { ...(id ? { id } : {}), type, content } : null;
         })
         .filter(Boolean)
     : [];
@@ -3794,6 +3932,7 @@ async function apiFetch(path, options = {}) {
       }
       lastError = new Error(`API not found at ${base || "current origin"}.`);
     } catch (error) {
+      if (options.signal?.aborted) throw error;
       lastError = error;
     }
   }
@@ -4670,7 +4809,19 @@ function renderMethodSections(sections, options = {}) {
   const conclusion = createMethodBoundary("总结", conclusionText);
   if (conclusion) fragment.appendChild(conclusion);
   methodSections.appendChild(fragment);
+  scheduleMethodFormulaOverflowUpdate();
   queueWithAiScrollBottomButtonUpdate();
+}
+
+function scheduleMethodFormulaOverflowUpdate() {
+  if (methodFormulaOverflowFrame) return;
+  methodFormulaOverflowFrame = window.requestAnimationFrame(() => {
+    methodFormulaOverflowFrame = 0;
+    methodSections.querySelectorAll(".formula-inline").forEach((formula) => {
+      if (!formula.clientWidth) return;
+      formula.classList.toggle("is-overflowing", formula.scrollWidth > formula.clientWidth + 1);
+    });
+  });
 }
 
 function createMethodBoundary(label, text) {

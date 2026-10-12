@@ -1952,7 +1952,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Range")
+        self.send_header("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges")
         self.send_header("Connection", "close")
         self.close_connection = True
         super().end_headers()
@@ -2157,6 +2158,29 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 return
             run_dir = create_ai_run_dir(payload.get("paperId", ""))
             write_ai_stage(run_dir, "request_summary", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
+            if payload.get("stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+
+                def send_stage(stage, result):
+                    message = json.dumps({"stage": stage, "summary": result}, ensure_ascii=False)
+                    self.wfile.write(f"data: {message}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+
+                try:
+                    summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir, on_stage=send_stage)
+                    write_ai_stage(run_dir, "summary_final", {"summary": summary})
+                    send_stage("complete", summary)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as exc:
+                    write_ai_error(run_dir, "summary", exc)
+                    send_stage("error", {"detail": str(exc)})
+                return
+
             summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
             write_ai_stage(run_dir, "summary_final", {"summary": summary})
             self._send_json(200, {"summary": summary, "raw": raw})
@@ -2230,12 +2254,45 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if not pdf_path or not pdf_path.exists():
                 self.send_error(404, "PDF not found")
                 return
-            data = pdf_path.read_bytes()
-            self.send_response(200)
+            file_size = pdf_path.stat().st_size
+            start, end = 0, file_size - 1
+            range_header = self.headers.get("Range", "")
+            if range_header:
+                match = re.fullmatch(r"bytes=(\d+)-(\d*)", range_header.strip())
+                if not match or int(match.group(1)) >= file_size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{file_size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                start = int(match.group(1))
+                if match.group(2):
+                    end = min(int(match.group(2)), end)
+                if end < start:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{file_size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+            self.send_response(206 if range_header else 200)
             self.send_header("Content-Type", "application/pdf")
-            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            if range_header:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                with pdf_path.open("rb") as source:
+                    source.seek(start)
+                    remaining = end - start + 1
+                    while remaining:
+                        chunk = source.read(min(256 * 1024, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         if request_path == "/api/library/export":
             paper_id = parse_query_value(self.path, "id")
@@ -2812,29 +2869,41 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self._send_json(200, {"paper": read_paper(paper_id, db), "tree": read_library_tree(), "sync": sync})
 
 
-def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None):
+def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir)
+    conversation = [{"role": "system", "content": render_prompt("summary_system.txt")}]
+    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir, on_stage=on_stage, conversation=conversation)
     method_points = normalize_method_points(overview.get("methodPoints", []))
     keyword_list = normalize_keywords(overview.get("keywords", []))
     if not method_points:
         method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
 
     keyword_explanations = overview.get("keywordExplanations", {}) or {}
-    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir)
+    partial_sections = [None] * len(method_points)
+
+    def on_method_point(index, detail):
+        partial_sections[index] = detail
+        if on_stage:
+            on_stage("method_progress", {
+                "methodSections": normalize_method_sections([section for section in partial_sections if section]),
+                "complete": all(section is not None for section in partial_sections),
+            })
+
+    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir, on_point=on_method_point if on_stage else None, conversation=conversation)
     point_details = [item["detail"] for item in point_results]
     point_raws = [item["raw"] for item in point_results]
 
-    polish_prompt = build_method_polish_prompt(paper_excerpt, method_points, point_details)
-    polished, polished_raw = call_chat_completions(
+    polish_prompt = build_method_polish_prompt("The paper content is available earlier in this conversation.", method_points, point_details)
+    polished, polished_raw = call_conversation_completion(
         api_key,
         model,
         chat_completions_url,
         polish_prompt,
-        system_prompt=build_method_polish_system_prompt(),
+        conversation,
+        instruction=build_method_polish_system_prompt(),
     )
     write_ai_stage(run_dir, "method_polish", {"prompt": polish_prompt, "parsed": polished, "raw": polished_raw})
-    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir)
+    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir, conversation=conversation)
 
     three_line = overview.get("threeLineSummary", {})
     method_sections = normalize_method_sections(formatted.get("methodSections", []))
@@ -2896,17 +2965,19 @@ def test_ai_api(payload):
     }
 
 
-def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None):
+def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None, conversation=None):
     format_prompt = build_method_format_prompt(method_json)
     try:
-        formatted, raw = call_chat_completions(
-            api_key,
-            model,
-            chat_completions_url,
-            format_prompt,
-            system_prompt=build_method_format_system_prompt(),
-            temperature=0,
-        )
+        if conversation is None:
+            formatted, raw = call_chat_completions(
+                api_key, model, chat_completions_url, format_prompt,
+                system_prompt=build_method_format_system_prompt(), temperature=0,
+            )
+        else:
+            formatted, raw = call_conversation_completion(
+                api_key, model, chat_completions_url, format_prompt, conversation,
+                instruction=build_method_format_system_prompt(), temperature=0,
+            )
         write_ai_stage(run_dir, "method_format", {"prompt": format_prompt, "parsed": formatted, "raw": raw})
     except Exception as exc:
         formatted = method_json if isinstance(method_json, dict) else {}
@@ -2990,11 +3061,25 @@ def fix_math_delimited_subscripts(text):
     return "".join(parts)
 
 
-def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None):
+def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None, on_point=None, conversation=None):
     total = len(method_points)
+    if conversation is not None:
+        results = []
+        for index, point in enumerate(method_points, start=1):
+            result = summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir, conversation=conversation)
+            results.append(result)
+            if on_point:
+                on_point(index - 1, result["detail"])
+        return results
     max_workers = min(MAX_METHOD_POINT_WORKERS, total)
     if max_workers <= 1:
-        return [summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir) for index, point in enumerate(method_points, start=1)]
+        results = []
+        for index, point in enumerate(method_points, start=1):
+            result = summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir)
+            results.append(result)
+            if on_point:
+                on_point(index - 1, result["detail"])
+        return results
 
     results = [None] * total
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -3003,18 +3088,19 @@ def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt,
             for index, point in enumerate(method_points, start=1)
         }
         for future in as_completed(future_to_index):
-            results[future_to_index[future]] = future.result()
+            index = future_to_index[future]
+            results[index] = future.result()
+            if on_point:
+                on_point(index, results[index]["detail"])
     return results
 
 
-def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None):
-    prompt = build_method_point_prompt(paper_excerpt, point, index, total)
-    detail, detail_raw = call_chat_completions(
-        api_key,
-        model,
-        chat_completions_url,
-        prompt,
-    )
+def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None, conversation=None):
+    prompt = build_method_point_prompt("The paper content is available earlier in this conversation." if conversation is not None else paper_excerpt, point, index, total)
+    if conversation is None:
+        detail, detail_raw = call_chat_completions(api_key, model, chat_completions_url, prompt)
+    else:
+        detail, detail_raw = call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation)
     content = (
         str(detail.get("content", "") or "").strip()
         or str(detail.get("summary", "") or "").strip()
@@ -3032,10 +3118,13 @@ def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, 
     return result
 
 
-def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None):
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None, conversation=None):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     prompt = build_overview_prompt(paper_excerpt)
-    overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt)
+    if conversation is None:
+        overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt)
+    else:
+        overview, raw = call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation)
     three_line = overview.get("threeLineSummary", {})
     parsed = {
         "paperTitle": str(overview.get("paperTitle", "")).strip(),
@@ -3047,7 +3136,11 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
             "conclusion": str(three_line.get("conclusion", "")).strip(),
         },
     }
+    if on_stage:
+        on_stage("overview", parsed)
     parsed["keywordExplanations"] = explain_keywords(api_key, model, chat_completions_url, parsed["keywords"], run_dir)
+    if on_stage:
+        on_stage("keywords", {"keywords": parsed["keywords"], "keywordExplanations": parsed["keywordExplanations"]})
     write_ai_stage(run_dir, "overview", {"prompt": prompt, "parsed": parsed, "raw": raw})
     return parsed, raw
 
@@ -3522,12 +3615,23 @@ def parse_model_json_response(content):
         return json.loads(repaired, strict=False)
 
 
-def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12):
+def call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation, instruction="", temperature=0.12):
+    content = f"{instruction}\n\n{prompt}" if instruction else prompt
+    messages = conversation + [{"role": "user", "content": content}]
+    parsed, raw = call_chat_completions(
+        api_key, model, chat_completions_url, prompt,
+        temperature=temperature, messages=messages,
+    )
+    conversation.extend((messages[-1], {"role": "assistant", "content": raw["choices"][0]["message"]["content"]}))
+    return parsed, raw
+
+
+def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12, messages=None):
     upstream_payload = {
         "model": model,
         "temperature": temperature,
         "response_format": {"type": "json_object"},
-        "messages": [
+        "messages": messages if messages is not None else [
             {
                 "role": "system",
                 "content": system_prompt or render_prompt("summary_system.txt"),

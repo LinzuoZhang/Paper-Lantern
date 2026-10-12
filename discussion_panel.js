@@ -94,10 +94,14 @@ export function initDiscussionPanel({
     input.value = "";
     syncNewDiscussionButtons();
     renderMessages(thread);
+    await generateAnswer(thread, question, isFirstTurn);
+  }
+
+  async function generateAnswer(thread, question, isFirstTurn = false) {
+    setBusy(true);
     await persist();
     const pending = appendMessage("assistant", "正在思考…", true);
     scrollLatest({ smooth: true, force: true });
-    setBusy(true);
     abortController = new AbortController();
     let answer = "";
     try {
@@ -729,13 +733,14 @@ export function initDiscussionPanel({
     const saveButton = document.createElement("button");
     saveButton.type = "submit";
     saveButton.className = "discussion-edit-save";
-    saveButton.textContent = "保存";
+    saveButton.textContent = "保存并重新生成";
     editActions.append(cancelButton, saveButton);
     form.append(editInput, editActions);
 
     let settled = false;
     const finish = (shouldSave) => {
       if (settled) return;
+      if (shouldSave && busy) return;
       const next = editInput.value.trim();
       if (!shouldSave || !next || next === message.content) {
         settled = true;
@@ -747,13 +752,14 @@ export function initDiscussionPanel({
       settled = true;
       const previousContent = message.content;
       message.content = next;
+      thread.messages = thread.messages.slice(0, index + 1);
       thread.updatedAt = new Date().toISOString();
       // 只有仍是自动生成的标题才跟着首问更新，避免覆盖用户改过的标题。
       if (index === 0 && thread.title === makeTitle(previousContent)) thread.title = makeTitle(next);
-      persist();
       renderThreadList();
       renderHeader(thread);
       renderMessages(thread);
+      void generateAnswer(thread, next);
     };
 
     cancelButton.addEventListener("click", () => finish(false));
