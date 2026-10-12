@@ -227,13 +227,13 @@ discussionPanel = initDiscussionPanel({
   showConfirm: (message) => showFloatingConfirm({ message, title: "确认操作", confirmLabel: "删除", danger: true }),
   onActivate: () => {
     setActiveReaderTab("withAiTab");
-    setSummaryPaneCollapsed(false);
+    setSummaryPaneCollapsed(false, false);
   },
   onOpenReference: () => openActiveDiscussionReference(),
   onScrollLatest: ({ smooth, force }) => scrollWithAiPanelToBottom({ smooth, force }),
   onReferenceChange: (reference) => {
     clearDiscussionReferenceHighlights();
-    if (reference) retryApplyReferenceHighlight(14);
+    if (reference) openActiveDiscussionReference();
   },
   contextType: "paper",
 });
@@ -3559,8 +3559,18 @@ function clearDiscussionReferenceHighlights() {
 function openActiveDiscussionReference() {
   const reference = getActiveDiscussionReference();
   if (!reference) return;
-  if (reference.page) jumpToPdfPage(Number(reference.page), "auto");
-  retryApplyReferenceHighlight(14);
+  const page = Number(reference.page || reference.ranges?.[0]?.pageNumber);
+  if (!Number.isFinite(page) || page < 1) return;
+  jumpToPdfPageAsync(page, "auto").then(() => {
+    if (getActiveDiscussionReference() !== reference) return;
+    retryApplyReferenceHighlight(14);
+    const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${page}"]`);
+    const mark = pageNode?.querySelector(".pdf-reference-mark");
+    if (mark) {
+      mark.scrollIntoView({ block: "center", behavior: "auto" });
+      saveReadingPositionNow();
+    }
+  }).catch((error) => console.error("Failed to open discussion reference.", error));
 }
 
 function retryApplyReferenceHighlight(remaining = 12) {

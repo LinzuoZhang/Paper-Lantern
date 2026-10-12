@@ -25,7 +25,7 @@ class Element {
   remove() { this.parentElement.children = this.parentElement.children.filter(node => node !== this); }
   focus() {}
   setSelectionRange() {}
-  fire(name) { return this.handlers[name]?.({ preventDefault() {}, stopPropagation() {} }); }
+  fire(name) { return this.handlers[name]?.({ target: this, preventDefault() {}, stopPropagation() {} }); }
 }
 
 globalThis.document = { createElement: () => new Element() };
@@ -55,7 +55,7 @@ for (const editedIndex of [0, 2]) {
     },
     readJsonResponse: async () => ({ answer: '新答案' }),
   });
-  elements.discussionThreadList.querySelector('.discussion-thread-open').fire('click');
+  elements.discussionThreadList.children[0].fire('click');
   const message = elements.discussionMessages.children[editedIndex];
   message.querySelector('.discussion-message-actions').children[1].fire('click');
   message.querySelector('.discussion-edit-input').value = '修改后的问题';

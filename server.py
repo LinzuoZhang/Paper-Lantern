@@ -21,6 +21,7 @@ import urllib.request
 from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
+from llm_diagnostics import RequestTiming
 from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
 from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
 
@@ -3708,13 +3709,26 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    timing = RequestTiming(payload, chat_completions_url, streaming=False)
+    error = None
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            timing.mark("headers_s")
+            result = json.loads(response.read().decode("utf-8"))
+            timing.data["usage"] = result.get("usage")
+            return result
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        timing.finish(error)
 
 
 def stream_chat_completion(api_key, chat_completions_url, payload, timeout, think_mode=None):
     stream_payload = apply_ai_think_mode(payload, think_mode, chat_completions_url)
     stream_payload["stream"] = True
+    if urlparse(chat_completions_url).hostname == "api.deepseek.com":
+        stream_payload["stream_options"] = {"include_usage": True}
     request = urllib.request.Request(
         chat_completions_url,
         data=json.dumps(stream_payload).encode("utf-8"),
@@ -3725,22 +3739,43 @@ def stream_chat_completion(api_key, chat_completions_url, payload, timeout, thin
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        for raw_line in response:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line or not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                event = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            delta = event.get("choices", [{}])[0].get("delta", {})
-            content = delta.get("content")
-            if content:
-                yield content
+    timing = RequestTiming(stream_payload, chat_completions_url, streaming=True)
+    error = None
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            timing.mark("headers_s")
+            for raw_line in response:
+                timing.mark("first_line_s")
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if line.startswith(":"):
+                    timing.data["heartbeats"] = timing.data.get("heartbeats", 0) + 1
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    timing.data["completed"] = True
+                    break
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("usage"):
+                    timing.data["usage"] = event["usage"]
+                for choice in event.get("choices", []):
+                    delta = choice.get("delta", {})
+                    if delta.get("reasoning_content"):
+                        timing.mark("first_reasoning_s")
+                    content = delta.get("content")
+                    if content:
+                        timing.mark("first_content_s")
+                        yield content
+                    if choice.get("finish_reason"):
+                        timing.data["finish_reason"] = choice["finish_reason"]
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        timing.finish(error)
 
 
 def normalize_discussion_history(history, limit=DISCUSSION_RECENT_MESSAGE_COUNT):

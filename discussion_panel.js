@@ -4,6 +4,7 @@ const EDIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"
 const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>';
 const REFERENCE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 12 4 16l4 4"></path><path d="M4 16h10a4 4 0 0 0 4-4V4"></path></svg>';
+const DELETE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"></path></svg>';
 
 export function initDiscussionPanel({
   root = document,
@@ -98,12 +99,16 @@ export function initDiscussionPanel({
   }
 
   async function generateAnswer(thread, question, isFirstTurn = false) {
+    const startedAt = Date.now();
+    const timings = {};
     setBusy(true);
     await persist();
+    timings.saveMs = Date.now() - startedAt;
     const pending = appendMessage("assistant", "正在思考…", true);
     scrollLatest({ smooth: true, force: true });
     abortController = new AbortController();
     let answer = "";
+    const requestedAt = Date.now();
     try {
       answer = await requestAnswer({
         question,
@@ -111,6 +116,7 @@ export function initDiscussionPanel({
         selectionReference: thread.reference,
         signal: abortController.signal,
         onDelta: (delta) => {
+          if (timings.firstContentMs === undefined) timings.firstContentMs = Date.now() - requestedAt;
           answer += delta;
           setMessageBody(pending, answer || "正在思考…");
           scrollLatest({ smooth: false, force: false });
@@ -136,6 +142,8 @@ export function initDiscussionPanel({
         setMessageBody(pending, error.message || "讨论失败，请稍后重试。");
       }
     } finally {
+      timings.totalMs = Date.now() - startedAt;
+      console.info("Discussion request timing", timings);
       abortController = null;
       setBusy(false);
     }
@@ -425,14 +433,26 @@ export function initDiscussionPanel({
       titleWrap.append(itemTitle, edit);
       const meta = documentNode.createElement("span");
       meta.className = "discussion-history-meta";
-      meta.textContent = `${thread.messages.length} 条`;
-      item.append(titleWrap, meta);
+      meta.textContent = formatDiscussionTime(thread);
+      meta.title = "最后更新于 " + meta.textContent;
+      const remove = documentNode.createElement("button");
+      remove.type = "button";
+      remove.className = "discussion-history-delete";
+      remove.title = "删除讨论";
+      remove.setAttribute("aria-label", `删除对话“${thread.title || "新讨论"}”`);
+      remove.innerHTML = DELETE_ICON;
+      remove.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (await deleteThread(thread) && list.isConnected) renderHistoryPopoverList(list, query);
+      });
+      item.append(titleWrap, meta, remove);
       const openThread = () => {
         showThread(thread.id);
         closeHistoryPopover();
       };
       item.addEventListener("click", openThread);
       item.addEventListener("keydown", (event) => {
+        if (event.target !== item) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         openThread();
@@ -527,6 +547,20 @@ export function initDiscussionPanel({
     visibleThreads.forEach((thread) => {
       const row = document.createElement("div");
       row.className = "discussion-thread-item";
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `打开对话“${thread.title || "新讨论"}”`);
+      row.tabIndex = 0;
+      row.addEventListener("click", (event) => {
+        if (row.querySelector(".discussion-thread-rename-form")) return;
+        if (event.target !== row && event.target.closest("button, input, textarea, form")) return;
+        showThread(thread.id);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
+        if (row.querySelector(".discussion-thread-rename-form")) return;
+        event.preventDefault();
+        showThread(thread.id);
+      });
       const titleWrap = document.createElement("div");
       titleWrap.className = "discussion-thread-item-title-wrap";
       const open = document.createElement("button");
@@ -545,23 +579,27 @@ export function initDiscussionPanel({
       titleWrap.append(open, edit);
       const meta = document.createElement("span");
       meta.className = "discussion-thread-item-meta";
-      meta.textContent = `${thread.messages.length} 条消息`;
+      meta.textContent = formatDiscussionTime(thread);
+      meta.title = "最后更新于 " + meta.textContent;
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "icon-button discussion-thread-delete";
       remove.title = "删除讨论";
       remove.setAttribute("aria-label", "删除讨论");
-      remove.textContent = "×";
-      remove.addEventListener("click", async () => {
-        if (!await showConfirm(`确定删除对话“${thread.title || "新讨论"}”？`)) return;
-        threads = threads.filter((entry) => entry.id !== thread.id);
-        if (activeId === thread.id) showList();
-        renderThreadList();
-        persist();
-      });
+      remove.innerHTML = DELETE_ICON;
+      remove.addEventListener("click", () => deleteThread(thread));
       row.append(titleWrap, meta, remove);
       threadList.appendChild(row);
     });
+  }
+
+  async function deleteThread(thread) {
+    if (!await showConfirm(`确定删除对话“${thread.title || "新讨论"}”？`)) return false;
+    threads = threads.filter((entry) => entry.id !== thread.id);
+    if (activeId === thread.id) showList();
+    renderThreadList();
+    await persist();
+    return true;
   }
 
   function startRenamingThread(row, thread) {
@@ -964,6 +1002,15 @@ function normalizeReference(reference) {
   const text = String(reference.text || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return { ...reference, text: text.slice(0, 4000) };
+}
+
+function formatDiscussionTime(thread) {
+  const date = new Date(thread.updatedAt || thread.createdAt);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return date.toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  });
 }
 
 function hasMessages(thread) { return Boolean(thread?.messages?.length); }

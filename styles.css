@@ -6448,6 +6448,7 @@ body.resizing-note-discussion {
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
+  cursor: pointer;
 }
 
 .discussion-thread-open {
@@ -6495,6 +6496,16 @@ body.resizing-note-discussion {
   color: #a93d3d;
 }
 
+.discussion-thread-delete svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .discussion-thread-item:hover .discussion-thread-rename,
 .discussion-thread-item:hover .discussion-thread-delete,
 .discussion-thread-rename:focus-visible,
@@ -6539,6 +6550,7 @@ body.resizing-note-discussion {
 .discussion-thread-item-meta {
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .discussion-thread-item-title-wrap {
@@ -6696,7 +6708,8 @@ body.resizing-note-discussion {
   font-size: 11px;
 }
 
-.discussion-history-edit {
+.discussion-history-edit,
+.discussion-history-delete {
   flex: 0 0 auto;
   width: 18px;
   min-width: 18px;
@@ -6713,7 +6726,9 @@ body.resizing-note-discussion {
 }
 
 .discussion-history-title-wrap:hover .discussion-history-edit,
-.discussion-history-edit:focus-visible {
+.discussion-history-edit:focus-visible,
+.discussion-history-item:hover .discussion-history-delete,
+.discussion-history-item:focus-within .discussion-history-delete {
   opacity: 1;
   pointer-events: auto;
 }
@@ -6723,7 +6738,20 @@ body.resizing-note-discussion {
   color: var(--accent);
 }
 
-.discussion-history-edit svg {
+.discussion-history-delete {
+  color: #a93d3d;
+}
+
+.discussion-history-delete:hover {
+  color: #842d2d;
+}
+
+.discussion-history-meta {
+  white-space: nowrap;
+}
+
+.discussion-history-edit svg,
+.discussion-history-delete svg {
   width: 13px;
   height: 13px;
   fill: none;
