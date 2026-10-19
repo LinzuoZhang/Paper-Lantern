@@ -47,6 +47,19 @@ export function formatPaperCardLabel(paper) {
   return String(paper?.title || paper?.id || "").trim();
 }
 
+export function getExternalNoteLink(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    const arxiv = /^(?:www\.)?arxiv\.org$/i.test(url.hostname)
+      && /^\/(?:abs|pdf|html)\/(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?(?:\.pdf)?\/?$/i.test(url.pathname);
+    if (arxiv) url.pathname = url.pathname.replace(/^\/html\//, "/abs/");
+    return { url: url.href, importable: arxiv || /\.pdf$/i.test(url.pathname) };
+  } catch {
+    return null;
+  }
+}
+
 export function initNotesPanel({
   getCurrentPaper,
   savePaper,
@@ -800,6 +813,177 @@ export function initNotesPanel({
     }
   }
 
+  const externalImports = new Map();
+
+  async function importExternalPaper(url, onProgress) {
+    const read = async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || data.error || "文献导入失败");
+      if (!data.job?.jobId) throw new Error("导入接口未返回任务信息");
+      return data.job;
+    };
+    let job = await read(await apiFetch("/api/library/import/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }));
+    const stages = {
+      queued: "等待导入…", resolving_metadata: "正在获取文献信息…",
+      downloading: "正在下载 PDF…", validating_pdf: "正在校验 PDF…",
+      deduplicating: "正在检查重复文献…", writing_library: "正在写入文献库…",
+    };
+    while (!["completed", "failed", "cancelled"].includes(job.state)) {
+      onProgress(stages[job.stage] || "正在导入…");
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      job = await read(await apiFetch(`/api/library/import/status?${new URLSearchParams({ jobId: job.jobId })}`));
+    }
+    if (job.state !== "completed" || !job.paperId) {
+      throw new Error(job.error || (job.state === "cancelled" ? "导入已取消" : "文献导入失败"));
+    }
+    window.dispatchEvent(new CustomEvent("paper-lantern-library-updated"));
+    return job;
+  }
+
+  const linkPreviewCache = new Map();
+
+  function showExternalLinkPopover(anchor, link) {
+    closePaperLinkPopover();
+    const popover = document.createElement("section");
+    popover.className = "notes-paper-link-popover notes-external-link-popover";
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("aria-label", "外部链接选项");
+    const header = document.createElement("header");
+    const title = document.createElement("strong");
+    title.textContent = new URL(link.url).hostname;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "notes-external-link-close";
+    close.setAttribute("aria-label", "关闭外部链接选项");
+    close.textContent = "×";
+    close.addEventListener("click", closePaperLinkPopover);
+    header.append(title, close);
+    const address = document.createElement("a");
+    address.className = "notes-external-link-address";
+    const siteIcon = document.createElement("span");
+    siteIcon.className = "notes-external-link-site-icon";
+    siteIcon.setAttribute("aria-hidden", "true");
+    siteIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg>';
+    const addressText = document.createElement("span");
+    addressText.className = "notes-external-link-url";
+    addressText.textContent = link.url;
+    address.append(siteIcon, addressText);
+    const loadSiteIcon = (url, fallback = "") => {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("load", () => {
+        if (paperLinkPopover === popover) siteIcon.replaceChildren(image);
+      });
+      image.addEventListener("error", () => {
+        if (fallback && fallback !== url && paperLinkPopover === popover) loadSiteIcon(fallback);
+      });
+      image.src = url;
+    };
+    address.href = link.url;
+    address.target = "_blank";
+    address.rel = "noopener noreferrer";
+    const cover = document.createElement("div");
+    cover.className = "notes-external-link-cover";
+    const badge = document.createElement("span");
+    badge.textContent = link.importable ? "PAPER" : "LINK";
+    const coverLabel = document.createElement("span");
+    coverLabel.textContent = new URL(link.url).hostname.replace(/^www\./, "");
+    cover.append(badge, coverLabel);
+    cover.setAttribute("aria-hidden", "true");
+    const content = document.createElement("div");
+    content.className = "notes-external-link-content";
+    const description = document.createElement("p");
+    description.className = "notes-external-link-description";
+    description.textContent = link.importable ? "学术文献 · 支持一键导入文献库" : new URL(link.url).hostname;
+    const actions = document.createElement("div");
+    actions.className = "notes-external-link-actions";
+    const open = document.createElement("a");
+    open.className = "notes-external-link-action";
+    open.textContent = "打开网页";
+    open.href = link.url;
+    open.target = "_blank";
+    open.rel = "noopener noreferrer";
+    actions.append(open);
+    const status = document.createElement("p");
+    status.className = "notes-paper-link-summary";
+    status.setAttribute("role", "status");
+    if (link.importable) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "notes-external-link-action notes-external-link-import";
+      button.textContent = "一键导入文献库";
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        status.classList.remove("error");
+        status.textContent = "正在启动导入…";
+        try {
+          if (!externalImports.has(link.url)) {
+            const request = importExternalPaper(link.url, (message) => { status.textContent = message; });
+            externalImports.set(link.url, request);
+            request.catch(() => externalImports.delete(link.url));
+          }
+          const job = await externalImports.get(link.url);
+          status.textContent = job.existingItem ? "该文献已在文献库中。" : "已导入文献库。";
+          button.hidden = true;
+          const reader = document.createElement("a");
+          reader.className = "notes-external-link-action notes-external-link-import";
+          reader.textContent = "打开文献";
+          reader.href = `./reader.html?${new URLSearchParams({ id: job.paperId })}`;
+          reader.target = "_blank";
+          reader.rel = "noopener noreferrer";
+          actions.append(reader);
+        } catch (error) {
+          status.textContent = error.message || "导入失败，请重试";
+          status.classList.add("error");
+          button.disabled = false;
+        }
+        if (popover.isConnected) positionPaperLinkPopover(anchor, popover);
+      });
+      actions.append(button);
+    }
+    content.append(address, header, description, status, actions);
+    popover.append(cover, content);
+    popover.addEventListener("click", (event) => event.stopPropagation());
+    document.body.appendChild(popover);
+    paperLinkPopover = popover;
+    positionPaperLinkPopover(anchor, popover);
+    const defaultIcon = new URL("/favicon.ico", link.url).href;
+    loadSiteIcon(defaultIcon);
+    if (!linkPreviewCache.has(link.url)) {
+      const request = apiFetch("/api/link-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: link.url }),
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Preview unavailable");
+        return (await response.json()).preview || {};
+      });
+      linkPreviewCache.set(link.url, request);
+      request.catch(() => linkPreviewCache.delete(link.url));
+    }
+    linkPreviewCache.get(link.url).then((preview) => {
+      if (paperLinkPopover !== popover) return;
+      if (preview.title) title.textContent = preview.title;
+      if (preview.description) description.textContent = preview.description;
+      if (preview.icon && getExternalNoteLink(preview.icon)) loadSiteIcon(preview.icon, defaultIcon);
+      if (preview.image && getExternalNoteLink(preview.image)) {
+        const image = document.createElement("img");
+        image.alt = "";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("load", () => {
+          if (paperLinkPopover === popover) cover.replaceChildren(image);
+        });
+        image.src = preview.image;
+      }
+      positionPaperLinkPopover(anchor, popover);
+    }).catch(() => {});
+  }
+
   async function showPaperLinkPopover(anchor, id) {
     closePaperLinkPopover();
     const requestId = paperLinkRequestId;
@@ -1123,12 +1307,19 @@ export function initNotesPanel({
   });
   editorHost?.addEventListener("click", (event) => {
     const anchor = event.target instanceof Element
-      ? event.target.closest('a[href^="hash:"], .vditor-ir__node[data-type="a"]')
+      ? event.target.closest('a[href], .vditor-ir__node[data-type="a"]')
       : null;
     if (!anchor || !editorHost.contains(anchor)) return;
     const destination = anchor.matches("a")
       ? anchor.getAttribute("href")
       : anchor.querySelector(".vditor-ir__marker--link")?.textContent;
+    const externalLink = getExternalNoteLink(destination);
+    if (externalLink) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showExternalLinkPopover(anchor, externalLink);
+      return;
+    }
     if (!String(destination || "").startsWith("hash:")) return;
     const id = String(destination).slice(5).trim();
     if (!/^[a-zA-Z0-9_-]+$/.test(id)) return;

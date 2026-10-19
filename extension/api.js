@@ -39,7 +39,7 @@ export async function importRemotePdf(source, options = {}) {
   });
   const data = await readJsonResponse(response);
   if (!response.ok) throw new Error(data.detail || data.error || "PDF import failed.");
-  return { base, data };
+  return { base, data: await resolveImportedPaper(base, data) };
 }
 
 export async function importLocalPdf(source, options = {}) {
@@ -55,7 +55,31 @@ export async function importLocalPdf(source, options = {}) {
   });
   const data = await readJsonResponse(response);
   if (!response.ok) throw new Error(data.error || "PDF upload failed.");
-  return { base, data };
+  return { base, data: await resolveImportedPaper(base, data) };
+}
+
+async function resolveImportedPaper(base, data) {
+  // Older servers and local uploads return the paper directly.
+  if (data?.paper?.id) return data;
+  let job = data?.job;
+  if (!job?.jobId) throw new Error("导入接口未返回论文或任务信息，请检查服务版本。");
+  while (!["completed", "failed", "cancelled"].includes(job.state)) {
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    const response = await fetch(`${base}/api/library/import/status?${new URLSearchParams({ jobId: job.jobId })}`, { cache: "no-store" });
+    const status = await readJsonResponse(response);
+    if (!response.ok) throw new Error(status.detail || status.error || "无法读取导入进度。");
+    if (status?.job?.jobId !== job.jobId) throw new Error("导入接口返回了无效的任务信息。");
+    job = status.job;
+  }
+  if (job.state !== "completed") {
+    throw new Error(job.error || (job.state === "cancelled" ? "PDF 导入已取消。" : "PDF 导入失败。"));
+  }
+  if (!job.paperId) throw new Error("导入任务完成，但未返回论文编号。");
+  const response = await fetch(`${base}/api/library/paper?${new URLSearchParams({ id: job.paperId })}`, { cache: "no-store" });
+  const result = await readJsonResponse(response);
+  if (!response.ok) throw new Error(result.detail || result.error || "无法读取已导入的论文。");
+  if (!result?.paper?.id) throw new Error("导入接口未返回有效的论文信息。");
+  return result;
 }
 
 export async function importPdfSource(source, options = {}) {

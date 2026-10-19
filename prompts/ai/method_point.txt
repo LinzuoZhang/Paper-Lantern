@@ -60,10 +60,6 @@ Formula requirements:
 - Only write formulas that explicitly appear in the paper. Never invent, reconstruct, or derive an unstated formula.
 - Place each formula at the point in the explanation where the corresponding operation is introduced.
 - Wrap inline or short notation in "$...$" and block formulas in "$$...$$".
-- After every included formula, explain in plain Chinese what the formula does and explain every symbol needed to understand it.
-- Do not omit symbol definitions merely for brevity.
-- If a symbol has already been clearly defined earlier in the same content field, do not redefine it unless its meaning changes.
-- Explain symbols concisely: state what each symbol represents, but do not expand into unrelated mathematical background or derivation.
 - Do not reproduce derivation steps unless the derivation itself is an explicit and necessary part of the proposed method.
 
 LaTeX and JSON requirements:

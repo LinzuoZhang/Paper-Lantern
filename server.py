@@ -22,6 +22,7 @@ from urllib.parse import unquote, urlparse
 
 from config_store import get_secret, load_config, public_config, save_config
 from llm_diagnostics import RequestTiming
+from link_preview import fetch_link_preview
 from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
 from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
 
@@ -1965,6 +1966,16 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         request_path = urlparse(self.path).path
+        if request_path == "/api/link-preview":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16384:
+                    raise ValueError("Invalid preview request size")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(200, {"preview": fetch_link_preview(payload.get("url", ""))})
+            except Exception:
+                self._send_json(200, {"preview": {}})
+            return
         if request_path == "/api/library/upload":
             self._handle_library_upload()
             return
@@ -3698,6 +3709,77 @@ def is_ai_think_mode_enabled():
     return bool(load_config(BASE_DIR).get("ai", {}).get("thinkMode", False))
 
 
+def open_ai_request(request, timeout):
+    """Try direct HTTPS once when a configured proxy resets the connection."""
+    try:
+        return urllib.request.urlopen(request, timeout=timeout)
+    except (urllib.error.URLError, ConnectionResetError) as exc:
+        reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+        reset = isinstance(reason, ConnectionResetError) or getattr(reason, "winerror", None) == 10054
+        proxy = urllib.request.getproxies().get(urlparse(request.full_url).scheme)
+        if not reset or not proxy or urllib.request.proxy_bypass(urlparse(request.full_url).hostname):
+            raise
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        # ProxyHandler mutates Request (including its CONNECT tunnel state).
+        # Build a clean request so the direct attempt really targets the origin.
+        direct = urllib.request.Request(
+            request.full_url, data=request.data,
+            headers={key: value for key, value in request.header_items()
+                     if key.lower() not in {"proxy-authorization", "host", "content-length"}},
+            method=request.get_method(),
+        )
+        return opener.open(direct, timeout=timeout)
+
+
+def open_chat_completion_request(request, timeout):
+    """Retry a rejected temperature setting with the provider's default."""
+    try:
+        return open_ai_request(request, timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 400:
+            raise
+        body = exc.read()
+        # Keep the original error readable by the caller if it is unrelated.
+        detail = body.decode("utf-8", errors="replace").lower()
+        payload = json.loads(request.data.decode("utf-8"))
+        if "temperature" not in payload or "temperature" not in detail or not any(
+            marker in detail for marker in ("only", "unsupported", "not supported", "invalid", "not allowed")
+        ):
+            raise urllib.error.HTTPError(
+                exc.url, exc.code, exc.msg, exc.headers, io.BytesIO(body)
+            ) from exc
+        payload.pop("temperature")
+        retry = urllib.request.Request(
+            request.full_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={key: value for key, value in request.header_items()
+                     if key.lower() not in {"content-length", "transfer-encoding"}},
+            method=request.get_method(),
+        )
+        return open_ai_request(retry, timeout)
+
+
+def parse_chat_completion_response(response):
+    body = response.read().decode("utf-8-sig", errors="replace").strip()
+    if not body:
+        raise ValueError("AI 接口返回了空响应，请检查接口地址或稍后重试。")
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError as exc:
+        if body.startswith(("<", "<!")):
+            message = "AI 接口返回了网页而非 JSON，请检查 Base URL 是否为 API 地址，并包含服务商要求的 /v1 路径。"
+        elif body.startswith(("data:", ":", "event:")):
+            message = "AI 接口在非流式请求中返回了事件流，请检查服务商的 Chat Completions 兼容配置。"
+        else:
+            message = "AI 接口返回了无法解析的非 JSON 响应，请检查 API 服务或代理配置。"
+        raise ValueError(message) from exc
+    if not isinstance(result, dict):
+        raise ValueError("AI 接口响应格式不正确：应返回 Chat Completions JSON 对象。")
+    if result.get("error") or not isinstance(result.get("choices"), list) or not result["choices"]:
+        raise ValueError("AI 接口未返回有效的 choices，请检查模型名称及 Chat Completions 接口兼容性。")
+    return result
+
+
 def send_chat_completion(api_key, chat_completions_url, payload, timeout):
     request = urllib.request.Request(
         chat_completions_url,
@@ -3712,9 +3794,9 @@ def send_chat_completion(api_key, chat_completions_url, payload, timeout):
     timing = RequestTiming(payload, chat_completions_url, streaming=False)
     error = None
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_chat_completion_request(request, timeout) as response:
             timing.mark("headers_s")
-            result = json.loads(response.read().decode("utf-8"))
+            result = parse_chat_completion_response(response)
             timing.data["usage"] = result.get("usage")
             return result
     except Exception as exc:
@@ -3742,7 +3824,7 @@ def stream_chat_completion(api_key, chat_completions_url, payload, timeout, thin
     timing = RequestTiming(stream_payload, chat_completions_url, streaming=True)
     error = None
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_chat_completion_request(request, timeout) as response:
             timing.mark("headers_s")
             for raw_line in response:
                 timing.mark("first_line_s")

@@ -314,7 +314,11 @@ export function initLibrarySidebar({
       toggle.addEventListener("click", (event) => { event.stopPropagation(); toggleCollapsed(id); render(); });
       button.appendChild(toggle);
     }
-    button.appendChild(document.createTextNode(`${label}${count ? ` (${count})` : ""}`));
+    const labelNode = document.createElement("span");
+    labelNode.className = "category-label";
+    labelNode.textContent = `${label}${count ? ` (${count})` : ""}`;
+    button.title = labelNode.textContent;
+    button.appendChild(labelNode);
     button.addEventListener("click", () => selectCategory(id));
     row.appendChild(button);
     if (action) {
@@ -360,7 +364,11 @@ export function initLibrarySidebar({
       toggle.addEventListener("click", (event) => { event.stopPropagation(); toggleCollapsed(category.id); render(); });
       button.appendChild(toggle);
     }
-    button.appendChild(document.createTextNode(`${category.name} (${collectPapers(category).length})`));
+    const label = document.createElement("span");
+    label.className = "category-label";
+    label.textContent = `${category.name} (${collectPapers(category).length})`;
+    button.title = label.textContent;
+    button.appendChild(label);
     button.addEventListener("click", () => selectCategory(category.id));
     const menuButton = document.createElement("button");
     menuButton.type = "button";
@@ -591,6 +599,9 @@ export function initLibrarySidebar({
     });
   }
 
+  window.addEventListener("paper-lantern-library-updated", () => {
+    refresh().catch((error) => setStatus(error.message || "\u6587\u732e\u5e93\u5237\u65b0\u5931\u8d25\u3002", true));
+  });
   refresh().catch((error) => { console.error("Failed to load library sidebar.", error); setStatus(error.message || "文献库加载失败。", true); });
   return { refresh, render, open, close, setCurrentItem: setCurrent };
 }

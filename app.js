@@ -620,7 +620,11 @@ function renderCategoryRow(node, depth = 0) {
   }
 
   const paperCount = collectPapers(node).length;
-  button.appendChild(document.createTextNode(`${node.name} (${paperCount})`));
+  const label = document.createElement("span");
+  label.className = "category-label";
+  label.textContent = `${node.name} (${paperCount})`;
+  button.title = label.textContent;
+  button.appendChild(label);
   button.addEventListener("click", () => {
     selectedCategoryId = node.id;
     renderLibrary();
@@ -674,7 +678,7 @@ function renderRecentCategory() {
   button.type = "button";
   button.className = "category-item recent-category-item";
   button.classList.toggle("active", selectedCategoryId === RECENT_CATEGORY_ID);
-  button.innerHTML = `${recentCategoryIconSvg}<span>最近 (${getRecentPapers(collectPapers(libraryTree)).length})</span>`;
+  button.innerHTML = `${recentCategoryIconSvg}<span class="category-label">最近 (${getRecentPapers(collectPapers(libraryTree)).length})</span>`;
   button.addEventListener("click", () => {
     selectedCategoryId = RECENT_CATEGORY_ID;
     renderLibrary();
@@ -693,7 +697,7 @@ function renderTodoCategory() {
   button.className = "category-item recent-category-item";
   button.classList.toggle("active", selectedCategoryId === TODO_CATEGORY_ID);
   const count = (collectPapers(libraryTree) || []).filter((paper) => paper.todo).length;
-  button.innerHTML = `${todoCategoryIconSvg}<span>待办 (${count})</span>`;
+  button.innerHTML = `${todoCategoryIconSvg}<span class="category-label">待办 (${count})</span>`;
   button.addEventListener("click", () => {
     selectedCategoryId = TODO_CATEGORY_ID;
     renderLibrary();
