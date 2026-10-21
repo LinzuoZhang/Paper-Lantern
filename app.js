@@ -1055,18 +1055,18 @@ function renderPaperInfoPanel(paper) {
   }
 
   const basicInfo = paper.basicInfo || {};
-  const basicSection = createPaperInfoSection("Basic Info", [
-    ["Authors", formatPaperInfoValue(basicInfo.authors)],
-    ["Venue", formatPaperInfoValue(basicInfo.venue)],
-    ["Date", formatPaperInfoValue(basicInfo.publishedDate)],
-    ["Institutions", formatPaperInfoValue(basicInfo.institutions)],
+  const basicSection = createPaperInfoSection("基本信息", [
+    ["作者", formatPaperInfoValue(basicInfo.authors)],
+    ["期刊", formatPaperInfoValue(basicInfo.venue)],
+    ["发表日期", formatPaperInfoValue(basicInfo.publishedDate)],
+    ["机构", formatPaperInfoValue(basicInfo.institutions)],
   ]);
 
   const lines = paper.threeLineSummary || {};
-  const summarySection = createPaperInfoSection("Three-Line Summary", [
-    ["Challenges", formatPaperInfoValue(lines.challenges)],
-    ["Method", formatPaperInfoValue(lines.method)],
-    ["Conclusion", formatPaperInfoValue(lines.conclusion)],
+  const summarySection = createPaperInfoSection("三行总结", [
+    ["挑战", formatPaperInfoValue(lines.challenges)],
+    ["方法", formatPaperInfoValue(lines.method)],
+    ["结论", formatPaperInfoValue(lines.conclusion)],
   ]);
 
   const citationFormats = buildPaperCitationFormats(paper);

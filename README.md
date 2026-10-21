@@ -8,6 +8,22 @@ Paper Lantern 是一个本地优先、开源的论文阅读与文献管理工具
 
 ## 快速开始
 
+### Windows 单文件 exe
+
+打包后可直接双击 `dist/PaperLantern.exe`，无需安装 Python。程序会启动本地服务并自动打开默认浏览器；使用期间保留控制台窗口，退出时按 `Ctrl+C` 或关闭该窗口。AI 功能仍需在设置中填写自己的 API Key。
+
+将 exe 放在有写入权限的文件夹中。首次启动会在 exe 旁边创建 `.env/` 配置目录，导入论文后创建 `literature_library/`；这些数据会在退出后保留。打包不会包含工程中已有的密钥或私人文献。需要使用原有数据时，先退出程序，再将原来的 `.env/` 和 `literature_library/` 复制到 exe 旁边；Windows 加密的密钥需在同一 Windows 用户下使用，换电脑请重新填写。
+
+开发者在 Windows 上使用正式版 Python 3.10 或更高版本构建：
+
+```powershell
+python build_exe.py
+# 指定 Python 路径：
+python build_exe.py --python "C:\path\to\python.exe"
+```
+
+构建脚本会创建独立环境、安装打包和 PDF/笔记导出依赖，生成单个 `dist/PaperLantern.exe`。网页、前端依赖和 AI 提示词均包含在 exe 中。命令行启动可使用 `--no-browser` 禁用自动打开页面，或使用 `--port 8001` 更换端口；`PAPER_LIBRARY_DIR` 环境变量仍然有效。
+
 ### 1. 准备环境
 
 需要：

@@ -85,11 +85,7 @@ Style:
 - Do not discuss experiments, ablations, benchmark results, implementation settings, or datasets unless they are directly part of how this method point works.
 
 Length control:
-- Use the shortest explanation that preserves the complete mechanism, all necessary terminology expansions, and all necessary formula/symbol explanations.
-- Normally use 2–4 short paragraphs.
 - A paragraph should usually correspond to one major logical stage rather than one technical operation.
-- If formulas or symbol definitions make the explanation longer, prioritize their completeness and compress the surrounding prose instead.
-- Do not shorten by removing required terminology expansions, formulas, or symbol definitions.
 
 Paper content:
 {paper_text}

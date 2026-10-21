@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import uuid
@@ -27,12 +28,15 @@ from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public
 from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
 
 
-BASE_DIR = Path(__file__).resolve().parent
+RESOURCE_DIR = Path(__file__).resolve().parent
+# One-file bundles unpack resources into a temporary directory. Keep user data
+# beside the executable so it survives application exits and upgrades.
+BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else RESOURCE_DIR
 DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
 CONFIG_FILE = BASE_DIR / ".env" / "paperlantern_config.json"
 LEGACY_AI_ENV_FILE = BASE_DIR / ".env" / "ai.env"
 LEGACY_CLOUD_SYNC_ENV_FILE = BASE_DIR / ".env" / "cloud_sync.env"
-PROMPT_DIR = BASE_DIR / "prompts" / "ai"
+PROMPT_DIR = RESOURCE_DIR / "prompts" / "ai"
 MAX_PAPER_CHARS = 5_000_000
 MAX_TRANSLATE_CHARS = 4000
 MAX_DISCUSSION_HISTORY_ITEMS = 200
@@ -4152,15 +4156,51 @@ def build_method_format_system_prompt():
     return render_prompt("method_format_system.txt")
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    import argparse
+    from functools import partial
+    import webbrowser
+
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/javascript", ".mjs")
     load_env_file(LEGACY_AI_ENV_FILE)
     load_env_file(LEGACY_CLOUD_SYNC_ENV_FILE)
-    if not CONFIG_FILE.exists():
-        save_config(BASE_DIR, {})
-    port = int(os.environ.get("PORT", "8000"))
-    server = ThreadingHTTPServer(("127.0.0.1", port), PaperReaderHandler)
-    print(f"Paper reader running at http://127.0.0.1:{port}")
-    print(f"Config file: {CONFIG_FILE}")
-    server.serve_forever()
+    parser = argparse.ArgumentParser(description="Paper Lantern local server")
+    parser.add_argument("--port", type=int, default=os.environ.get("PORT", "8000"))
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the browser on startup")
+    args = parser.parse_args(argv)
+    if not 0 <= args.port <= 65535:
+        parser.error("port must be between 0 and 65535")
+
+    try:
+        if not CONFIG_FILE.exists():
+            save_config(BASE_DIR, {})
+        handler = partial(PaperReaderHandler, directory=str(RESOURCE_DIR))
+        httpd = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    except OSError as exc:
+        message = f"Could not start Paper Lantern: {exc}\nChoose a writable folder and an available port (--port 8001)."
+        print(message, file=sys.stderr, flush=True)
+        if getattr(sys, "frozen", False) and sys.platform == "win32" and not args.no_browser:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "Paper Lantern", 0x10)
+        return 1
+
+    url = f"http://127.0.0.1:{httpd.server_port}/"
+    with httpd:
+        print(f"Paper reader running at {url}", flush=True)
+        print(f"Config file: {CONFIG_FILE}", flush=True)
+        print(f"Library: {LIBRARY_DIR}", flush=True)
+        print("Keep this window open. Press Ctrl+C to stop.", flush=True)
+        if getattr(sys, "frozen", False) and not args.no_browser:
+            browser_timer = threading.Timer(0.3, webbrowser.open, args=(url,))
+            browser_timer.daemon = True
+            browser_timer.start()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nPaper Lantern stopped.", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

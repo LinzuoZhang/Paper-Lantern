@@ -916,7 +916,7 @@ export function initNotesPanel({
       const button = document.createElement("button");
       button.type = "button";
       button.className = "notes-external-link-action notes-external-link-import";
-      button.textContent = "一键导入文献库";
+      button.textContent = "一键导入";
       button.addEventListener("click", async () => {
         button.disabled = true;
         status.classList.remove("error");
