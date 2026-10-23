@@ -809,7 +809,7 @@ function renderPaperList(papers) {
     const empty = document.createElement("div");
     empty.className = "library-empty";
     empty.textContent = searchQuery
-      ? "No matching papers."
+      ? "未找到匹配的文献或笔记。"
       : selectedCategoryId === RECENT_CATEGORY_ID
         ? "暂无最近阅读记录。"
         : selectedCategoryId === TODO_CATEGORY_ID
@@ -999,16 +999,17 @@ let paperColumnWidths = [];
 function initPaperTableResize(table) {
   const ths = Array.from(table.querySelectorAll("thead th"));
   const resizableCount = ths.length - 1;
-  if (paperColumnWidths.length !== resizableCount) paperColumnWidths = [];
+  const defaults = [50, 14, 14, 6, 6];
+  if (paperColumnWidths.length !== resizableCount) paperColumnWidths = [...defaults];
   // Columns before the last are resizable; the last (选项) is width:auto and
   // absorbs the delta so the table always fills 100%.
-  const defaults = [36, 15, 17, 7, 12];
   ths.forEach((th, index) => {
     if (index === ths.length - 1) return;
     th.style.width = `${paperColumnWidths[index] || defaults[index]}%`;
     const handle = document.createElement("div");
     handle.className = "paper-col-resize-handle";
     handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("click", (event) => event.stopPropagation());
     handle.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1079,7 +1080,7 @@ function renderPaperInfoPanel(paper) {
   citationCard.type = "button";
   citationCard.className = "paper-info-citation-card";
   const citationHeading = document.createElement("h3");
-  citationHeading.textContent = "Citation";
+  citationHeading.textContent = "引用信息";
   const citationPreview = document.createElement("p");
   citationPreview.className = "paper-info-citation-preview";
   citationPreview.textContent = citationFormats.gbt7714 || "暂无引用信息";
@@ -1099,7 +1100,7 @@ function renderPaperInfoEmpty() {
   paperInfoPanel.innerHTML = "";
   const empty = document.createElement("div");
   empty.className = "paper-info-empty";
-  empty.textContent = searchQuery ? "No matching papers." : "No paper selected.";
+  empty.textContent = searchQuery ? "未找到匹配的文献或笔记。" : "选择文献，查看详细信息。";
   paperInfoPanel.appendChild(empty);
 }
 
@@ -1524,8 +1525,14 @@ function showPaperMenu(paper, anchor) {
 
 function positionMenu(menu, anchor, width) {
   const rect = anchor.getBoundingClientRect();
-  menu.style.left = `${Math.min(rect.left, window.innerWidth - width)}px`;
-  menu.style.top = `${rect.bottom + 4}px`;
+  const menuRect = menu.getBoundingClientRect();
+  const margin = 8;
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - (menuRect.width || width) - margin));
+  const top = rect.bottom + 4 + menuRect.height <= window.innerHeight - margin
+    ? rect.bottom + 4
+    : Math.max(margin, rect.top - menuRect.height - 4);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
 }
 
 async function updateCategory(payload) {

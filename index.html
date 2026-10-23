@@ -3,12 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PaperLantern Paper Reader</title>
+    <title>文献库 - Paper Lantern</title>
     <link rel="icon" type="image/jpeg" href="./assets/figure.jpg" />
     <link rel="apple-touch-icon" href="./assets/figure.jpg" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./note.css" />
+    <link rel="stylesheet" href="./library.css" />
   </head>
-  <body>
+  <body class="workspace-page library-page">
     <main id="libraryView" class="library-view" aria-label="Literature library">
       <div class="library-layout">
         <aside class="category-panel">
@@ -24,14 +26,14 @@
             <div id="categoryMainRows"></div>
           </div>
           <div class="library-footer-actions">
-            <button id="settingsButton" class="settings-trigger" type="button" aria-label="Settings" title="Settings">
+            <button id="settingsButton" class="settings-trigger" type="button" aria-label="设置" title="设置">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z" />
                 <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.65V21.5a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.1H2a2.1 2.1 0 0 1 0-4.2h.09a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.36-2l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.65V2.4a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.1H22a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z" />
               </svg>
               <small id="cloudSyncStatus" hidden>Checking...</small>
             </button>
-            <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="Sync library" title="Sync library">
+            <button id="cloudSyncButton" class="sync-refresh-button" type="button" aria-label="同步文献库" title="同步文献库">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 11a8.1 8.1 0 0 0-15.5-2" />
                 <path d="M4 5v4h4" />
@@ -45,12 +47,13 @@
         <section class="paper-list-panel">
           <div class="paper-list-header">
             <div>
-              <h2 id="currentCategoryName">All Papers</h2>
+              <h2 id="currentCategoryName">文献库</h2>
               <p id="libraryStatus" role="status"></p>
             </div>
             <form id="uploadForm" class="upload-form">
               <label class="category-search">
-                <input id="librarySearchInput" type="search" placeholder="搜索标题或分类" autocomplete="off" />
+                <svg class="library-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+                <input id="librarySearchInput" type="search" placeholder="搜索标题或分类" aria-label="搜索文献或笔记" autocomplete="off" />
               </label>
               <button id="createNoteButton" class="file-button library-create-note-button" type="button" aria-label="新建笔记" title="新建笔记">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -59,7 +62,7 @@
                 </svg>
               </button>
               <div class="upload-menu-wrap">
-                <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
+                <button id="uploadMenuButton" class="file-button menu-button" type="button" aria-label="上传论文" title="上传论文" aria-haspopup="menu" aria-expanded="false">
                   <svg class="upload-button-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 3v12" />
                     <path d="m7 8 5-5 5 5" />
@@ -75,8 +78,8 @@
                         <path d="m14 22 10-10 10 10" />
                         <path d="M12 36h24" />
                       </svg>
-                      <strong>Upload PDF</strong>
-                      <small>Drop a file here or click to choose</small>
+                      <strong>上传 PDF</strong>
+                      <small>拖拽文件到这里，或点击选择</small>
                     </span>
                   </label>
                   <div class="arxiv-upload-panel" role="menuitem">

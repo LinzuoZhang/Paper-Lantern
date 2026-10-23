@@ -1,0 +1,208 @@
+/* Library layout; palette and interaction tokens are shared with both editors. */
+body.library-page {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.library-page .library-view { height: 100dvh; padding: 0; background: var(--note-canvas); }
+.library-page .library-layout { min-width: 0; gap: 0; padding: 0; }
+.library-page :is(.category-panel, .paper-list-panel, .paper-info-panel) { min-width: 0; border: 0; border-radius: 0; background: var(--note-canvas); box-shadow: none; }
+.library-page .category-panel { position: relative; width: 228px; flex: 0 0 228px; padding: 0 12px 12px; }
+.library-page .library-brand {
+  display: flex;
+  align-items: center;
+  flex: 0 0 var(--note-header-height);
+  height: var(--note-header-height);
+  min-height: var(--note-header-height);
+  margin: 0 0 16px;
+  padding: 0 8px;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+}
+.library-page .library-brand .site-logo { width: 25px; height: 25px; border-radius: var(--note-radius); box-shadow: none; }
+.library-page .library-brand h1 { margin: 0; color: var(--note-ink); font-size: 14px; font-weight: 600; letter-spacing: -.015em; white-space: nowrap; }
+.library-page .category-tree { margin: 0; padding: 0; gap: 16px; }
+.library-page :is(#categoryTopRows, #categoryMainRows) { display: grid; align-content: start; gap: 3px; }
+.library-page .category-row-special-flat { margin: 0; padding: 0; border: 0; }
+.library-page .category-item {
+  min-height: 34px;
+  padding: 0 8px;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--note-radius);
+  background: transparent;
+  color: #63686e;
+  font-size: 13px;
+  font-weight: 400;
+}
+.library-page .category-item:hover { color: var(--note-ink); background: var(--note-hover); }
+.library-page .category-item.active { color: var(--note-ink); background: var(--note-active); font-weight: 500; }
+.library-page .category-icon { width: 16px; height: 16px; stroke-width: 1.7; color: var(--note-secondary); }
+.library-page :is(.category-menu-button, .paper-menu-button) { width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--note-radius); background: transparent; color: var(--note-tertiary); font-size: 16px; font-weight: 400; }
+.library-page :is(.category-menu-button, .paper-menu-button):hover { color: var(--note-ink); background: var(--note-hover); }
+.library-page .category-inline-input { min-height: 32px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font: 13px/1.5 var(--note-font); }
+.library-page .category-row.drop-inside .category-item { background: var(--note-active); outline: 1px dashed var(--note-focus); }
+.library-page .library-footer-actions { flex: 0 0 auto; margin: 16px 0 0; padding: 8px 0 0; gap: 4px; border-top: 1px solid var(--note-line); }
+.library-page :is(.library-footer-actions .settings-trigger, .library-footer-actions .sync-refresh-button, .upload-form .file-button) {
+  display: inline-grid;
+  place-items: center;
+  width: var(--note-button-size);
+  min-width: var(--note-button-size);
+  height: var(--note-button-size);
+  min-height: var(--note-button-size);
+  padding: 7px;
+  border: 0;
+  border-radius: var(--note-radius);
+  background: transparent;
+  color: var(--note-secondary);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.library-page :is(.library-footer-actions button, .upload-form .file-button):hover:not(:disabled) { color: var(--note-ink); background: var(--note-hover); }
+.library-page :is(.library-footer-actions button, .upload-form .file-button) svg { width: 17px; height: 17px; color: inherit; stroke-width: 1.7; }
+.library-page .upload-form .file-button[aria-expanded="true"] { background: var(--note-active); color: var(--note-ink); }
+.library-page :is(.library-layout-resizer, .paper-info-resizer) { flex-basis: 8px; }
+.library-page :is(.library-layout-resizer, .paper-info-resizer)::after { background: var(--note-line); }
+.library-page :is(.library-layout-resizer, .paper-info-resizer):hover::after { background: var(--note-focus); }
+
+/* Compact navigation and actions above a quiet, full-width document list. */
+.library-page .paper-list-panel { padding: 0 24px; overflow: visible; }
+.library-page .paper-list-header {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  min-height: var(--note-header-height);
+  margin: 0;
+  padding: 9px 0;
+  gap: 8px 16px;
+  border-bottom: 1px solid var(--note-line);
+}
+.library-page .paper-list-header > div { flex: 1 1 auto; }
+.library-page .paper-list-header h2 { color: var(--note-ink); font-size: 14px; font-weight: 500; line-height: 1.5; }
+.library-page #currentCategoryName .category-icon { color: var(--note-tertiary); }
+.library-page #libraryStatus { max-width: 100%; margin: 5px 0 0; color: var(--note-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.library-page #libraryStatus:empty { display: none; }
+.library-page #libraryStatus.error { color: #a75043; }
+.library-page .upload-form { min-width: 0; width: auto; gap: 4px; border: 0; border-radius: 0; background: transparent; }
+.library-page .category-search { position: relative; display: block; width: clamp(156px, 18vw, 230px); min-width: 0; margin-right: 4px; }
+.library-page .library-search-icon { position: absolute; top: 9px; left: 10px; width: 14px; height: 14px; color: var(--note-tertiary); pointer-events: none; }
+.library-page .category-search input {
+  height: var(--note-button-size);
+  min-height: var(--note-button-size);
+  padding: 0 10px 0 31px;
+  border: 1px solid transparent;
+  border-radius: var(--note-radius);
+  background: var(--note-hover);
+  color: var(--note-ink);
+  font: 12px/1.5 var(--note-font);
+  box-shadow: none;
+}
+.library-page .category-search input::placeholder { color: var(--note-tertiary); }
+.library-page .category-search input:focus { border-color: var(--note-focus); outline: 1px solid var(--note-focus); outline-offset: 1px; }
+.library-page .paper-list { margin-top: 12px; padding: 0 0 24px; gap: 0; overflow: auto; scrollbar-gutter: stable; }
+.library-page .paper-table-wrap { min-width: 720px; }
+.library-page .paper-table th { height: 34px; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--note-line); background: var(--note-canvas); color: var(--note-secondary); font-size: 11px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+.library-page .paper-sort-button { color: inherit; font-size: 11px; font-weight: 400; letter-spacing: 0; }
+.library-page .paper-sort-button:hover { color: var(--note-ink); }
+.library-page .paper-table td { height: 52px; padding: 10px 8px; border-bottom: 1px solid var(--note-line); background: transparent; }
+.library-page .paper-table tbody tr:hover td { background: var(--note-hover); }
+.library-page .paper-table-row:focus-visible { outline: 1px solid var(--note-focus); outline-offset: -1px; }
+.library-page .paper-table-row:focus-visible td { background: var(--note-hover); }
+.library-page .paper-title-button { gap: 10px; color: var(--note-ink); font-size: 13.5px; font-weight: 400; line-height: 1.6; }
+.library-page .paper-title-type-icon { width: 15px; min-width: 15px; height: 15px; stroke-width: 1.7; }
+.library-page .paper-title-button :is(.paper-type-icon, .note-type-icon) { color: var(--note-tertiary); }
+.library-page .paper-date-cell { color: var(--note-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.library-page :is(.paper-read-toggle, .paper-todo-toggle) { color: var(--note-tertiary); background: transparent; border-radius: 4px; }
+.library-page :is(.paper-read-toggle, .paper-todo-toggle):hover { color: var(--note-secondary); background: var(--note-active); }
+.library-page .paper-read-toggle.checked { color: #718477; }
+.library-page .paper-todo-toggle.checked { color: #68717a; }
+.library-page :is(.paper-read-toggle, .paper-todo-toggle) svg { width: 16px; height: 16px; }
+.library-page .paper-col-resize-handle { right: 0; width: 6px; }
+.library-page .paper-col-resize-handle:hover { background: var(--note-line); }
+.library-page .library-empty { min-height: 280px; padding: 48px 24px; color: var(--note-secondary); font-size: 13px; line-height: 1.8; text-align: center; }
+
+/* Metadata is readable prose, with space between fields instead of rules. */
+.library-page .paper-info-panel { width: 320px; flex: 0 0 320px; padding: 24px; gap: 28px; }
+.library-page .paper-info-header { gap: 10px; padding: 0; border: 0; }
+.library-page .paper-info-header h2 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.55; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.library-page .paper-info-header p { color: var(--note-secondary); font-size: 12px; line-height: 1.7; }
+.library-page .paper-info-section { gap: 14px; }
+.library-page .paper-info-section h3 { font-size: 13px; font-weight: 600; text-transform: none; }
+.library-page .paper-info-list dt { padding: 0; color: var(--note-secondary); font-size: 11px; font-weight: 400; line-height: 1.6; }
+.library-page .paper-info-list dd { margin: 0 0 16px; padding: 5px 0 0; border: 0; color: #42474c; font-size: 13px; line-height: 1.8; }
+.library-page .paper-info-list dd:last-child { margin-bottom: 0; }
+.library-page .paper-info-citation-card { gap: 8px; padding: 12px; border: 1px solid var(--note-line); border-radius: var(--note-radius); background: transparent; color: var(--note-ink); }
+.library-page .paper-info-citation-card:hover { border-color: #d5d8d6; background: var(--note-hover); }
+.library-page .paper-info-citation-card h3 { font-size: 12px; font-weight: 500; text-transform: none; }
+.library-page .paper-info-citation-preview { color: var(--note-secondary); font-size: 12px; line-height: 1.8; }
+.library-page .paper-info-citation-hint { color: var(--note-tertiary); font-size: 11px; font-weight: 400; }
+.library-page .paper-info-note-preview { margin: 0; color: #42474c; font-size: 14px; line-height: 1.8; }
+.library-page .paper-info-empty { min-height: 200px; color: var(--note-tertiary); font-size: 12px; line-height: 1.8; }
+
+/* Upload, category management and settings retain their existing controls. */
+.library-page :is(.upload-menu, .library-menu, .category-manager, .cloud-config-card, .citation-overlay-card, .arxiv-download-overlay, .cloud-sync-progress-overlay) { padding: 6px; border: 1px solid var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); color: var(--note-ink); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
+.library-page :is(.library-menu button, .library-menu a) { min-height: 32px; padding: 7px 10px; border-radius: var(--note-radius); color: #5e6369; font-size: 13px; font-weight: 400; line-height: 1.5; }
+.library-page .library-menu { max-height: calc(100dvh - 16px); overflow-y: auto; }
+.library-page :is(.library-menu button, .library-menu a):hover:not(:disabled) { color: var(--note-ink); background: var(--note-hover); }
+.library-page .library-menu :is(button, a) svg { width: 16px; height: 16px; stroke-width: 1.7; }
+.library-page .upload-menu { top: calc(100% + 10px); right: 0; width: 300px; min-width: 0; padding: 12px; }
+.library-page .upload-drop-option { padding: 0; background: transparent; }
+.library-page .upload-drop-box { min-height: 138px; border: 1px dashed #d5d8d6; border-radius: var(--note-radius); background: transparent; }
+.library-page .upload-drop-box:hover { border-color: var(--note-focus); background: var(--note-hover); }
+.library-page .upload-drop-arrow { width: 32px; height: 32px; padding: 0; border-radius: 0; background: transparent; color: var(--note-secondary); stroke: currentColor; stroke-width: 2.5; }
+.library-page .upload-drop-box strong { color: var(--note-ink); font-size: 13px; font-weight: 500; }
+.library-page .upload-drop-box small { color: var(--note-secondary); font-size: 11px; font-weight: 400; }
+.library-page .arxiv-upload-panel { border-color: var(--note-line); }
+.library-page .arxiv-upload-panel > label { color: var(--note-secondary); font-size: 11px; font-weight: 400; }
+.library-page .arxiv-upload-row input { min-width: 0; height: 32px; min-height: 32px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); font-size: 12px; box-shadow: none; }
+.library-page .arxiv-upload-row button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; border: 0; border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-secondary); }
+.library-page .arxiv-upload-row button:hover { background: var(--note-active); }
+.library-page .arxiv-upload-row input:focus { outline: 1px solid var(--note-focus); outline-offset: 1px; border-color: var(--note-focus); }
+.library-page .category-manager { --category-manager-text: var(--note-ink); --category-manager-muted: var(--note-secondary); --category-manager-border: var(--note-line); --category-manager-hover: var(--note-hover); padding: 20px; }
+.library-page .category-manager .category-manager-footer button { border-radius: var(--note-radius); }
+.library-page .category-manager .category-manager-footer .category-manager-save { border-color: #d5d8d6; background: var(--note-active); color: var(--note-ink); }
+.library-page .category-manager .category-manager-footer .category-manager-save:hover:not(:disabled) { border-color: #c7ccc8; background: #dfe2dd; }
+.library-page .category-manager :is(input, button):focus-visible { outline-color: var(--note-focus); }
+.library-page :is(.cloud-config-overlay, .citation-overlay) { background: rgb(36 39 43 / 14%); }
+.library-page :is(.cloud-config-card, .citation-overlay-card) { padding: 20px; }
+.library-page :is(.cloud-config-header h2, .citation-overlay-header h2) { font-size: 17px; font-weight: 600; }
+.library-page .settings-nav-item { border-radius: var(--note-radius); font-size: 13px; font-weight: 500; }
+.library-page .settings-nav-item.is-active { background: var(--note-active); }
+.library-page .cloud-config-card label { color: var(--note-secondary); font-size: 12px; font-weight: 500; }
+.library-page .cloud-config-card :is(input:not([type="checkbox"]), select) { min-height: 34px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font-size: 13px; }
+.library-page .cloud-config-card :is(input, select):focus { outline: 1px solid var(--note-focus); outline-offset: 1px; border-color: var(--note-focus); }
+.library-page .citation-output { border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font: 13px/1.8 var(--note-mono); }
+.library-page :is(.arxiv-download-overlay, .cloud-sync-progress-overlay) { padding: 16px; }
+.library-page .library-view.library-file-drag-over { outline: 1px dashed var(--note-focus); outline-offset: -8px; }
+
+@media (max-width: 1100px) {
+  .library-page .category-panel { width: 220px; flex-basis: 220px; }
+  .library-page .paper-info-panel { width: 280px; flex-basis: 280px; padding: 20px; }
+  .library-page .paper-list-panel { padding-inline: 20px; }
+  .library-page .paper-list-header .upload-form { flex: 1 1 100%; }
+  .library-page .category-search { flex: 1 1 auto; width: auto; }
+}
+@media (max-width: 900px) {
+  body.library-page { height: auto; min-height: 100dvh; overflow: auto; }
+  .library-page .library-view { height: auto; min-height: 100dvh; overflow: visible; }
+  .library-page .library-layout { flex-direction: column; }
+  .library-page .category-panel { width: 100%; flex: 0 0 auto; padding: 0 20px 16px; border-bottom: 1px solid var(--note-line); }
+  .library-page .library-brand { margin: 0 0 8px; padding: 0; }
+  .library-page .category-tree { flex: 0 1 auto; max-height: 166px; overflow-y: auto; gap: 12px; }
+  .library-page .library-footer-actions { position: absolute; top: 10px; right: 20px; margin: 0; padding: 0; border: 0; }
+  .library-page .paper-list-panel { flex: 0 0 auto; padding: 16px 20px 0; }
+  .library-page .paper-list-header .upload-form { flex: 0 1 auto; }
+  .library-page .category-search { width: clamp(156px, 32vw, 230px); }
+  .library-page .paper-list { flex: 0 1 auto; max-height: 60dvh; min-height: 260px; padding-bottom: 12px; }
+  .library-page .paper-info-panel { flex: 0 0 auto; width: auto; padding: 24px 20px; overflow: visible; border-top: 1px solid var(--note-line); }
+  .library-page .paper-info-header h2 { max-width: 680px; }
+  .library-page .paper-info-section { max-width: 680px; }
+  .library-page .paper-info-citation-card { max-width: 680px; }
+}
+@media (max-width: 600px) {
+  .library-page .paper-list-header .upload-form { flex: 1 1 100%; }
+  .library-page .category-search { flex: 1 1 auto; width: auto; }
+  .library-page .upload-menu { width: min(300px, calc(100vw - 40px)); }
+  .library-page .settings-split { grid-template-columns: 1fr; }
+  .library-page .settings-nav { flex-direction: row; padding: 0 0 8px; border-right: 0; border-bottom: 1px solid var(--note-line); }
+}

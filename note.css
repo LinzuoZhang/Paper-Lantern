@@ -1,4 +1,4 @@
-/* Shared reading / writing workspace tokens and controls. Library styles stay isolated. */
+/* Shared workspace tokens and controls. Page layouts remain scoped. */
 body.workspace-page {
   --note-canvas: #fafaf8;
   --note-ink: #24272b;
