@@ -37,6 +37,33 @@ const NOTES_MORE_ICONS = {
   table: "table",
 };
 
+// Presentation-only symbols for the standalone note page. Vditor keeps its
+// original buttons, handlers, shortcuts and mode switching.
+const NOTES_LINE_ICONS = {
+  outline: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M13 8h4M13 12h4M13 16h3"/>',
+  headings: '<path d="M3 5h12M9 5v14M5 19h8m4-8 3 3 3-3"/>',
+  bold: '<path d="M6 12h8a4 4 0 0 1 0 8H6V4h7a4 4 0 0 1 0 8"/>',
+  italic: '<path d="M19 4h-9m4 16H5M15 4 9 20"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  "ordered-list": '<path d="M10 6h11M10 12h11M10 18h11M4 4h1v5M4 9h2M3 14a2 2 0 0 1 4 0c0 2-4 2-4 5h4"/>',
+  check: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  "paper-reference": '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  undo: '<path d="M3 7v6h6M21 17a8 8 0 0 0-13.6-5.6L3 13"/>',
+  redo: '<path d="M21 7v6h-6M3 17a8 8 0 0 1 13.6-5.6L21 13"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  fullscreen: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/>',
+  contract: '<path d="M8 3v5H3M16 3v5h5M21 16h-5v5M3 16h5v5"/>',
+  edit: '<path d="m16 3 5 5M4 20l4-1L21 6a2.1 2.1 0 0 0-3-3L5 16z"/>',
+  both: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M6 8h3M6 12h3M15 8h3M15 12h3"/>',
+  strike: '<path d="M16 4H9a4 4 0 0 0-4 4M4 12h16M17 12a4 4 0 0 1-2 8H6"/>',
+  quote: '<path d="M3 12h6V5H3v7c0 4 2 6 6 7M15 12h6V5h-6v7c0 4 2 6 6 7"/>',
+  line: '<path d="M4 12h16"/>',
+  code: '<path d="m8 8-4 4 4 4m8-8 4 4-4 4M14 4l-4 16"/>',
+  "inline-code": '<path d="m8 7-5 5 5 5m8-10 5 5-5 5"/>',
+  table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M3 15h18"/>',
+};
+
 // 论文卡片在笔记中显示的文本：第一个作者名 + "et al."，无作者时回退到标题。
 export function formatPaperCardLabel(paper) {
   const authors = Array.isArray(paper?.authors)
@@ -75,6 +102,48 @@ export function initNotesPanel({
   const notesExportMenu = document.querySelector("#notesExportMenu");
   const exportNotesMarkdownButton = document.querySelector("#exportNotesMarkdownButton");
   const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
+  const isStandaloneNote = Boolean(editorHost?.closest(".standalone-note-page"));
+
+  function iconReference(icon) {
+    return isStandaloneNote && Object.hasOwn(NOTES_LINE_ICONS, icon)
+      ? `#notes-line-${icon}`
+      : `#vditor-icon-${icon}`;
+  }
+
+  function styleStandaloneEditorChrome() {
+    if (!isStandaloneNote) return;
+    const definitions = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    definitions.classList.add("notes-icon-definitions");
+    definitions.setAttribute("aria-hidden", "true");
+    definitions.innerHTML = `<defs>${Object.entries(NOTES_LINE_ICONS).map(([name, paths]) =>
+      `<symbol id="notes-line-${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths}</symbol>`).join("")}</defs>`;
+    editorHost.appendChild(definitions);
+    editorHost.querySelectorAll(".vditor-toolbar__item > button[data-type]").forEach((button) => {
+      const type = button.dataset.type;
+      const icon = type === "edit-mode" ? NOTES_MODE_ICONS.ir : type;
+      if (!Object.hasOwn(NOTES_LINE_ICONS, icon)) return;
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttributeNS("http://www.w3.org/1999/xlink", "href", iconReference(icon));
+      svg.setAttribute("aria-hidden", "true");
+      svg.appendChild(use);
+      button.replaceChildren(svg);
+      if (["headings", "list", "link", "undo"].includes(type)) {
+        button.parentElement.classList.add("notes-toolbar-group-start");
+      }
+    });
+    // Vditor replaces this button's SVG when fullscreen changes, including when
+    // invoked by a shortcut. Only refresh its presentation after that update.
+    const fullscreenButton = editorHost.querySelector('button[data-type="fullscreen"]');
+    if (fullscreenButton) {
+      new MutationObserver(() => {
+        const icon = editorHost.classList.contains("vditor--fullscreen") ? "contract" : "fullscreen";
+        fullscreenButton.querySelector("use")?.setAttributeNS(
+          "http://www.w3.org/1999/xlink", "href", iconReference(icon),
+        );
+      }).observe(fullscreenButton, { childList: true });
+    }
+  }
 
   let vditor = null;
   let fallbackEditor = null;
@@ -118,7 +187,7 @@ export function initNotesPanel({
     if (!button) return;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttributeNS("http://www.w3.org/1999/xlink", "href", `#vditor-icon-${icon}`);
+    use.setAttributeNS("http://www.w3.org/1999/xlink", "href", iconReference(icon));
     svg.appendChild(use);
     const text = document.createElement("span");
     text.textContent = label;
@@ -143,7 +212,7 @@ export function initNotesPanel({
     editModeUse?.setAttributeNS(
       "http://www.w3.org/1999/xlink",
       "href",
-      `#vditor-icon-${NOTES_MODE_ICONS[mode] || NOTES_MODE_ICONS.ir}`,
+      iconReference(NOTES_MODE_ICONS[mode] || NOTES_MODE_ICONS.ir),
     );
     if (persist) {
       try {
@@ -181,6 +250,7 @@ export function initNotesPanel({
   }
 
   function arrangeEditorChrome() {
+    styleStandaloneEditorChrome();
     const editModeButton = editorHost?.querySelector('.vditor-toolbar button[data-type="edit-mode"]');
     const fullscreenButton = editorHost?.querySelector('.vditor-toolbar button[data-type="fullscreen"]');
     fullscreenButton?.parentElement?.classList.add("notes-toolbar-right-start");
@@ -284,10 +354,11 @@ export function initNotesPanel({
 
   function categoryPapers(category) {
     if (!category) return [];
-    return [
+    const papers = [
       ...(category.papers || []),
       ...(category.folders || []).flatMap(categoryPapers),
     ].filter((paper) => paper.itemType !== "note" && paper.id !== getCurrentPaper?.()?.id);
+    return [...new Map(papers.map((paper) => [paper.id, paper])).values()];
   }
 
   function visiblePaperCategories(category, depth = 0, parents = []) {
@@ -323,7 +394,7 @@ export function initNotesPanel({
     const query = String(input?.value || "").trim().toLocaleLowerCase();
     if (query) {
       return categoryPapers(paperPickerTree)
-        .filter((paper) => [paper.title, ...paperAuthors(paper), paper.categoryName]
+        .filter((paper) => [paper.title, ...paperAuthors(paper), ...(paper.categoryNames || [paper.categoryName]), ...(paper.categoryIds || [])]
           .some((value) => String(value || "").toLocaleLowerCase().includes(query)))
         .map((paper) => ({ type: "paper", paper }));
     }

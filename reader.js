@@ -5,6 +5,7 @@ import { initSettingsModal } from "./settings_modal.js";
 import { initLibrarySidebar } from "./library_sidebar.js";
 import { initDiscussionPanel } from "./discussion_panel.js";
 import { recordPaperViewed } from "./recent_papers.js";
+import { getCategoryLabels } from "./category_manager.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -50,6 +51,7 @@ const discussionForm = document.querySelector("#discussionForm");
 const basicInfoButton = document.querySelector("#basicInfoButton");
 const basicInfoStatus = document.querySelector("#basicInfoStatus");
 const basicInfoTitle = document.querySelector("#basicInfoTitle");
+const basicInfoCategories = document.querySelector("#basicInfoCategories");
 const basicInfoAuthors = document.querySelector("#basicInfoAuthors");
 const basicInfoVenue = document.querySelector("#basicInfoVenue");
 const basicInfoDate = document.querySelector("#basicInfoDate");
@@ -207,7 +209,10 @@ if (window.ResizeObserver && methodSections) {
 librarySidebar = initLibrarySidebar({
   shell: appShell,
   getCurrentItem: () => currentPaper,
-  setCurrentItem: (paper) => { currentPaper = paper; },
+  setCurrentItem: (paper) => {
+    currentPaper = paper;
+    renderBasicInfoCategories(paper);
+  },
   apiFetch,
   readJsonResponse,
   setStatus,
@@ -914,7 +919,10 @@ async function saveCurrentPaper(extra = {}) {
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "Paper save failed.");
-    if (currentPaper?.id === paperId) currentPaper = data.paper;
+    if (currentPaper?.id === paperId) {
+      currentPaper = data.paper;
+      renderBasicInfoCategories(currentPaper);
+    }
   });
   paperSaveQueue = save;
   return save;
@@ -4076,9 +4084,14 @@ function normalizeKeywordKey(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function renderBasicInfoCategories(paper = currentPaper) {
+  if (basicInfoCategories) basicInfoCategories.textContent = getCategoryLabels(paper).join("；");
+}
+
 function renderBasicInfo(info, paper = currentPaper) {
   const normalized = info && typeof info === "object" ? info : {};
   if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(paper?.title);
+  renderBasicInfoCategories(paper);
   basicInfoAuthors.textContent = formatBasicInfoValue(normalized.authors);
   basicInfoVenue.textContent = formatBasicInfoValue(normalized.venue);
   basicInfoDate.textContent = formatBasicInfoValue(normalized.publishedDate);
@@ -4088,6 +4101,7 @@ function renderBasicInfo(info, paper = currentPaper) {
 
 function renderBasicInfoLoading() {
   if (basicInfoTitle) basicInfoTitle.textContent = "Loading...";
+  renderBasicInfoCategories();
   basicInfoAuthors.textContent = "Loading...";
   basicInfoVenue.textContent = "Loading...";
   basicInfoDate.textContent = "Loading...";
@@ -4118,7 +4132,7 @@ function setBasicInfoStatus(message, isError = false) {
 }
 
 function initBasicInfoEditing() {
-  [basicInfoTitle, basicInfoLocalPath].forEach((field) => {
+  [basicInfoTitle, basicInfoCategories, basicInfoLocalPath].forEach((field) => {
     if (!field) return;
     field.setAttribute("aria-label", "点击复制");
     field.title = "点击复制";

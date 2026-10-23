@@ -26,6 +26,7 @@ from llm_diagnostics import RequestTiming
 from link_preview import fetch_link_preview
 from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
 from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
+from category_model import LIBRARY_LOCK, library_locked, category_ids, normalize_category_ids, normalize_record_categories, normalize_manifest_categories, set_record_categories, copy_category_fields
 
 
 RESOURCE_DIR = Path(__file__).resolve().parent
@@ -76,7 +77,6 @@ IMPORT_JOB_TERMINAL_STATES = {"completed", "failed", "cancelled"}
 IMPORT_JOBS_LOCK = threading.RLock()
 IMPORT_CANCEL_EVENTS = {}
 IMPORT_THREADS = {}
-LIBRARY_LOCK = threading.RLock()
 ARCHIVE_ROOT = LIBRARY_DIR / ".trash"
 ARCHIVE_ITEMS_DIR = ARCHIVE_ROOT / "items"
 ARCHIVE_INDEX_FILE = ARCHIVE_ROOT / "index.json"
@@ -760,7 +760,7 @@ def _import_request_key(source_url, title, category):
         {
             "url": str(source_url).strip(),
             "title": str(title).strip(),
-            "category": str(category or UNCATEGORIZED_ID).strip(),
+            "categoryIds": normalize_category_ids(category),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -795,10 +795,10 @@ def start_import(source_url, title="", category=UNCATEGORIZED_ID):
     if not raw_source:
         raise ValueError("A PDF URL or arXiv ID is required.")
     normalized = normalize_remote_pdf_source(raw_source)
-    category = str(category or UNCATEGORIZED_ID).strip() or UNCATEGORIZED_ID
+    category = normalize_category_ids(category)
     request_key = _import_request_key(normalized["url"], title, category)
 
-    with IMPORT_JOBS_LOCK:
+    with LIBRARY_LOCK, IMPORT_JOBS_LOCK:
         data = _load_import_jobs()
         for existing in data["jobs"].values():
             if existing.get("requestKey") != request_key:
@@ -806,6 +806,8 @@ def start_import(source_url, title="", category=UNCATEGORIZED_ID):
             state = existing.get("state")
             if state == "completed" and existing.get("paperId"):
                 if read_paper(existing["paperId"]):
+                    update_paper_categories(existing["paperId"], category, "add_categories", create=True)
+                    maybe_auto_sync_library()
                     return _public_import_job(existing)
             thread = IMPORT_THREADS.get(existing.get("jobId", ""))
             if state not in IMPORT_JOB_TERMINAL_STATES and thread and thread.is_alive():
@@ -821,7 +823,7 @@ def start_import(source_url, title="", category=UNCATEGORIZED_ID):
             "sourceUrl": raw_source,
             "normalizedUrl": normalized["url"],
             "title": str(title or "").strip(),
-            "category": category,
+            "categoryIds": category,
             "downloadedBytes": 0,
             "totalBytes": 0,
             "finalUrl": "",
@@ -888,7 +890,7 @@ def _run_import_job(job_id, cancel_event):
             stored = _load_import_jobs()["jobs"].get(job_id, {})
             source_url = stored.get("sourceUrl", "")
             requested_title = stored.get("title", "")
-            category = stored.get("category", UNCATEGORIZED_ID)
+            category = stored.get("categoryIds", stored.get("category", UNCATEGORIZED_ID))
 
         _update_import_job(job_id, state="resolving_metadata")
         source = normalize_remote_pdf_source(source_url)
@@ -921,6 +923,7 @@ def _run_import_job(job_id, cancel_event):
         with LIBRARY_LOCK:
             existing = find_existing_import(pdf_hash, source_urls, source.get("arxiv_id", ""))
             if existing:
+                update_paper_categories(existing["id"], category, "add_categories", create=True)
                 _update_import_job(
                     job_id,
                     state="completed",
@@ -928,6 +931,7 @@ def _run_import_job(job_id, cancel_event):
                     paperId=existing["id"],
                     canSafelyRetry=True,
                 )
+                maybe_auto_sync_library()
                 return
 
             _raise_if_import_cancelled(cancel_event)
@@ -975,7 +979,8 @@ def _run_import_job(job_id, cancel_event):
 def default_metadata(title, category):
     return {
         "title": str(title),
-        "category": str(category).replace("\\", "/"),
+        "category": normalize_category_ids(category)[0],
+        "categoryIds": normalize_category_ids(category),
         "uploadedAt": datetime.now(timezone.utc).isoformat(),
         "keywords": [],
         "keywordExplanations": {},
@@ -1123,7 +1128,8 @@ def make_paper_id(seed):
 
 def new_db():
     return {
-        "version": 1,
+        "version": 2,
+        "deletedCategories": {},
         "categories": {
             UNCATEGORIZED_ID: {
                 "id": UNCATEGORIZED_ID,
@@ -1137,12 +1143,17 @@ def new_db():
     }
 
 
+@library_locked
 def load_library_db():
     LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     PAPER_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     NOTE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     if DB_FILE.exists():
         db = read_json(DB_FILE, new_db())
+        if db.get("version", 1) < 2:
+            backup = DB_FILE.with_name("library_db.v1.backup.json")
+            if not backup.exists():
+                shutil.copy2(DB_FILE, backup)
     else:
         db = new_db()
         migrate_existing_library(db)
@@ -1150,10 +1161,12 @@ def load_library_db():
     reconcile_paper_storage(db)
     reconcile_note_storage(db)
     ensure_uncategorized(db)
+    normalize_manifest_categories(db)
     save_library_db(db)
     return db
 
 
+@library_locked
 def save_library_db(db):
     LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     write_json(DB_FILE, db)
@@ -1225,7 +1238,8 @@ def reconcile_paper_storage(db):
         if paper_id in db["papers"]:
             continue
         metadata = read_json(paper_dir / "metadata.json", default_metadata(paper_id, UNCATEGORIZED_ID))
-        category_id = ensure_category_path(db, metadata.get("category") or UNCATEGORIZED_ID)
+        ids = resolve_category_ids(db, category_ids(metadata), create=True)
+        category_id = ids[0]
         uploaded_at = metadata.get("uploadedAt") or datetime.fromtimestamp(paper_dir.stat().st_mtime, timezone.utc).isoformat()
         db["papers"][paper_id] = {
             "id": paper_id,
@@ -1234,6 +1248,8 @@ def reconcile_paper_storage(db):
             "folder": f"papers/{paper_id}",
             "uploadedAt": uploaded_at,
         }
+        db["papers"][paper_id].update({key: metadata[key] for key in ("categoryMemberships",) if key in metadata})
+        db["papers"][paper_id]["categoryIds"] = ids
 
 
 def reconcile_note_storage(db):
@@ -1247,7 +1263,8 @@ def reconcile_note_storage(db):
         if note_id in db["papers"]:
             continue
         metadata = read_json(note_dir / "metadata.json", default_metadata(note_id, UNCATEGORIZED_ID))
-        category_id = ensure_category_path(db, metadata.get("category") or UNCATEGORIZED_ID)
+        ids = resolve_category_ids(db, category_ids(metadata), create=True)
+        category_id = ids[0]
         uploaded_at = metadata.get("uploadedAt") or datetime.fromtimestamp(note_dir.stat().st_mtime, timezone.utc).isoformat()
         db["papers"][note_id] = {
             "id": note_id,
@@ -1257,6 +1274,8 @@ def reconcile_note_storage(db):
             "uploadedAt": uploaded_at,
             "itemType": "note",
         }
+        db["papers"][note_id].update({key: metadata[key] for key in ("categoryMemberships",) if key in metadata})
+        db["papers"][note_id]["categoryIds"] = ids
 
 
 def ensure_category_path(db, category_path):
@@ -1268,7 +1287,7 @@ def ensure_category_path(db, category_path):
     for part in [clean_folder_name(item) for item in re.split(r"[/\\]+", value) if item.strip()]:
         current_id = f"{parent_id}/{part}".strip("/")
         if current_id not in db["categories"]:
-            db["categories"][current_id] = {"id": current_id, "name": part, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id)}
+            db["categories"][current_id] = {"id": current_id, "name": part, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id), "updatedAt": utc_now()}
         parent_id = current_id
     return current_id or UNCATEGORIZED_ID
 
@@ -1286,6 +1305,57 @@ def paper_dir_from_record(record):
     return (LIBRARY_DIR / record["folder"]).resolve()
 
 
+def resolve_category_ids(db, value, create=False):
+    ids = normalize_category_ids(value)
+    if create:
+        return normalize_category_ids([ensure_category_path(db, key) for key in ids])
+    if any(key not in db["categories"] for key in ids):
+        raise ValueError("Category not found. Please refresh the library.")
+    return ids
+
+
+def request_category_ids(payload):
+    if "categoryIds" in payload and not isinstance(payload["categoryIds"], list):
+        raise ValueError("categoryIds must be an array of strings.")
+    return normalize_category_ids(payload.get("categoryIds", payload.get("categoryId", payload.get("category", UNCATEGORIZED_ID))))
+
+
+def write_record_categories(record):
+    metadata_path = paper_dir_from_record(record) / "metadata.json"
+    metadata = read_json(metadata_path, default_metadata(record.get("title", record["id"]), record["categoryIds"]))
+    copy_category_fields(metadata, record)
+    write_json(metadata_path, metadata)
+
+
+def remap_paper_categories(db, id_map, timestamp):
+    for paper in db["papers"].values():
+        old_ids = paper["categoryIds"]
+        ids = [id_map.get(key, key) for key in old_ids]
+        if ids != old_ids:
+            set_record_categories(paper, ids, timestamp)
+            write_record_categories(paper)
+
+
+def update_paper_categories(paper_id, value, action="set_categories", create=False):
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        record = db["papers"].get(str(paper_id))
+        if not record:
+            raise FileNotFoundError("Paper not found.")
+        ids = resolve_category_ids(db, value, create=create or action == "move")
+        current = set(record["categoryIds"]) - {UNCATEGORIZED_ID}
+        selected = set(ids) - {UNCATEGORIZED_ID}
+        if action == "add_categories":
+            selected |= current
+        elif action == "remove_categories":
+            selected = current - selected
+        set_record_categories(record, sorted(selected), utc_now())
+        write_record_categories(record)
+        save_library_db(db)
+        return read_paper(paper_id, db)
+
+
+@library_locked
 def read_library_tree():
     db = load_library_db()
     return build_category_node(db, "")
@@ -1307,7 +1377,7 @@ def build_category_node(db, category_id):
     papers = [
         read_paper(paper_id, db)
         for paper_id, paper in sorted(db["papers"].items(), key=lambda item: item[1].get("uploadedAt", ""), reverse=True)
-        if paper.get("categoryId") == category_id
+        if category_id in paper.get("categoryIds", [])
     ]
     papers = [paper for paper in papers if paper]
     parent_id = db["categories"].get(category_id, {}).get("parentId", "") if category_id else ""
@@ -1315,6 +1385,7 @@ def build_category_node(db, category_id):
     return {"id": category_id, "name": name, "locked": locked, "parentId": parent_id, "order": order, "folders": folders, "papers": papers}
 
 
+@library_locked
 def read_paper(paper_id, db=None, include_extracted_text=False):
     db = db or load_library_db()
     record = db["papers"].get(str(paper_id))
@@ -1328,6 +1399,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
     discussion = normalize_discussion_payload(read_json(paper_dir / "discussion.json", []))
     extracted_text = read_text_file(paper_dir / EXTRACTED_TEXT_FILE) if include_extracted_text else ""
     category_id = record.get("categoryId") or UNCATEGORIZED_ID
+    ids = record.get("categoryIds", [category_id])
     local_state = paper_local_state(record["id"], metadata)
     local_path = str(paper_dir.resolve())
     pdf_path = str((paper_dir / "paper.pdf").resolve())
@@ -1337,6 +1409,8 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "title": metadata.get("title") or record.get("title") or record["id"],
         "category": category_id,
         "categoryName": db["categories"].get(category_id, {}).get("name", UNCATEGORIZED_NAME),
+        "categoryIds": ids,
+        "categoryNames": [db["categories"].get(key, {}).get("name", UNCATEGORIZED_NAME) for key in ids],
         "uploadedAt": record.get("uploadedAt") or metadata.get("uploadedAt") or utc_now(),
         "itemType": item_type,
         "pdfUrl": "" if item_type == "note" else f"/api/library/pdf?id={record['id']}",
@@ -1364,6 +1438,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
     }
 
 
+@library_locked
 def create_category(parent_id, name):
     db = load_library_db()
     parent_id = str(parent_id or "")
@@ -1375,7 +1450,7 @@ def create_category(parent_id, name):
     category_id = f"{parent_id}/{child_name}".strip("/")
     if category_id in db["categories"]:
         raise FileExistsError("Category already exists.")
-    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id)}
+    db["categories"][category_id] = {"id": category_id, "name": child_name, "parentId": parent_id, "locked": False, "order": next_category_order(db, parent_id), "updatedAt": utc_now()}
     save_library_db(db)
     return category_id
 
@@ -1392,6 +1467,7 @@ def category_descendants(db, category_id):
     return found
 
 
+@library_locked
 def delete_category(category_id):
     db = load_library_db()
     category_id = str(category_id or "")
@@ -1401,18 +1477,18 @@ def delete_category(category_id):
     if category.get("locked"):
         raise PermissionError("This category cannot be deleted.")
     deleted_ids = category_descendants(db, category_id)
+    now = utc_now()
     for paper in db["papers"].values():
-        if paper.get("categoryId") in deleted_ids:
-            paper["categoryId"] = UNCATEGORIZED_ID
-            metadata_path = paper_dir_from_record(paper) / "metadata.json"
-            metadata = read_json(metadata_path, default_metadata(paper.get("title", paper["id"]), UNCATEGORIZED_ID))
-            metadata["category"] = UNCATEGORIZED_ID
-            write_json(metadata_path, metadata)
+        if set(paper["categoryIds"]) & set(deleted_ids):
+            set_record_categories(paper, [key for key in paper["categoryIds"] if key not in deleted_ids], now)
+            write_record_categories(paper)
     for item_id in sorted(deleted_ids, key=len, reverse=True):
         db["categories"].pop(item_id, None)
+        db["deletedCategories"][item_id] = now
     save_library_db(db)
 
 
+@library_locked
 def rename_category(category_id, name):
     db = load_library_db()
     category_id = str(category_id or "")
@@ -1437,10 +1513,14 @@ def rename_category(category_id, name):
         suffix = old_id[len(category_id):].lstrip("/")
         id_map[old_id] = f"{new_id}/{suffix}".strip("/") if suffix else new_id
 
+    now = utc_now()
     for old_id in sorted(descendants, key=len, reverse=True):
         record = db["categories"].pop(old_id)
         next_id = id_map[old_id]
         record["id"] = next_id
+        record["updatedAt"] = now
+        if old_id != next_id:
+            db["deletedCategories"][old_id] = now
         if old_id == category_id:
             record["name"] = new_name
             record["parentId"] = parent_id
@@ -1448,19 +1528,13 @@ def rename_category(category_id, name):
             record["parentId"] = id_map[record["parentId"]]
         db["categories"][next_id] = record
 
-    for paper in db["papers"].values():
-        old_category = paper.get("categoryId")
-        if old_category in id_map:
-            paper["categoryId"] = id_map[old_category]
-            metadata_path = paper_dir_from_record(paper) / "metadata.json"
-            metadata = read_json(metadata_path, default_metadata(paper.get("title", paper["id"]), paper["categoryId"]))
-            metadata["category"] = paper["categoryId"]
-            write_json(metadata_path, metadata)
+    remap_paper_categories(db, id_map, now)
 
     save_library_db(db)
     return new_id
 
 
+@library_locked
 def move_category(category_id, parent_id="", before_id="", after_id=""):
     db = load_library_db()
     category_id = str(category_id or "").strip()
@@ -1497,24 +1571,21 @@ def move_category(category_id, parent_id="", before_id="", after_id=""):
         suffix = old_id[len(category_id):].lstrip("/")
         id_map[old_id] = f"{new_id}/{suffix}".strip("/") if suffix else new_id
 
+    now = utc_now()
     for old_id in sorted(descendants, key=len, reverse=True):
         record = db["categories"].pop(old_id)
         next_id = id_map[old_id]
         record["id"] = next_id
+        record["updatedAt"] = now
+        if old_id != next_id:
+            db["deletedCategories"][old_id] = now
         if old_id == category_id:
             record["parentId"] = parent_id
         elif record.get("parentId") in id_map:
             record["parentId"] = id_map[record["parentId"]]
         db["categories"][next_id] = record
 
-    for paper in db["papers"].values():
-        old_category = paper.get("categoryId")
-        if old_category in id_map:
-            paper["categoryId"] = id_map[old_category]
-            metadata_path = paper_dir_from_record(paper) / "metadata.json"
-            metadata = read_json(metadata_path, default_metadata(paper.get("title", paper["id"]), paper["categoryId"]))
-            metadata["category"] = paper["categoryId"]
-            write_json(metadata_path, metadata)
+    remap_paper_categories(db, id_map, now)
 
     reordered_id = id_map.get(category_id, category_id)
     reorder_category_siblings(db, parent_id, moved_id=reordered_id, before_id=id_map.get(before_id, before_id), after_id=id_map.get(after_id, after_id))
@@ -1538,21 +1609,11 @@ def reorder_category_siblings(db, parent_id, moved_id, before_id="", after_id=""
     siblings.insert(insert_index, moved)
     for index, item in enumerate(siblings):
         item["order"] = index
+        item["updatedAt"] = utc_now()
 
 
 def move_paper(paper_id, category_id):
-    db = load_library_db()
-    record = db["papers"].get(str(paper_id))
-    if not record:
-        raise FileNotFoundError("Paper not found.")
-    target_category = ensure_category_path(db, category_id)
-    record["categoryId"] = target_category
-    metadata_path = paper_dir_from_record(record) / "metadata.json"
-    metadata = read_json(metadata_path, default_metadata(record.get("title", paper_id), target_category))
-    metadata["category"] = target_category
-    write_json(metadata_path, metadata)
-    save_library_db(db)
-    return read_paper(paper_id, db)
+    return update_paper_categories(paper_id, category_id, "move")
 
 
 def delete_paper(paper_id):
@@ -1626,7 +1687,17 @@ def find_existing_import(pdf_hash, source_urls=None, arxiv_id=""):
 def add_paper_to_db(title, category, pdf_file, metadata_updates=None):
     with LIBRARY_LOCK:
         db = load_library_db()
-        category_id = ensure_category_path(db, category)
+        ids = resolve_category_ids(db, category, create=True)
+        category_id = ids[0]
+        digest = hashlib.sha256()
+        position = pdf_file.tell()
+        for chunk in iter(lambda: pdf_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+        pdf_file.seek(position)
+        pdf_hash = digest.hexdigest()
+        existing = find_existing_import(pdf_hash)
+        if existing:
+            return update_paper_categories(existing["id"], ids, "add_categories", create=True)
         paper_id = make_paper_id(f"{title}-{category_id}")
         paper_dir = PAPER_STORAGE_DIR / paper_id
         while paper_dir.exists() or paper_id in db["papers"]:
@@ -1638,6 +1709,7 @@ def add_paper_to_db(title, category, pdf_file, metadata_updates=None):
         metadata = default_metadata(title, category_id)
         if isinstance(metadata_updates, dict):
             metadata.update(metadata_updates)
+        metadata["pdfSha256"] = pdf_hash
         write_json(paper_dir / "metadata.json", metadata)
         write_json(paper_dir / "highlights.json", [])
         write_json(paper_dir / "discussion.json", default_discussion_payload())
@@ -1650,13 +1722,17 @@ def add_paper_to_db(title, category, pdf_file, metadata_updates=None):
             "folder": f"papers/{paper_id}",
             "uploadedAt": metadata["uploadedAt"],
         }
+        set_record_categories(db["papers"][paper_id], ids, utc_now())
+        write_record_categories(db["papers"][paper_id])
         save_library_db(db)
         return read_paper(paper_id, db)
 
 
+@library_locked
 def add_note_to_db(title, category):
     db = load_library_db()
-    category_id = ensure_category_path(db, category)
+    ids = resolve_category_ids(db, category, create=True)
+    category_id = ids[0]
     clean_title = clean_folder_name(title) or "新建笔记"
     note_id = make_paper_id(f"note-{clean_title}-{category_id}-{utc_now()}")
     note_dir = NOTE_STORAGE_DIR / note_id
@@ -1676,6 +1752,8 @@ def add_note_to_db(title, category):
         "uploadedAt": metadata["uploadedAt"],
         "itemType": "note",
     }
+    set_record_categories(db["papers"][note_id], ids, utc_now())
+    write_record_categories(db["papers"][note_id])
     save_library_db(db)
     return read_paper(note_id, db)
 
@@ -1715,6 +1793,7 @@ def archive_item(item_id):
             "title": record.get("title", item_id),
             "itemType": record.get("itemType", "paper"),
             "categoryId": record.get("categoryId", UNCATEGORIZED_ID),
+            "categoryIds": record.get("categoryIds", [UNCATEGORIZED_ID]),
             "record": record,
             "archivedAt": utc_now(),
             "archivePath": str(target_dir.resolve()),
@@ -1749,19 +1828,14 @@ def restore_item(item_id):
             raise FileNotFoundError("Archived item data is missing.")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
-        category_id = str(record.get("categoryId", UNCATEGORIZED_ID))
-        if category_id not in db.get("categories", {}):
-            category_id = UNCATEGORIZED_ID
-        record["categoryId"] = category_id
+        ids = [key for key in category_ids(record) if key in db["categories"]]
+        set_record_categories(record, ids, utc_now())
         record["folder"] = f"{'notes' if item_type == 'note' else 'papers'}/{item_id}"
         db["papers"][item_id] = record
         save_library_db(db)
         archive["items"].pop(item_id, None)
         _save_archive_index(archive)
-        metadata_path = destination / "metadata.json"
-        metadata = read_json(metadata_path, default_metadata(record.get("title", item_id), category_id))
-        metadata["category"] = category_id
-        write_json(metadata_path, metadata)
+        write_record_categories(record)
         return read_paper(item_id, db)
 
 
@@ -1836,7 +1910,7 @@ def merge_duplicate_items(canonical_id, duplicate_ids):
         highlights = read_json(canonical_dir / "highlights.json", [])
         highlights = highlights if isinstance(highlights, list) else []
         discussion = normalize_discussion_payload(read_json(canonical_dir / "discussion.json", {}))
-        category_ids = [canonical_record.get("categoryId", UNCATEGORIZED_ID)]
+        merged_category_ids = list(canonical_record["categoryIds"])
         read_state = paper_local_state(canonical_id, metadata)
         merged_ids = unique_strings(metadata.get("mergedFromIds", [])) if isinstance(metadata.get("mergedFromIds"), list) else []
 
@@ -1863,7 +1937,7 @@ def merge_duplicate_items(canonical_id, duplicate_ids):
             canonical_keywords = metadata.get("keywords", []) if isinstance(metadata.get("keywords"), list) else []
             duplicate_keywords = duplicate_metadata.get("keywords", []) if isinstance(duplicate_metadata.get("keywords"), list) else []
             metadata["keywords"] = _json_unique(canonical_keywords + duplicate_keywords)
-            category_ids.append(duplicate_record.get("categoryId", UNCATEGORIZED_ID))
+            merged_category_ids.extend(duplicate_record["categoryIds"])
             duplicate_state = paper_local_state(duplicate_id, duplicate_metadata)
             read_state["read"] = read_state["read"] or duplicate_state["read"]
             read_state["todo"] = read_state["todo"] or duplicate_state["todo"]
@@ -1871,7 +1945,10 @@ def merge_duplicate_items(canonical_id, duplicate_ids):
             merged_ids.append(duplicate_id)
 
         metadata["mergedFromIds"] = unique_strings(merged_ids)
-        metadata["mergedCategoryIds"] = unique_strings(category_ids)
+        metadata["mergedCategoryIds"] = unique_strings(merged_category_ids)
+        set_record_categories(canonical_record, merged_category_ids, utc_now())
+        copy_category_fields(metadata, canonical_record)
+        save_library_db(db)
         write_json(metadata_path, metadata)
         write_paper_notes(canonical_dir, notes)
         write_json(canonical_dir / "highlights.json", highlights)
@@ -2404,8 +2481,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         title = clean_folder_name(field_value(form, "title") or Path(pdf_item.filename).stem)
-        category = field_value(form, "category") or UNCATEGORIZED_NAME
-        paper = add_paper_to_db(title, category, pdf_item.file)
+        try:
+            if "categoryIds" in form:
+                values = form.getlist("categoryIds")
+                category = json.loads(values[0]) if len(values) == 1 and values[0].lstrip().startswith("[") else values
+                category = normalize_category_ids(category)
+            else:
+                category = field_value(form, "categoryId") or field_value(form, "category") or UNCATEGORIZED_ID
+            paper = add_paper_to_db(title, category, pdf_item.file)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
         sync = maybe_auto_sync_library()
         self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
 
@@ -2424,8 +2510,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {"error": str(exc)})
             return
 
-        category = str(payload.get("category", "")).strip() or UNCATEGORIZED_NAME
         try:
+            category = request_category_ids(payload)
             data, downloaded_title = download_remote_pdf(source)
             title = clean_folder_name(payload.get("title", "") or downloaded_title)
             with tempfile.TemporaryFile() as pdf_file:
@@ -2444,7 +2530,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             source = payload.get("pdfUrl", "") or payload.get("url", "") or payload.get("arxivId", "")
-            category = str(payload.get("category", payload.get("categoryId", ""))).strip() or UNCATEGORIZED_ID
+            category = request_category_ids(payload)
             job = start_import(source, payload.get("title", ""), category)
             self._send_json(202 if job.get("state") != "completed" else 200, {"job": job})
         except (ValueError, json.JSONDecodeError) as exc:
@@ -2461,6 +2547,10 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(404, {"error": str(exc)})
 
     def _handle_library_save(self):
+        with LIBRARY_LOCK:
+            self._handle_library_save_locked()
+
+    def _handle_library_save_locked(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -2469,9 +2559,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         action = str(payload.get("action", "save")).strip() or "save"
-        if action == "move":
+        if action in {"move", "set_categories", "add_categories", "remove_categories"}:
             try:
-                paper = move_paper(str(payload.get("id", "")), str(payload.get("category", "")))
+                paper = update_paper_categories(str(payload.get("id", "")), request_category_ids(payload), action)
                 sync = maybe_auto_sync_library()
                 self._send_json(200, {"paper": paper, "tree": read_library_tree(), "sync": sync})
             except FileNotFoundError as exc:
@@ -2503,7 +2593,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         paper_dir = paper_dir_from_record(record)
 
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", record["id"]), record.get("categoryId", UNCATEGORIZED_ID)))
-        sync_relevant_changed = False
+        sync_relevant_changed = "categoryIds" in payload
+        if "categoryIds" in payload:
+            try:
+                ids = resolve_category_ids(db, request_category_ids(payload))
+                set_record_categories(record, ids, utc_now())
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
         if isinstance(payload.get("title"), str):
             title = payload["title"].strip()
             if title:
@@ -2565,6 +2662,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             extracted_text = payload["extractedText"].strip()
             if extracted_text:
                 write_text_file(paper_dir / EXTRACTED_TEXT_FILE, extracted_text[:MAX_EXTRACTED_TEXT_CHARS])
+        copy_category_fields(metadata, record)
         write_json(paper_dir / "metadata.json", metadata)
         save_library_db(db)
         sync = maybe_auto_sync_library() if sync_relevant_changed else None
@@ -2575,7 +2673,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             title = str(payload.get("title", "")).strip() or "新建笔记"
-            category = str(payload.get("category", "")).strip() or UNCATEGORIZED_ID
+            category = request_category_ids(payload)
             note = add_note_to_db(title, category)
             sync = maybe_auto_sync_library()
             self._send_json(200, {"note": note, "tree": read_library_tree(), "sync": sync})
@@ -2585,6 +2683,10 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(400, {"error": str(exc)})
 
     def _handle_library_category(self):
+        with LIBRARY_LOCK:
+            self._handle_library_category_locked()
+
+    def _handle_library_category_locked(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))

@@ -1,4 +1,5 @@
 import { initSettingsModal } from "./settings_modal.js";
+import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "./category_manager.js";
 import {
   RECENT_PAPERS_KEY,
   getPaperViewedAt,
@@ -241,7 +242,7 @@ async function createLibraryNote() {
     const response = await apiFetch("/api/library/note", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "新建笔记", category: getActiveUploadCategory() }),
+      body: JSON.stringify({ title: "新建笔记", categoryIds: [getActiveUploadCategory()] }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "新建笔记失败。");
@@ -389,7 +390,7 @@ async function uploadPdfToLibrary(file, title, category) {
     const formData = new FormData();
     formData.append("pdf", file);
     formData.append("title", title || file.name.replace(/\.pdf$/i, ""));
-    formData.append("category", category || UNCATEGORIZED_LABEL);
+    formData.append("categoryIds", JSON.stringify([category || UNCATEGORIZED_LABEL]));
     const response = await apiFetch("/api/library/upload", { method: "POST", body: formData });
     const data = await readJsonResponse(response);
     if (!response.ok) {
@@ -413,7 +414,7 @@ async function uploadRemotePdf(source) {
     const response = await apiFetch("/api/library/import/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdfUrl: source, category: getActiveUploadCategory() }),
+      body: JSON.stringify({ pdfUrl: source, categoryIds: [getActiveUploadCategory()] }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) {
@@ -709,7 +710,7 @@ function renderTodoCategory() {
 
 function startPaperDrag(event, paper) {
   libraryDragState = { type: "paper", id: paper.id };
-  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.effectAllowed = "copy";
   event.dataTransfer.setData("application/x-paperlantern-paper", paper.id);
   event.dataTransfer.setData("text/plain", paper.title || paper.id);
   event.currentTarget.classList.add("dragging");
@@ -732,7 +733,7 @@ function initCategoryDragAndDrop(row, category) {
     const drop = getCategoryDropTarget(row, category, event);
     if (!drop) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
+    event.dataTransfer.dropEffect = drop.type === "paper" ? "copy" : "move";
     showCategoryDropFeedback(row, drop.zone);
   });
   row.addEventListener("dragleave", (event) => {
@@ -744,7 +745,8 @@ function initCategoryDragAndDrop(row, category) {
     if (!drop) return;
     event.preventDefault();
     if (drop.type === "paper") {
-      await updatePaper({ action: "move", id: drop.id, category: category.id || UNCATEGORIZED_LABEL });
+      if (!category.id || category.id === "uncategorized") return;
+      await updatePaper({ action: "add_categories", id: drop.id, categoryIds: [category.id] });
       return;
     }
     await updateCategory(drop.payload);
@@ -753,7 +755,7 @@ function initCategoryDragAndDrop(row, category) {
 
 function getCategoryDropTarget(row, category, event) {
   const draggedPaperId = libraryDragState?.type === "paper" ? libraryDragState.id : event.dataTransfer.getData("application/x-paperlantern-paper");
-  if (draggedPaperId) return { type: "paper", id: draggedPaperId, zone: "inside" };
+  if (draggedPaperId) return category.id && category.id !== "uncategorized" ? { type: "paper", id: draggedPaperId, zone: "inside" } : null;
 
   const draggedCategoryId = libraryDragState?.type === "category" ? libraryDragState.id : event.dataTransfer.getData("application/x-paperlantern-category");
   if (!draggedCategoryId || draggedCategoryId === category.id) return null;
@@ -1043,7 +1045,9 @@ function renderPaperInfoPanel(paper) {
   const title = document.createElement("h2");
   title.textContent = paper.title || "Untitled paper";
   const meta = document.createElement("p");
-  meta.textContent = paper.categoryName || paper.category || "Uncategorized";
+  const names = paper.categoryNames || [paper.categoryName || paper.category || "未分类"];
+  meta.textContent = names.length > 2 ? `${names.slice(0, 2).join("、")} ＋${names.length - 2}` : names.join("、");
+  meta.title = getCategoryIds(paper).join("\n");
   header.append(title, meta);
 
   if (paper.itemType === "note") {
@@ -1056,6 +1060,7 @@ function renderPaperInfoPanel(paper) {
 
   const basicInfo = paper.basicInfo || {};
   const basicSection = createPaperInfoSection("基本信息", [
+    ["分类", getCategoryLabels(paper).join("；")],
     ["作者", formatPaperInfoValue(basicInfo.authors)],
     ["期刊", formatPaperInfoValue(basicInfo.venue)],
     ["发表日期", formatPaperInfoValue(basicInfo.publishedDate)],
@@ -1376,7 +1381,7 @@ function showCategoryMenu(category, anchor) {
   deleteButton.disabled = category.locked || !category.id;
   deleteButton.addEventListener("click", async () => {
     menu.remove();
-    if (!window.confirm(`确定删除分类"${category.name}"？其中条目将移入未分类。`)) return;
+    if (!window.confirm(`确定删除分类"${category.name}"及其子分类？条目将保留其他分类归属，没有其他归属的条目将归入未分类。`)) return;
     await updateCategory({ action: "delete", id: category.id });
   });
 
@@ -1479,12 +1484,12 @@ function showPaperMenu(paper, anchor) {
   const menu = document.createElement("div");
   menu.className = "paper-menu library-menu";
 
-  const moveButton = document.createElement("button");
-  moveButton.type = "button";
-  moveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 13v4"></path><path d="m9.5 14.5 2.5-2.5 2.5 2.5"></path></svg>移动';
-  moveButton.addEventListener("click", () => {
+  const manageButton = document.createElement("button");
+  manageButton.type = "button";
+  manageButton.innerHTML = `${folderCategoryIconSvg}<span>分类</span>`;
+  manageButton.addEventListener("click", () => {
     menu.remove();
-    showMovePaperMenu(paper, anchor);
+    showCategoryManager({ tree: libraryTree, paper, anchor, onSave: (categoryIds) => updatePaper({ action: "set_categories", id: paper.id, categoryIds }, { propagate: true }) });
   });
 
   const exportLink = document.createElement("a");
@@ -1510,84 +1515,11 @@ function showPaperMenu(paper, anchor) {
     await updatePaper({ action: "delete", id: paper.id });
   });
 
-  menu.append(moveButton);
+  menu.append(manageButton);
   if (paper.itemType !== "note") menu.append(exportLink);
   menu.append(deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
-}
-
-function showMovePaperMenu(paper, anchor) {
-  document.querySelector(".library-menu")?.remove();
-  const menu = document.createElement("div");
-  menu.className = "paper-menu move-paper-menu library-menu";
-
-  const heading = document.createElement("div");
-  heading.className = "move-menu-heading";
-  heading.textContent = "移动到分类";
-  menu.appendChild(heading);
-
-  const list = document.createElement("div");
-  list.className = "move-category-list";
-  menu.appendChild(list);
-
-  const rerender = () => showMovePaperMenu(paper, anchor);
-  renderMoveCategoryNode(libraryTree, 0, paper, list, rerender);
-
-  document.body.appendChild(menu);
-  positionMenu(menu, anchor, 260);
-}
-
-function renderMoveCategoryNode(node, depth, paper, container, rerender) {
-  (node.folders || []).forEach((folder) => {
-    renderMoveCategoryRow(folder, depth, paper, container, rerender);
-    if (folder.folders && folder.folders.length && !isCategoryCollapsed(folder.id)) {
-      renderMoveCategoryNode(folder, depth + 1, paper, container, rerender);
-    }
-  });
-}
-
-function renderMoveCategoryRow(node, depth, paper, container, rerender) {
-  const row = document.createElement("div");
-  row.className = "move-category-row";
-  row.style.paddingLeft = `${14 + depth * 14}px`;
-
-  const hasChildren = Boolean(node.folders && node.folders.length);
-  const paperCategory = String(paper.category || "");
-  const isExact = node.id === paperCategory;
-  const isAncestor = Boolean(paperCategory) && paperCategory.startsWith(`${node.id}/`);
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "move-category-option";
-  if (depth >= 1) button.classList.add("move-category-sub");
-  button.classList.toggle("move-category-has-children", hasChildren);
-  if (isExact || isAncestor) button.classList.add("move-category-current");
-  button.disabled = isExact;
-
-  const icon = document.createElement("span");
-  icon.className = "move-category-folder-icon";
-  icon.innerHTML = folderCategoryIconSvg;
-  button.appendChild(icon);
-
-  if (hasChildren) {
-    const toggle = document.createElement("span");
-    toggle.className = "move-category-toggle";
-    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
-    toggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleCategoryCollapsed(node.id);
-      rerender();
-    });
-    button.appendChild(toggle);
-  }
-
-  button.appendChild(document.createTextNode(node.name));
-  button.addEventListener("click", async () => {
-    document.querySelector(".library-menu")?.remove();
-    await updatePaper({ action: "move", id: paper.id, category: node.id });
-  });
-  row.appendChild(button);
-  container.appendChild(row);
 }
 
 function positionMenu(menu, anchor, width) {
@@ -1628,7 +1560,7 @@ async function updateCategory(payload) {
   }
 }
 
-async function updatePaper(payload) {
+async function updatePaper(payload, { propagate = false } = {}) {
   try {
     const response = await apiFetch("/api/library/paper", {
       method: "POST",
@@ -1637,16 +1569,17 @@ async function updatePaper(payload) {
     });
     const data = await readJsonResponse(response);
     if (!response.ok) {
-      setLibraryStatus(data.error || "Paper operation failed.", true);
-      return;
+      throw new Error(data.error || "文章操作失败。");
     }
     libraryTree = data.tree;
     renderLibrary();
     setLibraryStatus("");
     reportSyncResult(data.sync);
+    return data;
   } catch (error) {
     console.error(error);
     setLibraryStatus(error.message || "Paper operation failed.", true);
+    if (propagate) throw error;
   }
 }
 
@@ -1686,8 +1619,7 @@ function flattenCategories(node, depth = 0) {
 }
 
 function collectPapers(node) {
-  if (!node) return [];
-  return [...(node.papers || []), ...(node.folders || []).flatMap(collectPapers)];
+  return collectUniquePapers(node);
 }
 
 function findCategoryNode(node, id) {
@@ -1703,7 +1635,7 @@ function findCategoryNode(node, id) {
 function filterPapers(papers, query) {
   if (!query) return papers;
   return papers.filter((paper) => {
-    const haystack = [paper.title, paper.category, paper.categoryName, ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
+    const haystack = [paper.title, categorySearchText(paper), ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();

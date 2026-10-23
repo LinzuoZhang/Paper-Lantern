@@ -1,4 +1,5 @@
 import { formatPaperCardLabel } from "./notes_panel.js";
+import { getCategoryIds, collectUniquePapers, categorySearchText, showCategoryManager } from "./category_manager.js";
 import { RECENT_PAPERS_KEY, getPaperViewedAt, getRecentPaperRecords, getRecentPapers } from "./recent_papers.js";
 
 const ALL_ID = "__library";
@@ -178,7 +179,10 @@ export function initLibrarySidebar({
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "文献库加载失败。");
     tree = data.tree;
+    const fresh = collectPapers(tree).find((paper) => paper.id === current()?.id);
+    if (fresh) syncCurrentCategories(fresh);
     if (!selectedId && current()?.category) selectedId = current().category;
+    if (selectedId && ![ALL_ID, RECENT_ID, TODO_ID].includes(selectedId) && !findCategory(tree, selectedId)) selectedId = ALL_ID;
     render();
   }
 
@@ -188,13 +192,24 @@ export function initLibrarySidebar({
     render();
   }
 
+  function syncCurrentCategories(paper) {
+    if (paper?.id !== current()?.id) return;
+    const fields = {};
+    for (const key of ["category", "categoryName", "categoryIds", "categoryNames"]) fields[key] = paper[key];
+    setCurrentItem({ ...current(), ...fields });
+  }
+
+  function holdsCurrent(node) {
+    return getCategoryIds(current()).some((id) => containsCategory(node, id));
+  }
+
   function render() {
     if (!tree || inlineEditing) return;
     const categories = flattenCategories(tree);
     categoryList.replaceChildren();
     categoryList.appendChild(specialRow(RECENT_ID, "最近", icons.recent, recentPapers().length));
     categoryList.appendChild(specialRow(TODO_ID, "待办", icons.todo, collectPapers(tree).filter((item) => item.todo).length, toggleCurrentTodo, false, isCurrentTodo() ? icons.bookmarked : icons.bookmark, isCurrentTodo() ? "移除待办" : "加入待办", isCurrentTodo()));
-    const showPath = containsCategory(tree, current()?.category);
+    const showPath = holdsCurrent(tree);
     categoryList.appendChild(specialRow(ALL_ID, "文献库", icons.library, collectPapers(tree).length, (button) => startCreate(null, button), true, icons.plus, "新建分类", false, showPath));
     if (!isCollapsedForDisplay(ALL_ID, showPath)) renderCategoryChildren(tree, 0);
 
@@ -213,7 +228,7 @@ export function initLibrarySidebar({
     if (locationCurrent) locationCurrent.title = `${name} (${papers.length})`;
     if (title) title.textContent = "文献库";
     if (sortButton) sortButton.hidden = selectedId === RECENT_ID || !papers.length;
-    if (query) papers = papers.filter((paper) => String(paper.title || "").toLowerCase().includes(query));
+    if (query) papers = papers.filter((paper) => `${paper.title || ""} ${categorySearchText(paper)}`.toLowerCase().includes(query));
 
     paperList.replaceChildren();
     if (!papers.length) {
@@ -273,7 +288,14 @@ export function initLibrarySidebar({
       event.stopPropagation();
       setPaperTodo(paper, !paper.todo).catch((error) => setStatus(error.message || "更新待办失败。", true));
     });
-    row.append(button, todo);
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.className = "reader-paper-menu-button";
+    menuButton.textContent = "⋯";
+    menuButton.title = "分类操作";
+    menuButton.setAttribute("aria-label", `${paper.title || "条目"} 分类操作`);
+    menuButton.addEventListener("click", (event) => { event.stopPropagation(); showPaperCategoryMenu(paper, menuButton); });
+    row.append(button, todo, menuButton);
     return row;
   }
 
@@ -283,6 +305,7 @@ export function initLibrarySidebar({
     const reference = { id: String(paper.id || ""), title: String(paper.title || ""), authors };
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(PAPER_DRAG_TYPE, JSON.stringify(reference));
+    event.dataTransfer.setData("application/x-paperlantern-paper", paper.id);
     event.dataTransfer.setData("text/plain", `[${formatPaperCardLabel(reference)}](hash:${reference.id})`);
     const image = document.createElement("canvas");
     image.width = 1;
@@ -338,7 +361,7 @@ export function initLibrarySidebar({
   function renderCategoryChildren(node, depth) {
     (node?.folders || []).forEach((folder) => {
       categoryList.appendChild(categoryRow(folder, depth));
-      if (folder.folders?.length && !isCollapsedForDisplay(folder.id, containsCategory(folder, current()?.category))) renderCategoryChildren(folder, depth + 1);
+      if (folder.folders?.length && !isCollapsedForDisplay(folder.id, holdsCurrent(folder))) renderCategoryChildren(folder, depth + 1);
     });
   }
 
@@ -349,7 +372,7 @@ export function initLibrarySidebar({
     button.type = "button";
     button.className = "reader-category-item";
     button.classList.toggle("active", category.id === selectedId);
-    button.classList.toggle("reader-current-category-path", containsCategory(category, current()?.category));
+    button.classList.toggle("reader-current-category-path", holdsCurrent(category));
     button.classList.toggle("reader-category-has-children", Boolean(category.folders?.length));
     button.style.paddingLeft = `${8 + (depth + 1) * 12}px`;
     const iconNode = document.createElement("span");
@@ -360,7 +383,7 @@ export function initLibrarySidebar({
       const toggle = document.createElement("span");
       toggle.className = "reader-category-collapse-toggle";
       toggle.setAttribute("aria-label", "展开/收起");
-      toggle.textContent = isCollapsedForDisplay(category.id, containsCategory(category, current()?.category)) ? "▸" : "▾";
+      toggle.textContent = isCollapsedForDisplay(category.id, holdsCurrent(category)) ? "▸" : "▾";
       toggle.addEventListener("click", (event) => { event.stopPropagation(); toggleCollapsed(category.id); render(); });
       button.appendChild(toggle);
     }
@@ -377,6 +400,23 @@ export function initLibrarySidebar({
     menuButton.setAttribute("aria-label", `${category.name} 分类操作`);
     menuButton.addEventListener("click", (event) => { event.stopPropagation(); showCategoryMenu(category, menuButton); });
     row.append(button, menuButton);
+    if (category.id !== UNCATEGORIZED_ID) {
+      row.addEventListener("dragover", (event) => {
+        if (!event.dataTransfer?.types.includes(PAPER_DRAG_TYPE) && !event.dataTransfer?.types.includes("application/x-paperlantern-paper")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        row.classList.add("category-drop-target");
+      });
+      row.addEventListener("dragleave", () => row.classList.remove("category-drop-target"));
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        row.classList.remove("category-drop-target");
+        let id = event.dataTransfer.getData("application/x-paperlantern-paper");
+        try { id ||= JSON.parse(event.dataTransfer.getData(PAPER_DRAG_TYPE) || "{}").id; } catch { return; }
+        const paper = collectPapers(tree).find((item) => item.id === id);
+        if (paper) changePaperCategories(paper, [category.id], "add_categories").catch((error) => setStatus(error.message || "加入分类失败。", true));
+      });
+    }
     return row;
   }
 
@@ -397,7 +437,7 @@ export function initLibrarySidebar({
     const menu = document.createElement("div");
     menu.className = "category-menu reader-category-menu library-menu";
     const actions = [
-      ["移动到此处", !current()?.id || current()?.category === category.id, () => moveCurrentTo(category)],
+      ["分类", !current()?.id, () => managePaperCategories(current(), anchor)],
       ["重命名", category.locked || !category.id, () => startRename(category, anchor)],
       ["新建子分类", false, () => startCreate(category, anchor)],
     ];
@@ -406,13 +446,46 @@ export function initLibrarySidebar({
       button.type = "button";
       button.textContent = label;
       button.disabled = disabled;
-      button.addEventListener("click", () => { menu.remove(); handler(); });
+      button.addEventListener("click", () => { menu.remove(); Promise.resolve(handler()).catch((error) => setStatus(error.message || "分类操作失败。", true)); });
       menu.appendChild(button);
     });
     document.body.appendChild(menu);
     const rect = anchor.getBoundingClientRect();
     menu.style.left = `${Math.min(rect.left, window.innerWidth - 218)}px`;
     menu.style.top = `${rect.bottom + 4}px`;
+  }
+
+  function managePaperCategories(paper, anchor) {
+    showCategoryManager({ tree, paper, anchor, onSave: (ids) => changePaperCategories(paper, ids, "set_categories") });
+  }
+
+  function showPaperCategoryMenu(paper, anchor) {
+    document.querySelector(".library-menu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "paper-menu library-menu";
+    const addAction = (label, handler) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => { menu.remove(); Promise.resolve(handler()).catch((error) => setStatus(error.message || "分类操作失败。", true)); });
+      menu.append(button);
+    };
+    addAction("分类", () => managePaperCategories(paper, anchor));
+    document.body.append(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  async function changePaperCategories(paper, ids, action) {
+    const response = await apiFetch("/api/library/paper", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: paper.id, categoryIds: ids }) });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "更新分类失败。");
+    tree = data.tree || tree;
+    syncCurrentCategories(data.paper);
+    setStatus("分类已更新。");
+    render();
+    return data;
   }
 
   function startRename(category, anchor) {
@@ -470,6 +543,8 @@ export function initLibrarySidebar({
       const data = await readJsonResponse(response);
       if (!response.ok) throw new Error(data.error || "分类操作失败。");
       tree = data.tree;
+      const fresh = collectPapers(tree).find((paper) => paper.id === current()?.id);
+      if (fresh) syncCurrentCategories(fresh);
       if (payload.action === "create" && data.categoryId) selectedId = data.categoryId;
       if (payload.action === "rename" && selectedId === payload.id) selectedId = data.categoryId || payload.id;
       render();
@@ -477,18 +552,6 @@ export function initLibrarySidebar({
       setStatus(error.message || "分类操作失败。", true);
       render();
     }
-  }
-
-  async function moveCurrentTo(category) {
-    if (!current()?.id) return;
-    const response = await apiFetch("/api/library/paper", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "move", id: current().id, category: category.id || category.name }) });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "移动失败。");
-    tree = data.tree || tree;
-    selectedId = data.paper?.category || category.id;
-    setCurrentItem(data.paper || { ...current(), category: selectedId });
-    setStatus(`已移动到 ${category.name}。`);
-    render();
   }
 
   function isCurrentTodo() {
@@ -548,7 +611,7 @@ export function initLibrarySidebar({
   async function uploadPaper(file) {
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return setStatus("请选择 PDF 文件。", true);
     const form = new FormData();
-    form.append("pdf", file); form.append("title", file.name.replace(/\.pdf$/i, "")); form.append("category", uploadCategory());
+    form.append("pdf", file); form.append("title", file.name.replace(/\.pdf$/i, "")); form.append("categoryIds", JSON.stringify([uploadCategory()]));
     uploadButton.disabled = true;
     try {
       const response = await apiFetch("/api/library/upload", { method: "POST", body: form });
@@ -563,11 +626,30 @@ export function initLibrarySidebar({
   async function uploadRemotePaper(source) {
     remoteButton.disabled = true;
     try {
-      const response = await apiFetch("/api/library/remote-pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdfUrl: source, category: uploadCategory() }) });
+      const response = await apiFetch("/api/library/remote-pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdfUrl: source, categoryIds: [uploadCategory()] }) });
       const data = await readJsonResponse(response);
       if (!response.ok) throw new Error(data.detail || data.error || "导入失败。");
-      tree = data.tree || tree; render();
-      openUrl(`./reader.html?${new URLSearchParams({ id: data.paper.id })}`);
+      let paperId = data.paper?.id;
+      if (!paperId) {
+        let job = data.job;
+        if (!job?.jobId) throw new Error("导入接口未返回任务信息。");
+        const jobId = job.jobId;
+        while (!["completed", "failed", "cancelled"].includes(job.state)) {
+          setStatus("正在导入论文…");
+          await new Promise((resolve) => window.setTimeout(resolve, 650));
+          const statusResponse = await apiFetch(`/api/library/import/status?${new URLSearchParams({ jobId })}`);
+          const status = await readJsonResponse(statusResponse);
+          if (!statusResponse.ok) throw new Error(status.error || "无法读取导入进度。");
+          if (status.job?.jobId !== jobId) throw new Error("导入任务信息无效。");
+          job = status.job;
+        }
+        if (job.state !== "completed") throw new Error(job.error || (job.state === "cancelled" ? "导入已取消。" : "导入失败。"));
+        paperId = job.paperId;
+      }
+      if (!paperId) throw new Error("导入完成，但未返回论文编号。");
+      await refresh();
+      setStatus("导入完成。");
+      openUrl(`./reader.html?${new URLSearchParams({ id: paperId })}`);
     } catch (error) { setStatus(error.message || "导入失败。", true); }
     finally { remoteButton.disabled = false; }
   }
@@ -602,11 +684,12 @@ export function initLibrarySidebar({
   window.addEventListener("paper-lantern-library-updated", () => {
     refresh().catch((error) => setStatus(error.message || "\u6587\u732e\u5e93\u5237\u65b0\u5931\u8d25\u3002", true));
   });
+  window.addEventListener("focus", () => refresh().catch((error) => setStatus(error.message || "文献库刷新失败。", true)));
   refresh().catch((error) => { console.error("Failed to load library sidebar.", error); setStatus(error.message || "文献库加载失败。", true); });
   return { refresh, render, open, close, setCurrentItem: setCurrent };
 }
 
-function collectPapers(node) { return node ? [...(node.papers || []), ...(node.folders || []).flatMap(collectPapers)] : []; }
+function collectPapers(node) { return collectUniquePapers(node); }
 function findCategory(node, id) { if (!node) return null; if (node.id === id) return node; for (const child of node.folders || []) { const found = findCategory(child, id); if (found) return found; } return null; }
 function containsCategory(node, id) { return Boolean(node && id && (node.id === id || (node.folders || []).some((child) => containsCategory(child, id)))); }
 function flattenCategories(node, depth = 0, include = false) {

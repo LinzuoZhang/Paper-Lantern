@@ -45,7 +45,9 @@ export function getPaperViewedAt(paper, records = getRecentPaperRecords()) {
 }
 
 export function getRecentPapers(papers, records = getRecentPaperRecords()) {
+  const seen = new Set();
   return (papers || [])
+    .filter((paper) => { if (seen.has(paper.id)) return false; seen.add(paper.id); return true; })
     .map((paper) => {
       const viewedAt = getPaperViewedAt(paper, records);
       return viewedAt ? { ...paper, viewedAt } : null;

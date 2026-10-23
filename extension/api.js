@@ -35,6 +35,7 @@ export async function importRemotePdf(source, options = {}) {
       pdfUrl: source,
       title: options.title || "",
       category: options.category || "",
+      ...(Array.isArray(options.categoryIds) ? { categoryIds: options.categoryIds } : {}),
     }),
   });
   const data = await readJsonResponse(response);
@@ -49,6 +50,7 @@ export async function importLocalPdf(source, options = {}) {
   formData.append("pdf", file);
   formData.append("title", options.title || file.name.replace(/\.pdf$/i, ""));
   formData.append("category", options.category || "");
+  if (Array.isArray(options.categoryIds)) formData.append("categoryIds", JSON.stringify(options.categoryIds));
   const response = await fetch(`${base}/api/library/upload`, {
     method: "POST",
     body: formData,

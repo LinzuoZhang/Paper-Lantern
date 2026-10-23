@@ -72,11 +72,14 @@ Paper Lantern 使用兼容 OpenAI Chat Completions 的接口，因此也可以�
 - **通过链接导入**：粘贴 PDF 直链、arXiv 摘要页链接或 arXiv PDF 链接。
 - **通过浏览器扩展导入**：在网页或 arXiv 页面上一键发送到 Paper Lantern，安装方法见[浏览器扩展](#浏览器扩展可选)。
 
-导入后，可以在首页搜索论文、创建分类，并通过论文卡片菜单移动或删除论文。
+导入后，可以在首页搜索论文、创建分类，并通过论文卡片菜单管理分类归属或删除论文。
 
 ### 管理文献与独立笔记
 
 - 使用分类整理论文和笔记，并按标题、上传时间或上次阅读时间排序。
+- 论文和笔记均可同时属于多个分类。在首页条目菜单或阅读器侧栏的条目菜单中选择“分类”，打开“管理分类”窗口，勾选或取消勾选后保存；清空选择会归入“未分类”。
+- 拖入分类表示增加归属。移除或调整分类均在“管理分类”窗口中完成；取消原分类并勾选目标分类即可移动归属。删除分类会保留条目的其他归属。
+- 全库、父分类、“最近”“待办”和笔记中的文献选择器均按文章 ID 去重；同一 PDF 重复导入会给已有文章增加指定分类。
 - 用“已读”和“待办”标记阅读状态；“最近”和“待办”入口可以快速筛选内容。
 - 点击首页的“新建笔记”，可创建不依附于论文的 Markdown 笔记，并围绕笔记内容与 AI 讨论。
 - 在论文信息区点击 Citation，可复制 GB/T 7714、BibTeX、RIS、APA、MLA 或 IEEE 格式的引用信息。
@@ -132,6 +135,12 @@ pip install pymupdf markdown-it-py matplotlib
 同步内容包含论文 PDF、元数据、笔记、批注、讨论记录和同步索引。请使用可信的私有同步空间。
 
 ## 数据存放位置
+
+首次加载旧版分类索引时，会自动升级多分类结构，并在文献库中保留 `library_db.v1.backup.json` 备份。
+
+导入接口 `/api/library/import/start`（以及 `/api/library/remote-pdf`、`/api/library/arxiv`）和新建笔记接口接受 `categoryIds: ["分类A", "分类B"]`；旧的 `category`、`categoryId` 参数仍可使用。本地 PDF 上传 `/api/library/upload` 的 multipart 字段 `categoryIds` 可传 JSON 数组字符串或重复字段。
+
+`POST /api/library/paper` 使用 `id`、`categoryIds` 和 `action` 管理归属：`set_categories` 替换全部归属，`add_categories` 增加归属，`remove_categories` 移除指定归属。空数组配合 `set_categories` 清空归属。响应提供 `categoryIds`、`categoryNames`，并保留单分类兼容字段。
 
 默认文献库位于项目内的 `literature_library/`：
 

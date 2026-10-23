@@ -275,7 +275,7 @@ function initNoteZoom() {
 function setNoteZoom(value, showFeedback = true) {
   noteZoom = Math.min(Math.max(Number(value) || 1, NOTE_ZOOM_MIN), NOTE_ZOOM_MAX);
   noteZoom = Math.round(noteZoom * 10) / 10;
-  notesWorkspace?.style.setProperty("--notes-content-font-size", `${14 * noteZoom}px`);
+  notesWorkspace?.style.setProperty("--notes-content-font-size", `${15 * noteZoom}px`);
   window.localStorage.setItem(NOTE_ZOOM_KEY, String(noteZoom));
   if (showFeedback) showNoteZoomFeedback();
 }

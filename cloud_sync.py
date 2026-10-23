@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 
 from config_store import get_secret, load_config, public_config, save_config
+from category_model import library_locked, merge_record_categories, normalize_manifest_categories, copy_category_fields
 
 
 MANIFEST_NAME = "paperlantern-library.json"
@@ -93,6 +94,7 @@ def describe_target(config):
     return ""
 
 
+@library_locked
 def sync_library(library_dir, config, progress=None):
     def emit(step, detail="", current=0, total=1, status="running", **extra):
         if callable(progress):
@@ -128,6 +130,9 @@ def sync_library(library_dir, config, progress=None):
         remote_index = build_legacy_remote_sync_index(config, remote_db)
 
     plan = plan_sync_actions(local_index, remote_index)
+    # The manifest was merged above. Never replace it using file modification times.
+    for direction in ("upload", "download"):
+        plan[direction] = [path for path in plan[direction] if path != MANIFEST_NAME]
     files_to_download = len(plan.get("download", []))
     files_to_upload = len(plan.get("upload", []))
     emit(
@@ -146,10 +151,12 @@ def sync_library(library_dir, config, progress=None):
     final_db = merge_dbs(local_db, remote_db)
     write_json(local_db_path, final_db)
     ensure_local_sync_hashes(library_dir, final_db)
-    for paper_id in stats.pop("_downloadedPaperIds", []):
+    changed_metadata = mirror_category_metadata(library_dir, final_db)
+    for paper_id in set(stats.pop("_downloadedPaperIds", [])) | changed_metadata:
         record = final_db.get("papers", {}).get(paper_id, {})
         paper_dir = library_dir / record.get("folder", f"papers/{paper_id}")
         upload_paper_files(config, paper_id, paper_dir)
+    write_remote_manifest(config, final_db)
     final_index = build_local_sync_index(library_dir, final_db)
     write_local_sync_index(library_dir, final_index)
     write_remote_sync_index(config, final_index)
@@ -172,9 +179,34 @@ def auto_sync_library(library_dir, config):
 
 def merge_dbs(local_db, remote_db):
     merged = new_manifest_db()
-    merged["categories"] = {**remote_db.get("categories", {}), **local_db.get("categories", {})}
+    for source in (remote_db, local_db):
+        for key, item in source.get("categories", {}).items():
+            previous = merged["categories"].get(key)
+            if previous is None or str(item.get("updatedAt", "")) >= str(previous.get("updatedAt", "")):
+                merged["categories"][key] = dict(item)
+        for key, stamp in source.get("deletedCategories", {}).items():
+            merged["deletedCategories"][key] = max(stamp, merged["deletedCategories"].get(key, ""))
     merged["papers"] = {**remote_db.get("papers", {}), **local_db.get("papers", {})}
+    for key in set(local_db.get("papers", {})) | set(remote_db.get("papers", {})):
+        local = local_db.get("papers", {}).get(key)
+        remote = remote_db.get("papers", {}).get(key, {})
+        merged["papers"][key] = merge_record_categories(local if local is not None else remote, remote)
     return normalize_db(merged)
+
+
+def mirror_category_metadata(library_dir, db):
+    changed = set()
+    for paper_id, record in db.get("papers", {}).items():
+        path = Path(library_dir) / record.get("folder", f"papers/{paper_id}") / "metadata.json"
+        if not path.exists():
+            continue
+        metadata = read_json(path, {})
+        previous = json.dumps(metadata, sort_keys=True, ensure_ascii=False)
+        copy_category_fields(metadata, record)
+        if previous != json.dumps(metadata, sort_keys=True, ensure_ascii=False):
+            write_json(path, metadata)
+            changed.add(paper_id)
+    return changed
 
 
 def normalize_db(db):
@@ -184,12 +216,13 @@ def normalize_db(db):
     db.setdefault("categories", {})
     db.setdefault("papers", {})
     db["categories"].setdefault("uncategorized", {"id": "uncategorized", "name": "未分类", "parentId": "", "locked": True})
-    return db
+    return normalize_manifest_categories(db)
 
 
 def new_manifest_db():
     return {
-        "version": 1,
+        "version": 2,
+        "deletedCategories": {},
         "categories": {"uncategorized": {"id": "uncategorized", "name": "未分类", "parentId": "", "locked": True}},
         "papers": {},
     }
@@ -447,6 +480,11 @@ def local_sync_path(library_dir, relative_path):
     library_dir = Path(library_dir)
     if relative_path == MANIFEST_NAME:
         return library_dir / "library_db.json"
+    paper_id = paper_id_from_remote_path(relative_path)
+    if paper_id:
+        db = read_json(library_dir / "library_db.json", {})
+        folder = db.get("papers", {}).get(paper_id, {}).get("folder", f"papers/{paper_id}")
+        return safe_local_path(library_dir, f"{folder}/{relative_path.rsplit('/', 1)[-1]}")
     return library_dir / relative_path
 
 
