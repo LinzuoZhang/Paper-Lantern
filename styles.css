@@ -448,7 +448,7 @@ body {
   gap: 8px;
 }
 
-.paper-title-button > span {
+.paper-title-button .paper-title-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1283,13 +1283,90 @@ body.resizing-paper-info * {
 .paper-list-header {
   align-items: center;
   justify-content: space-between;
+  margin-left: 24px;
   margin-bottom: 14px;
+}
+
+.paper-list-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.paper-bulk-toolbar {
+  position: absolute;
+  top: 0;
+  left: 24px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid rgba(191, 204, 199, 0.88);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(29, 37, 32, 0.14);
+  transform: translateY(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.paper-bulk-count {
+  padding: 0 12px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.paper-bulk-toolbar .paper-bulk-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.paper-bulk-toolbar .paper-bulk-action:last-child {
+  border-radius: 0 999px 999px 0;
+}
+
+.paper-bulk-toolbar .paper-bulk-action:hover:not(:disabled) {
+  background: var(--soft);
+  color: var(--accent-strong);
+  box-shadow: none;
+  transform: none;
+}
+
+.paper-bulk-toolbar .paper-bulk-delete,
+.paper-bulk-toolbar .paper-bulk-delete:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.paper-bulk-action svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .paper-list {
   display: grid;
   align-content: start;
-  flex: 1;
+  width: 100%;
+  height: 100%;
   gap: 14px;
   min-height: 0;
   overflow-y: auto;
@@ -1347,6 +1424,7 @@ body.resizing-paper-info * {
 .paper-table-wrap {
   width: 100%;
   min-width: 0;
+  padding-left: 24px;
 }
 
 .paper-table {
@@ -1383,6 +1461,7 @@ body.resizing-paper-info * {
 }
 
 .paper-sort-button {
+  position: relative;
   min-height: auto;
   padding: 0;
   border: 0;
@@ -1416,6 +1495,11 @@ body.resizing-paper-info * {
   background: rgba(230, 232, 231, 0.78);
 }
 
+.paper-table-row.is-selected td,
+.paper-table-row.is-selected:hover td {
+  background: var(--soft-strong);
+}
+
 .paper-col-resize-handle {
   position: absolute;
   top: 0;
@@ -1437,6 +1521,7 @@ body.resizing-columns * {
 }
 
 .paper-title-button {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: auto;
@@ -1449,17 +1534,69 @@ body.resizing-columns * {
   font-weight: 400;
   text-align: left;
   box-shadow: none;
-  overflow: hidden;
+  overflow: visible;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.paper-title-button > span {
+.paper-title-button .paper-title-text {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .paper-title-button:hover {
   color: var(--accent);
+}
+
+.paper-title-button .paper-title-text:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.paper-select-slot,
+.paper-select-all-slot {
+  position: absolute;
+  top: 50%;
+  left: -25px;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  transform: translateY(-50%);
+}
+
+.paper-select-checkbox,
+.paper-select-all-checkbox {
+  position: absolute;
+  inset: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  opacity: 0;
+  accent-color: var(--accent-strong);
+  cursor: pointer;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.paper-table-row:hover .paper-select-checkbox,
+.paper-table-row:focus-within .paper-select-checkbox,
+.paper-list.is-multi-selecting .paper-select-checkbox,
+.paper-select-checkbox:checked {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.paper-table th:first-child:hover .paper-select-all-checkbox,
+.paper-table th:first-child:focus-within .paper-select-all-checkbox,
+.paper-list.is-multi-selecting .paper-select-all-checkbox,
+.paper-select-all-checkbox:checked,
+.paper-select-all-checkbox:indeterminate {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .paper-date-cell {

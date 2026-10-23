@@ -95,7 +95,28 @@
               </div>
             </form>
           </div>
-          <div id="paperList" class="paper-list"></div>
+          <div class="paper-list-stage">
+            <div id="paperBulkToolbar" class="paper-bulk-toolbar" role="toolbar" aria-label="批量操作" hidden>
+              <span id="paperBulkCount" class="paper-bulk-count">已选 0 项</span>
+              <button id="paperBulkMoveButton" class="paper-bulk-action menu-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  <path d="M12 13v4"></path>
+                  <path d="m9.5 14.5 2.5-2.5 2.5 2.5"></path>
+                </svg>
+                <span>移动</span>
+              </button>
+              <button id="paperBulkDeleteButton" class="paper-bulk-action paper-bulk-delete" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M3 6h18"></path>
+                  <path d="M8 6V4h8v2"></path>
+                  <path d="M6 6l1 15h10l1-15"></path>
+                </svg>
+                <span>删除</span>
+              </button>
+            </div>
+            <div id="paperList" class="paper-list"></div>
+          </div>
         </section>
         <div id="paperInfoResizer" class="paper-info-resizer" role="separator" aria-label="Resize paper information panel" aria-orientation="vertical"></div>
         <aside id="paperInfoPanel" class="paper-info-panel" aria-label="Paper information"></aside>

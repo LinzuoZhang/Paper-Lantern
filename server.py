@@ -1627,6 +1627,53 @@ def delete_paper(paper_id):
     save_library_db(db)
 
 
+def normalize_paper_ids(paper_ids):
+    if not isinstance(paper_ids, list):
+        raise ValueError("Paper ids must be a list.")
+    normalized = []
+    seen = set()
+    for value in paper_ids:
+        paper_id = str(value or "").strip()
+        if paper_id and paper_id not in seen:
+            normalized.append(paper_id)
+            seen.add(paper_id)
+    if not normalized:
+        raise ValueError("Select at least one paper.")
+    if len(normalized) > 1000:
+        raise ValueError("Too many papers selected.")
+    return normalized
+
+
+def move_papers(paper_ids, category_values):
+    ids = normalize_paper_ids(paper_ids)
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        records = []
+        for paper_id in ids:
+            record = db["papers"].get(paper_id)
+            if not record:
+                raise FileNotFoundError(f"Paper not found: {paper_id}")
+            records.append(record)
+
+        selected = resolve_category_ids(db, category_values, create=True)
+        timestamp = utc_now()
+        for record in records:
+            set_record_categories(record, selected, timestamp)
+            write_record_categories(record)
+        save_library_db(db)
+        return [read_paper(paper_id, db) for paper_id in ids]
+
+
+def delete_papers(paper_ids):
+    ids = normalize_paper_ids(paper_ids)
+    with LIBRARY_LOCK:
+        db = load_library_db()
+        missing = [paper_id for paper_id in ids if paper_id not in db["papers"]]
+        if missing:
+            raise FileNotFoundError(f"Paper not found: {missing[0]}")
+        return [delete_item(paper_id) for paper_id in ids]
+
+
 def unique_strings(values):
     result = []
     seen = set()
@@ -2559,6 +2606,27 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         action = str(payload.get("action", "save")).strip() or "save"
+        if action == "move-many":
+            try:
+                papers = move_papers(payload.get("ids"), request_category_ids(payload))
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"papers": papers, "tree": read_library_tree(), "sync": sync})
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except (OSError, ValueError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
+        if action == "delete-many":
+            try:
+                paper_ids = normalize_paper_ids(payload.get("ids"))
+                delete_papers(paper_ids)
+                sync = maybe_auto_sync_library()
+                self._send_json(200, {"deleted": len(paper_ids), "tree": read_library_tree(), "sync": sync})
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except (OSError, ValueError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if action in {"move", "set_categories", "add_categories", "remove_categories"}:
             try:
                 paper = update_paper_categories(str(payload.get("id", "")), request_category_ids(payload), action)

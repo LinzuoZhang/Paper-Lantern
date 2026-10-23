@@ -22,6 +22,10 @@ const categoryMainRows = document.querySelector("#categoryMainRows");
 const paperList = document.querySelector("#paperList");
 const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
+const paperBulkToolbar = document.querySelector("#paperBulkToolbar");
+const paperBulkCount = document.querySelector("#paperBulkCount");
+const paperBulkMoveButton = document.querySelector("#paperBulkMoveButton");
+const paperBulkDeleteButton = document.querySelector("#paperBulkDeleteButton");
 const librarySearchInput = document.querySelector("#librarySearchInput");
 const uploadForm = document.querySelector("#uploadForm");
 const libraryPdfInput = document.querySelector("#libraryPdfInput");
@@ -107,6 +111,8 @@ let cloudSyncProgressValue = 0;
 let cloudSyncCancelRequested = false;
 let libCitationFormats = null;
 let libCitationFormat = "gbt7714";
+const selectedPaperIds = new Set();
+let paperBulkBusy = false;
 
 migrateLegacyRecentPapers();
 loadLibrary();
@@ -270,8 +276,26 @@ arxivUploadButton.addEventListener("click", async () => {
 });
 
 librarySearchInput.addEventListener("input", () => {
+  clearPaperSelection();
   searchQuery = librarySearchInput.value.trim().toLowerCase();
   renderLibrary();
+});
+
+paperBulkMoveButton?.addEventListener("click", () => {
+  const papers = getSelectedPapers();
+  if (papers.length) showMovePaperMenu(papers, paperBulkMoveButton);
+});
+
+paperBulkDeleteButton?.addEventListener("click", deleteSelectedPapers);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const menu = document.querySelector(".library-menu");
+  if (menu) {
+    menu.remove();
+    return;
+  }
+  if (selectedPaperIds.size) clearPaperSelection();
 });
 
 cloudSyncButton.addEventListener("click", async () => {
@@ -570,6 +594,7 @@ function renderLibrary() {
     papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
   const visiblePapers = filterPapers(papers, searchQuery);
+  reconcilePaperSelection(visiblePapers);
   renderPaperList(visiblePapers);
   // In "最近", the list is always ordered by reading time, so the preview follows that order too.
   const previewPaper = selectedCategoryId === RECENT_CATEGORY_ID ? visiblePapers[0] : sortPapers(visiblePapers)[0];
@@ -627,6 +652,7 @@ function renderCategoryRow(node, depth = 0) {
   button.title = label.textContent;
   button.appendChild(label);
   button.addEventListener("click", () => {
+    clearPaperSelection();
     selectedCategoryId = node.id;
     renderLibrary();
   });
@@ -681,6 +707,7 @@ function renderRecentCategory() {
   button.classList.toggle("active", selectedCategoryId === RECENT_CATEGORY_ID);
   button.innerHTML = `${recentCategoryIconSvg}<span class="category-label">最近 (${getRecentPapers(collectPapers(libraryTree)).length})</span>`;
   button.addEventListener("click", () => {
+    clearPaperSelection();
     selectedCategoryId = RECENT_CATEGORY_ID;
     renderLibrary();
   });
@@ -700,6 +727,7 @@ function renderTodoCategory() {
   const count = (collectPapers(libraryTree) || []).filter((paper) => paper.todo).length;
   button.innerHTML = `${todoCategoryIconSvg}<span class="category-label">待办 (${count})</span>`;
   button.addEventListener("click", () => {
+    clearPaperSelection();
     selectedCategoryId = TODO_CATEGORY_ID;
     renderLibrary();
   });
@@ -816,6 +844,7 @@ function renderPaperList(papers) {
           ? "暂无待办论文。"
           : "此分类中暂无论文或笔记。";
     paperList.appendChild(empty);
+    syncPaperSelectionUi();
     return;
   }
 
@@ -840,7 +869,21 @@ function renderPaperList(papers) {
       th.classList.add("paper-sortable");
       const button = document.createElement("span");
       button.className = "paper-sort-button";
-      button.textContent = sortKeyShown === sortKey ? `${label} ${sortDirShown === "asc" ? "↑" : "↓"}` : label;
+      if (label === "标题") {
+        const selectAllSlot = document.createElement("span");
+        selectAllSlot.className = "paper-select-all-slot";
+        const selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.className = "paper-select-all-checkbox";
+        selectAllCheckbox.tabIndex = selectedPaperIds.size ? 0 : -1;
+        selectAllCheckbox.setAttribute("aria-label", "全选当前列表");
+        selectAllCheckbox.addEventListener("pointerdown", (event) => event.stopPropagation());
+        selectAllCheckbox.addEventListener("click", (event) => event.stopPropagation());
+        selectAllCheckbox.addEventListener("change", () => toggleAllVisiblePapers(papers, selectAllCheckbox.checked));
+        selectAllSlot.appendChild(selectAllCheckbox);
+        button.appendChild(selectAllSlot);
+      }
+      button.appendChild(document.createTextNode(sortKeyShown === sortKey ? `${label} ${sortDirShown === "asc" ? "↑" : "↓"}` : label));
       th.appendChild(button);
       // The whole header cell is clickable, except in "最近" where the order is fixed.
       th.addEventListener("click", () => {
@@ -867,13 +910,15 @@ function renderPaperList(papers) {
     const tr = document.createElement("tr");
     tr.className = "paper-table-row";
     tr.tabIndex = 0;
-    tr.draggable = true;
+    tr.draggable = selectedPaperIds.size === 0;
     tr.dataset.paperId = paper.id;
+    tr.classList.toggle("is-selected", selectedPaperIds.has(paper.id));
     tr.addEventListener("dragstart", (event) => startPaperDrag(event, paper));
     tr.addEventListener("dragend", clearLibraryDragFeedback);
     tr.addEventListener("pointerenter", () => renderPaperInfoPanel(paper));
     tr.addEventListener("focus", () => renderPaperInfoPanel(paper));
     tr.addEventListener("keydown", (event) => {
+      if (event.target !== tr) return;
       if (event.key === "Enter") openLibraryItem(paper);
     });
 
@@ -881,9 +926,23 @@ function renderPaperList(papers) {
     titleTd.className = "paper-title-cell";
     const titleButton = document.createElement("span");
     titleButton.className = "paper-title-button";
-    titleButton.innerHTML = paper.itemType === "note" ? noteItemSvg : paperItemSvg;
+    const selectionSlot = document.createElement("span");
+    selectionSlot.className = "paper-select-slot";
+    const selectCheckbox = document.createElement("input");
+    selectCheckbox.type = "checkbox";
+    selectCheckbox.className = "paper-select-checkbox";
+    selectCheckbox.checked = selectedPaperIds.has(paper.id);
+    selectCheckbox.tabIndex = selectedPaperIds.size ? 0 : -1;
+    selectCheckbox.setAttribute("aria-label", `选择 ${paper.title}`);
+    selectCheckbox.addEventListener("pointerdown", (event) => event.stopPropagation());
+    selectCheckbox.addEventListener("click", (event) => event.stopPropagation());
+    selectCheckbox.addEventListener("change", () => togglePaperSelection(paper.id, selectCheckbox.checked));
+    selectionSlot.appendChild(selectCheckbox);
     const titleText = document.createElement("span");
+    titleText.className = "paper-title-text";
     titleText.textContent = paper.title;
+    titleButton.appendChild(selectionSlot);
+    titleButton.insertAdjacentHTML("beforeend", paper.itemType === "note" ? noteItemSvg : paperItemSvg);
     titleButton.appendChild(titleText);
     titleButton.title = paper.title;
     titleTd.appendChild(titleButton);
@@ -946,6 +1005,138 @@ function renderPaperList(papers) {
   wrap.appendChild(table);
   paperList.appendChild(wrap);
   initPaperTableResize(table);
+  syncPaperSelectionUi();
+}
+
+function reconcilePaperSelection(papers) {
+  const visibleIds = new Set((papers || []).map((paper) => paper.id));
+  selectedPaperIds.forEach((paperId) => {
+    if (!visibleIds.has(paperId)) selectedPaperIds.delete(paperId);
+  });
+}
+
+function togglePaperSelection(paperId, isSelected) {
+  if (isSelected) selectedPaperIds.add(paperId);
+  else selectedPaperIds.delete(paperId);
+  syncPaperSelectionUi();
+}
+
+function toggleAllVisiblePapers(papers, isSelected) {
+  (papers || []).forEach((paper) => {
+    if (isSelected) selectedPaperIds.add(paper.id);
+    else selectedPaperIds.delete(paper.id);
+  });
+  syncPaperSelectionUi();
+}
+
+function clearPaperSelection() {
+  if (!selectedPaperIds.size) return;
+  selectedPaperIds.clear();
+  document.querySelector(".library-menu")?.remove();
+  syncPaperSelectionUi();
+}
+
+function syncPaperSelectionUi() {
+  const count = selectedPaperIds.size;
+  const isSelecting = count > 0;
+  if (paperBulkToolbar) paperBulkToolbar.hidden = !isSelecting;
+  if (paperBulkCount) paperBulkCount.textContent = `已选 ${count} 项`;
+  if (paperBulkMoveButton) paperBulkMoveButton.disabled = paperBulkBusy || !isSelecting;
+  if (paperBulkDeleteButton) paperBulkDeleteButton.disabled = paperBulkBusy || !isSelecting;
+  paperList.classList.toggle("is-multi-selecting", isSelecting);
+  const rows = Array.from(paperList.querySelectorAll(".paper-table-row"));
+  let selectedVisibleCount = 0;
+  rows.forEach((row) => {
+    const checked = selectedPaperIds.has(row.dataset.paperId || "");
+    if (checked) selectedVisibleCount += 1;
+    row.classList.toggle("is-selected", checked);
+    row.draggable = !isSelecting;
+    const checkbox = row.querySelector(".paper-select-checkbox");
+    if (checkbox) {
+      checkbox.checked = checked;
+      checkbox.tabIndex = isSelecting ? 0 : -1;
+    }
+  });
+  const selectAllCheckbox = paperList.querySelector(".paper-select-all-checkbox");
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = rows.length > 0 && selectedVisibleCount === rows.length;
+    selectAllCheckbox.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < rows.length;
+    selectAllCheckbox.tabIndex = isSelecting ? 0 : -1;
+  }
+}
+
+function getSelectedPapers() {
+  const paperMap = new Map(collectPapers(libraryTree).map((paper) => [paper.id, paper]));
+  return Array.from(selectedPaperIds, (paperId) => paperMap.get(paperId)).filter(Boolean);
+}
+
+function setPaperBulkBusy(isBusy) {
+  paperBulkBusy = Boolean(isBusy);
+  syncPaperSelectionUi();
+}
+
+async function deleteSelectedPapers() {
+  const papers = getSelectedPapers();
+  if (!papers.length || paperBulkBusy) return;
+  if (!window.confirm(`确定删除选中的 ${papers.length} 项？此操作无法撤销。`)) return;
+  await updateSelectedPapers(
+    { action: "delete-many", ids: papers.map((paper) => paper.id) },
+    `正在删除 ${papers.length} 项...`,
+  );
+}
+
+async function updateSelectedPapers(payload, pendingMessage) {
+  if (paperBulkBusy) return;
+  setPaperBulkBusy(true);
+  setLibraryStatus(pendingMessage || "正在处理所选项目...");
+  try {
+    let response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let data = await readJsonResponse(response);
+    if (shouldUseLegacyBatchFallback(payload, response, data)) {
+      data = await runLegacyPaperBatch(payload);
+      response = { ok: true };
+    }
+    if (!response.ok) throw new Error(data.error || "批量操作失败。");
+    libraryTree = data.tree;
+    selectedPaperIds.clear();
+    renderLibrary();
+    setLibraryStatus("");
+    reportSyncResult(data.sync);
+  } catch (error) {
+    console.error(error);
+    setLibraryStatus(error.message || "批量操作失败。", true);
+  } finally {
+    setPaperBulkBusy(false);
+  }
+}
+
+function shouldUseLegacyBatchFallback(payload, response, data) {
+  if (!payload?.action?.endsWith("-many") || response.status !== 404) return false;
+  const error = String(data?.error || "").trim();
+  return !error || error === "Paper not found.";
+}
+
+async function runLegacyPaperBatch(payload) {
+  const ids = Array.isArray(payload.ids) ? payload.ids : [];
+  let lastData = { tree: libraryTree, sync: null };
+  for (const id of ids) {
+    const singlePayload = payload.action === "move-many"
+      ? { action: "move", id, category: payload.category }
+      : { action: "delete", id };
+    const response = await apiFetch("/api/library/paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(singlePayload),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || "批量操作失败。");
+    lastData = data;
+  }
+  return lastData;
 }
 
 async function updatePaperRead(paper, toggle, read) {
@@ -1521,6 +1712,89 @@ function showPaperMenu(paper, anchor) {
   menu.append(deleteButton);
   document.body.appendChild(menu);
   positionMenu(menu, anchor, 190);
+}
+
+function showMovePaperMenu(paperOrPapers, anchor) {
+  const papers = (Array.isArray(paperOrPapers) ? paperOrPapers : [paperOrPapers]).filter(Boolean);
+  if (!papers.length) return;
+  document.querySelector(".library-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "paper-menu move-paper-menu library-menu";
+
+  const heading = document.createElement("div");
+  heading.className = "move-menu-heading";
+  heading.textContent = papers.length > 1 ? `移动 ${papers.length} 项到分类` : "移动到分类";
+  menu.appendChild(heading);
+
+  const list = document.createElement("div");
+  list.className = "move-category-list";
+  menu.appendChild(list);
+
+  const rerender = () => showMovePaperMenu(papers, anchor);
+  renderMoveCategoryNode(libraryTree, 0, papers, list, rerender);
+
+  document.body.appendChild(menu);
+  positionMenu(menu, anchor, 260);
+}
+
+function renderMoveCategoryNode(node, depth, papers, container, rerender) {
+  (node.folders || []).forEach((folder) => {
+    renderMoveCategoryRow(folder, depth, papers, container, rerender);
+    if (folder.folders && folder.folders.length && !isCategoryCollapsed(folder.id)) {
+      renderMoveCategoryNode(folder, depth + 1, papers, container, rerender);
+    }
+  });
+}
+
+function renderMoveCategoryRow(node, depth, papers, container, rerender) {
+  const row = document.createElement("div");
+  row.className = "move-category-row";
+  row.style.paddingLeft = `${14 + depth * 14}px`;
+
+  const hasChildren = Boolean(node.folders && node.folders.length);
+  const paperCategories = new Set(papers.map((paper) => String(paper.category || "")));
+  const onlyCategory = paperCategories.size === 1 ? Array.from(paperCategories)[0] : "";
+  const isExact = Boolean(onlyCategory) && node.id === onlyCategory;
+  const isAncestor = Boolean(onlyCategory) && onlyCategory.startsWith(`${node.id}/`);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "move-category-option";
+  if (depth >= 1) button.classList.add("move-category-sub");
+  button.classList.toggle("move-category-has-children", hasChildren);
+  if (isExact || isAncestor) button.classList.add("move-category-current");
+  button.disabled = isExact;
+
+  const icon = document.createElement("span");
+  icon.className = "move-category-folder-icon";
+  icon.innerHTML = folderCategoryIconSvg;
+  button.appendChild(icon);
+
+  if (hasChildren) {
+    const toggle = document.createElement("span");
+    toggle.className = "move-category-toggle";
+    toggle.textContent = isCategoryCollapsed(node.id) ? "▸" : "▾";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCategoryCollapsed(node.id);
+      rerender();
+    });
+    button.appendChild(toggle);
+  }
+
+  button.appendChild(document.createTextNode(node.name));
+  button.addEventListener("click", async () => {
+    document.querySelector(".library-menu")?.remove();
+    if (papers.length === 1) {
+      await updatePaper({ action: "move", id: papers[0].id, category: node.id });
+      return;
+    }
+    await updateSelectedPapers(
+      { action: "move-many", ids: papers.map((paper) => paper.id), category: node.id },
+      `正在移动 ${papers.length} 项...`,
+    );
+  });
+  row.appendChild(button);
+  container.appendChild(row);
 }
 
 function positionMenu(menu, anchor, width) {
