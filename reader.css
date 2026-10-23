@@ -1,0 +1,342 @@
+/* Paper reading layout; colors, type and shared controls come from note.css. */
+body.paper-reader-page {
+  --reader-pdf-surround: #f0f1ee;
+  --reader-selection: rgb(71 118 168 / 24%);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.paper-reader-page .app-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--note-rail-width) minmax(0, 1fr) 8px minmax(300px, var(--summary-pane-width)) var(--note-side-width);
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--note-canvas);
+  transition: none;
+}
+.paper-reader-page .app-shell.reader-pinned {
+  grid-template-columns: 272px minmax(0, 1fr) 8px minmax(300px, var(--summary-pane-width)) var(--note-side-width);
+}
+.paper-reader-page .app-shell.summary-pane-collapsed {
+  grid-template-columns: var(--note-rail-width) minmax(0, 1fr) 0 0 var(--note-side-width);
+}
+.paper-reader-page .app-shell.reader-pinned.summary-pane-collapsed {
+  grid-template-columns: 272px minmax(0, 1fr) 0 0 var(--note-side-width);
+}
+.paper-reader-page :is(.reader-pane, .summary-pane) { min-height: 0; min-width: 0; padding: 0; background: var(--note-canvas); }
+.paper-reader-page .reader-pane { grid-column: 2; grid-row: 1; overflow: hidden; border: 0; }
+.paper-reader-page .paper-frame {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--note-canvas);
+  box-shadow: none;
+}
+
+/* PDF controls stay anchored while the paper scrolls on its own surface. */
+.paper-reader-page .pdf-toolbar {
+  min-height: var(--note-header-height);
+  padding: 9px var(--note-space-4);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--note-space-2);
+  border-bottom: 1px solid var(--note-line);
+  background: var(--note-canvas);
+}
+.paper-reader-page :is(.pdf-toolbar-left, .pdf-toolbar-right) { flex: 1 1 196px; min-width: 196px; gap: 2px; }
+.paper-reader-page .pdf-toolbar-right { margin-left: 0; justify-content: flex-end; }
+.paper-reader-page .pdf-outline-toggle-button { position: static; margin-right: 8px; transform: none; }
+.paper-reader-page :is(.pdf-toolbar-button, .metadata-action-button, .citation-search-button) {
+  display: inline-grid;
+  place-items: center;
+  width: var(--note-button-size);
+  min-width: var(--note-button-size);
+  height: var(--note-button-size);
+  min-height: var(--note-button-size);
+  margin: 0;
+  padding: 7px;
+  border: 0;
+  border-radius: var(--note-radius);
+  background: transparent;
+  color: var(--note-secondary);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.paper-reader-page :is(.pdf-toolbar-button, .metadata-action-button, .citation-search-button):hover:not(:disabled) { background: var(--note-hover); color: var(--note-ink); }
+.paper-reader-page .pdf-toolbar-button:is(.active, [aria-expanded="true"]) { background: var(--note-active); color: var(--note-ink); }
+.paper-reader-page .pdf-toolbar-button:disabled { opacity: .35; }
+.paper-reader-page :is(.pdf-toolbar-button, .metadata-action-button, .citation-search-button) svg { width: 17px; height: 17px; stroke-width: 1.7; }
+.paper-reader-page .pdf-zoom-label {
+  width: 52px;
+  min-width: 52px;
+  height: var(--note-button-size);
+  min-height: var(--note-button-size);
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--note-radius);
+  background: transparent;
+  color: var(--note-secondary);
+  font: 12px/1 var(--note-font);
+  font-variant-numeric: tabular-nums;
+}
+.paper-reader-page .pdf-zoom-label:hover { background: var(--note-hover); color: var(--note-ink); }
+.paper-reader-page .page-indicator {
+  position: static;
+  display: flex;
+  flex: 0 0 auto;
+  height: var(--note-button-size);
+  min-height: var(--note-button-size);
+  margin: 0 auto;
+  padding: 0 4px;
+  gap: 5px;
+  border: 0;
+  border-radius: var(--note-radius);
+  background: transparent;
+  color: var(--note-secondary);
+  font: 12px/1 var(--note-font);
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+  backdrop-filter: none;
+  transform: none;
+}
+.paper-reader-page .page-number-input { width: 30px; height: 26px; min-height: 26px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--note-ink); font: inherit; text-align: center; }
+.paper-reader-page .page-number-input:hover { background: var(--note-hover); }
+.paper-reader-page .page-indicator-separator { color: var(--note-tertiary); }
+.paper-reader-page .pdf-search-group { position: static; }
+.paper-reader-page .pdf-search-controls {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 16px;
+  left: auto;
+  width: min(340px, calc(100vw - 112px));
+  min-height: 44px;
+  padding: 6px;
+  gap: 2px;
+  border: 1px solid var(--note-line);
+  border-radius: var(--note-menu-radius);
+  background: var(--note-canvas);
+  box-shadow: var(--note-menu-shadow);
+  transform: none;
+}
+.paper-reader-page .pdf-search-input { flex: 1 1 auto; width: 0; min-width: 50px; height: 30px; min-height: 30px; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--note-ink); font: 13px/1.5 var(--note-font); }
+.paper-reader-page .pdf-search-count { flex: 0 0 auto; min-width: 30px; font: 11px/1.5 var(--note-font); color: var(--note-secondary); }
+.paper-reader-page .pdf-reader-body { position: relative; min-height: 0; background: var(--reader-pdf-surround); }
+.paper-reader-page .pdf-viewer { padding: 18px; background: var(--reader-pdf-surround); }
+/* PDF glyphs are painted on the canvas below the transparent text layer.
+   An opaque workspace selection would conceal them instead of highlighting. */
+.paper-reader-page .pdf-text-layer::selection,
+.paper-reader-page .pdf-text-layer ::selection {
+  background: var(--reader-selection);
+  color: transparent;
+}
+.paper-reader-page .pdf-page {
+  border: 0;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(36 39 43 / 5%), 0 2px 5px rgb(36 39 43 / 4%);
+}
+.paper-reader-page .pdf-outline-panel { padding: 16px 10px; border-color: var(--note-line); background: var(--note-canvas); }
+.paper-reader-page .pdf-outline-header { padding: 0 8px 12px; border: 0; }
+.paper-reader-page .pdf-outline-header h2 { color: var(--note-secondary); font-size: 12px; font-weight: 500; }
+.paper-reader-page .pdf-outline-link { padding: 7px 8px; color: #5e6369; font: 12px/1.6 var(--note-font); }
+.paper-reader-page .pdf-outline-link:hover { background: var(--note-hover); color: var(--note-ink); }
+.paper-reader-page .pdf-outline-resizer:hover::before { background: var(--note-focus); }
+.paper-reader-page .pdf-zoom-menu { border-color: var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); box-shadow: var(--note-menu-shadow); }
+.paper-reader-page .pdf-zoom-menu-item { color: var(--note-secondary); font-weight: 400; }
+.paper-reader-page .pdf-zoom-menu-item:hover { background: var(--note-hover); }
+.paper-reader-page .pdf-zoom-menu-item.active { background: var(--note-active); color: var(--note-ink); }
+.paper-reader-page .pane-resizer { grid-row: 1; border: 0; background: var(--note-canvas); }
+.paper-reader-page .pane-resizer::before { width: 1px; height: 100%; border-radius: 0; background: var(--note-line); }
+.paper-reader-page .pane-resizer:is(:hover, :focus-visible)::before,
+.paper-reader-page.resizing-panes .pane-resizer::before { background: var(--note-focus); }
+
+/* The sidebar reads as a continuous document instead of nested cards. */
+.paper-reader-page .summary-pane {
+  grid-column: 4;
+  grid-row: 1;
+  height: 100%;
+  max-height: 100%;
+  gap: 0;
+  border: 0;
+  overflow: hidden;
+}
+.paper-reader-page .summary-titlebar {
+  height: var(--note-header-height);
+  min-height: var(--note-header-height);
+  padding: 0 var(--note-space-6);
+  gap: 9px;
+  border-bottom: 1px solid var(--note-line);
+}
+.paper-reader-page .summary-titlebar-icon { color: var(--note-tertiary); stroke-width: 1.7; }
+.paper-reader-page .summary-titlebar .paper-title { min-width: 0; margin: 0; overflow: hidden; color: #5e6369; font-size: var(--note-ui-size); font-weight: 500; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.paper-reader-page .summary-content-shell { min-width: 0; overflow: hidden; }
+.paper-reader-page #withAiPanel { min-height: 0; overflow: hidden; }
+.paper-reader-page .summary-scroll { padding: 20px var(--note-space-6) var(--note-space-8); gap: 28px; overflow-y: auto; }
+.paper-reader-page :is(.summary-card, .discussion-card) { min-width: 0; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.paper-reader-page .ai-summary-panel > .summary-card { padding: 0; border: 0; }
+.paper-reader-page :is(.summary-card-header, .summary-group-header) { min-height: 32px; margin: 0 0 10px; padding: 0; }
+.paper-reader-page :is(.ai-summary-panel .summary-card-header .summary-card-toggle, .discussion-card .summary-card-toggle) {
+  min-height: 32px;
+  padding: 0;
+  gap: 6px;
+  color: var(--note-ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.paper-reader-page .collapse-icon { width: 12px; height: 14px; flex-basis: 12px; color: var(--note-tertiary); }
+.paper-reader-page .collapse-icon::before { inset: 3px 3px 5px 2px; border-width: 1.5px; }
+.paper-reader-page :is(.summary-card-header, .summary-group-header) > .icon-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--note-radius);
+  color: var(--note-tertiary);
+  background: transparent;
+}
+.paper-reader-page :is(.summary-card-header, .summary-group-header) > .icon-button:hover { color: var(--note-ink); background: var(--note-hover); }
+.paper-reader-page :is(.copy-section-button, .refresh-section-button, .message-action-button) svg { width: 16px; height: 16px; stroke-width: 1.7; }
+.paper-reader-page .keywords { gap: 6px; }
+.paper-reader-page .keyword-chip { min-height: 25px; padding: 3px 8px; border: 0; border-radius: 4px; background: var(--note-hover); color: #686e73; font-size: 12px; font-weight: 400; line-height: 1.5; }
+.paper-reader-page .keyword-chip:focus-visible { outline: 1px solid var(--note-focus); outline-offset: 2px; }
+.paper-reader-page .keyword-tooltip { border-color: var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); color: var(--note-ink); box-shadow: var(--note-menu-shadow); }
+.paper-reader-page .keyword-tooltip-title { color: var(--note-ink); font-size: 13px; font-weight: 600; }
+.paper-reader-page .keyword-tooltip-body { color: var(--note-secondary); font-weight: 400; line-height: 1.7; }
+.paper-reader-page .three-lines { gap: 12px; }
+.paper-reader-page .three-lines dt { margin: 0; color: var(--note-secondary); font-size: 12px; font-weight: 500; text-transform: none; }
+.paper-reader-page .three-lines dd { margin: -7px 0 2px; color: var(--note-ink); font-size: 14px; line-height: 1.8; }
+.paper-reader-page :is(.method-boundary, .method-section) { padding: 0; margin: 0 0 24px; border: 0; background: transparent; }
+.paper-reader-page .method-sections > :last-child { margin-bottom: 0; }
+.paper-reader-page .method-section-header { align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.paper-reader-page .method-index { min-width: 16px; color: var(--note-tertiary); font: 11px/1.5 var(--note-font); font-variant-numeric: tabular-nums; }
+.paper-reader-page :is(.method-boundary h4, .method-section h4) { margin: 0 0 8px; color: var(--note-ink); font-size: 14px; font-weight: 600; line-height: 1.6; }
+.paper-reader-page .method-section-header h4 { margin: 0; }
+.paper-reader-page :is(.method-boundary p, .method-summary, .method-motivation, .method-content, .method-content p, .method-bullets li) { color: #42474c; font-size: 14px; font-weight: 400; line-height: 1.8; }
+.paper-reader-page .method-motivation { margin: 0 0 10px; color: var(--note-secondary); font-size: 13px; }
+.paper-reader-page :is(.method-content p, .method-summary) { margin: 0 0 .8em; }
+.paper-reader-page :is(.method-content, .discussion-message-body) strong { font-weight: 600; }
+.paper-reader-page :is(.method-content, .discussion-message-body) a { color: var(--note-link); text-underline-offset: 3px; }
+.paper-reader-page :is(.formula-box, .method-formula) { border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); box-shadow: none; }
+
+/* Metadata, citations, notes, annotations and discussion use the same scale. */
+.paper-reader-page :is(#basicInfoPanel, #commentsPanel) { padding: 24px; gap: 28px; }
+.paper-reader-page :is(.basic-info-card, .citation-card, .comments-nav-card) .summary-group-header h2,
+.paper-reader-page .notes-header h2 { margin: 0; color: var(--note-ink); font-size: 14px; font-weight: 600; }
+.paper-reader-page .basic-info-list { gap: 18px; }
+.paper-reader-page .basic-info-pair { gap: 16px; }
+.paper-reader-page .basic-info-list dt { margin-bottom: 6px; color: var(--note-secondary); font-size: 12px; font-weight: 400; }
+.paper-reader-page .basic-info-list dd { margin: 0; padding: 2px 0; color: var(--note-ink); font-size: 14px; font-weight: 400; line-height: 1.75; overflow-wrap: anywhere; }
+.paper-reader-page .basic-info-list dd[contenteditable="true"] { border-radius: 4px; }
+.paper-reader-page .basic-info-list dd[contenteditable="true"]:is(:hover, :focus) { background: var(--note-hover); }
+.paper-reader-page .basic-info-list dd[contenteditable="true"]:focus { outline: 1px solid var(--note-focus); }
+.paper-reader-page .basic-info-list .basic-info-readonly { color: var(--note-secondary); font-size: 12px; }
+.paper-reader-page :is(.status, .error, .comments-nav-empty, .discussion-empty) { font-size: 12px; font-weight: 400; line-height: 1.7; }
+.paper-reader-page .status { color: var(--note-secondary); }
+.paper-reader-page .status:empty { display: none; }
+.paper-reader-page .error { color: #a75043; }
+.paper-reader-page .citation-search-button span { display: none; }
+.paper-reader-page .citation-card .summary-group-header { margin-bottom: 10px; }
+.paper-reader-page :is(.citation-overlay-card, .cloud-config-card, .translation-window, .annotation-editor) { border-color: var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
+.paper-reader-page :is(.citation-overlay-header h2, .translation-title) { font-size: 15px; font-weight: 600; }
+.paper-reader-page .citation-output { border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font: 13px/1.8 var(--note-mono); }
+.paper-reader-page .citation-candidate { padding: 12px 0; border: 0; border-bottom: 1px solid var(--note-line); border-radius: 0; background: transparent; }
+.paper-reader-page .citation-candidate:is(:hover, .selected) { background: var(--note-hover); }
+.paper-reader-page .citation-candidate-title { color: var(--note-ink); font-size: 13px; font-weight: 500; line-height: 1.6; }
+.paper-reader-page :is(.citation-candidate-meta, .citation-candidate-doi) { line-height: 1.7; }
+.paper-reader-page .citation-current-badge { border: 0; border-radius: 4px; background: var(--note-hover); color: var(--note-secondary); font-size: 10px; font-weight: 400; }
+.paper-reader-page :is(.citation-overlay, .cloud-config-overlay) { background: rgb(36 39 43 / 14%); }
+.paper-reader-page .cloud-config-header h2 { font-size: 18px; font-weight: 600; }
+.paper-reader-page .settings-nav-item { border-radius: var(--note-radius); font-size: 13px; font-weight: 500; }
+.paper-reader-page .settings-nav-item.is-active { background: var(--note-active); }
+.paper-reader-page .cloud-config-card label { color: var(--note-secondary); font-size: 12px; font-weight: 500; }
+.paper-reader-page .cloud-config-card :is(input:not([type="checkbox"]), select) { min-height: 34px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font-size: 13px; }
+.paper-reader-page .cloud-config-card :is(input, select):focus { outline: 1px solid var(--note-focus); outline-offset: 1px; border-color: var(--note-focus); }
+.paper-reader-page #notesPanel { padding: 18px 0 0; gap: 0; overflow: hidden; }
+.paper-reader-page .notes-header { width: auto; min-height: 32px; margin: 0 24px 6px; padding: 0; border: 0; }
+.paper-reader-page .notes-workspace { min-height: 0; padding: 0; }
+.paper-reader-page .notes-editor-host.vditor { --note-gutter: 24px; border: 0; border-radius: 0; }
+.paper-reader-page .notes-editor-host .vditor-toolbar { min-height: 48px; padding: 8px 17px !important; gap: 0; }
+.paper-reader-page .notes-editor-host .notes-toolbar-group-start { margin-left: 0; }
+.paper-reader-page .notes-editor-host :is(.vditor-ir > pre.vditor-reset, .vditor-wysiwyg, .vditor-preview .vditor-reset) { padding-top: 24px !important; }
+.paper-reader-page .notes-editor-host.vditor--fullscreen { --note-gutter: max(32px, calc((100% - var(--note-document-width)) / 2)); }
+.paper-reader-page .notes-editor-host.vditor--fullscreen .vditor-toolbar { padding-inline: var(--note-gutter) !important; }
+.paper-reader-page :is(.discussion-thread-header, .discussion-thread-item) { border-color: var(--note-line); background: transparent; }
+.paper-reader-page .discussion-thread-title { font-size: 13px; font-weight: 500; }
+.paper-reader-page .discussion-thread-item { padding: 10px 0; border-radius: var(--note-radius); }
+.paper-reader-page .discussion-thread-item-title { font-size: 13px; font-weight: 500; }
+.paper-reader-page .discussion-thread-item:hover { background: var(--note-hover); }
+.paper-reader-page .discussion-form { margin: 0; padding: 12px 16px 16px; border: 0; border-top: 1px solid var(--note-line); border-radius: 0; background: var(--note-canvas); box-shadow: none; }
+.paper-reader-page .discussion-form textarea { border-radius: var(--note-radius); color: var(--note-ink); font-size: 13px; line-height: 1.7; }
+.paper-reader-page .discussion-form textarea:focus { outline: 1px solid var(--note-focus); }
+.paper-reader-page .discussion-message-body { border-radius: var(--note-radius); color: var(--note-ink); font-size: 14px; line-height: 1.8; }
+.paper-reader-page .discussion-message.user .discussion-message-body { background: var(--note-hover); }
+.paper-reader-page .with-ai-scroll-bottom-button { width: 30px; min-width: 30px; height: 30px; min-height: 30px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-canvas); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
+.paper-reader-page .with-ai-scroll-bottom-button:hover { background: var(--note-hover); box-shadow: var(--note-menu-shadow); }
+.paper-reader-page .comments-nav-list { gap: 12px; }
+.paper-reader-page .comments-nav-item { padding: 12px; border: 1px solid var(--note-line); border-radius: var(--note-radius); background: transparent; box-shadow: none; }
+.paper-reader-page .comments-nav-item:hover { background: var(--note-hover); }
+.paper-reader-page .comments-nav-item.current { border-color: #cbd0cc; background: var(--note-hover); }
+.paper-reader-page .comments-nav-page { color: var(--note-secondary); font-size: 11px; font-weight: 500; }
+.paper-reader-page .comments-nav-source { color: var(--note-secondary); font-size: 13px; line-height: 1.7; }
+.paper-reader-page .comments-nav-body { font-size: 13px; line-height: 1.7; }
+.paper-reader-page .selection-menu { padding: 4px; border: 1px solid var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
+.paper-reader-page .selection-menu button { min-height: 30px; padding: 5px 8px; border-radius: var(--note-radius); color: var(--note-secondary); font-size: 12px; font-weight: 400; }
+.paper-reader-page .selection-menu button:hover { background: var(--note-hover); color: var(--note-ink); }
+.paper-reader-page .selection-menu button svg { width: 16px; height: 16px; stroke-width: 1.7; }
+.paper-reader-page :is(.translation-window-header, .annotation-footer) { border-color: var(--note-line); background: var(--note-canvas); color: var(--note-secondary); font-size: 12px; font-weight: 500; }
+.paper-reader-page .annotation-bubble-list { background: var(--note-canvas); }
+.paper-reader-page .annotation-bubble { border-color: var(--note-line); border-radius: var(--note-radius); box-shadow: none; }
+.paper-reader-page :is(.annotation-bubble-label, .annotation-detail-title) { color: var(--note-secondary); font-size: 12px; font-weight: 500; }
+.paper-reader-page :is(.annotation-bubble-preview, .annotation-detail-preview, .annotation-detail-input) { color: var(--note-ink); font-size: 14px; line-height: 1.8; }
+.paper-reader-page .annotation-detail-input { border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); font-family: var(--note-font); }
+.paper-reader-page .reader-side-rail { grid-column: 5; }
+
+@media (max-width: 1100px) {
+  .paper-reader-page .app-shell.reader-pinned {
+    grid-template-columns: var(--note-rail-width) minmax(0, 1fr) 8px minmax(300px, var(--summary-pane-width)) var(--note-side-width);
+  }
+  .paper-reader-page .app-shell.reader-pinned.summary-pane-collapsed {
+    grid-template-columns: var(--note-rail-width) minmax(0, 1fr) 0 0 var(--note-side-width);
+  }
+  .paper-reader-page .reader-left-rail.reader-pinned { position: absolute; z-index: 40; height: 100%; box-shadow: var(--note-menu-shadow); }
+}
+@media (max-width: 900px) {
+  .paper-reader-page .app-shell,
+  .paper-reader-page .app-shell:is(.library-open, .reader-pinned, .summary-pane-collapsed, .reader-pinned.summary-pane-collapsed) {
+    grid-template-columns: var(--note-rail-width) minmax(0, 1fr) var(--note-side-width);
+  }
+  .paper-reader-page .pane-resizer { display: none; }
+  .paper-reader-page .reader-side-rail { grid-column: 3; }
+  .paper-reader-page .summary-pane {
+    position: absolute;
+    grid-column: 1 / -1;
+    z-index: 20;
+    inset: 0 var(--note-side-width) 0 auto;
+    width: min(var(--summary-pane-width), calc(100% - var(--note-rail-width) - var(--note-side-width)));
+    height: 100%;
+    border-left: 1px solid var(--note-line);
+    box-shadow: var(--note-menu-shadow);
+  }
+  .paper-reader-page .summary-scroll { overflow-y: auto; }
+  .paper-reader-page .discussion-form { position: relative; }
+  .paper-reader-page .with-ai-scroll-bottom-button { position: absolute; }
+}
+@media (max-width: 700px) {
+  .paper-reader-page .pdf-toolbar { flex-wrap: wrap; min-height: 52px; padding: 8px 12px; gap: 4px; }
+  .paper-reader-page .pdf-toolbar-left { order: 0; flex: 1 1 auto; }
+  .paper-reader-page .page-indicator { order: 1; margin: 0; }
+  .paper-reader-page .pdf-toolbar-right { order: 2; flex: 1 0 100%; justify-content: flex-end; }
+  .paper-reader-page .summary-scroll { padding-inline: 20px; }
+  .paper-reader-page :is(#basicInfoPanel, #commentsPanel) { padding: 20px; }
+  .paper-reader-page .summary-titlebar { padding-inline: 20px; }
+  .paper-reader-page .pdf-outline-panel { position: absolute; z-index: 10; inset: 0 auto 0 0; height: auto; max-width: calc(100% - 24px); box-shadow: var(--note-menu-shadow); }
+}

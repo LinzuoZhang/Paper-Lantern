@@ -37,8 +37,8 @@ const NOTES_MORE_ICONS = {
   table: "table",
 };
 
-// Presentation-only symbols for the standalone note page. Vditor keeps its
-// original buttons, handlers, shortcuts and mode switching.
+// Presentation-only symbols shared by the reading and writing workspaces.
+// Vditor keeps its original buttons, handlers, shortcuts and mode switching.
 const NOTES_LINE_ICONS = {
   outline: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M13 8h4M13 12h4M13 16h3"/>',
   headings: '<path d="M3 5h12M9 5v14M5 19h8m4-8 3 3 3-3"/>',
@@ -102,16 +102,16 @@ export function initNotesPanel({
   const notesExportMenu = document.querySelector("#notesExportMenu");
   const exportNotesMarkdownButton = document.querySelector("#exportNotesMarkdownButton");
   const exportNotesPdfButton = document.querySelector("#exportNotesPdfButton");
-  const isStandaloneNote = Boolean(editorHost?.closest(".standalone-note-page"));
+  const hasModernNoteChrome = Boolean(editorHost?.closest(".workspace-page"));
 
   function iconReference(icon) {
-    return isStandaloneNote && Object.hasOwn(NOTES_LINE_ICONS, icon)
+    return hasModernNoteChrome && Object.hasOwn(NOTES_LINE_ICONS, icon)
       ? `#notes-line-${icon}`
       : `#vditor-icon-${icon}`;
   }
 
-  function styleStandaloneEditorChrome() {
-    if (!isStandaloneNote) return;
+  function styleEditorChrome() {
+    if (!hasModernNoteChrome) return;
     const definitions = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     definitions.classList.add("notes-icon-definitions");
     definitions.setAttribute("aria-hidden", "true");
@@ -250,7 +250,7 @@ export function initNotesPanel({
   }
 
   function arrangeEditorChrome() {
-    styleStandaloneEditorChrome();
+    styleEditorChrome();
     const editModeButton = editorHost?.querySelector('.vditor-toolbar button[data-type="edit-mode"]');
     const fullscreenButton = editorHost?.querySelector('.vditor-toolbar button[data-type="fullscreen"]');
     fullscreenButton?.parentElement?.classList.add("notes-toolbar-right-start");
