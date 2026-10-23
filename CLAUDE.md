@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Paper Lantern (formerly "openmoonlight") is a local-first paper reader and literature manager. It imports PDFs, renders them in-browser, and uses an OpenAI-compatible Chat Completions API to generate structured Chinese summaries, method breakdowns, and answer discussion questions. All UI strings are Chinese (`<html lang="zh-CN">`).
 
-There is **no build step, no bundler, no linter, and no test suite**. The backend is Python standard library only; the frontend is vanilla ES modules with vendored libraries and no CDN.
+There is **no frontend build step, no bundler, and no linter**. The backend uses the Python standard library; the frontend is vanilla ES modules with vendored libraries and no CDN. Existing Python and JavaScript tests live in `tests/`.
 
 ## Commands
 
@@ -14,11 +14,14 @@ There is **no build step, no bundler, no linter, and no test suite**. The backen
 # Run the app (defaults to http://127.0.0.1:8000/)
 python server.py
 
+# Run all existing Python and JavaScript tests (Node.js must be on PATH)
+python scripts/check.py
+
 # Optional: only needed for PDF/Notes export endpoints
-pip install pymupdf markdown-it-py
+pip install pymupdf markdown-it-py matplotlib
 ```
 
-There is no lint/test/build command. To see a change: restart `python server.py` for `server.py` edits; for frontend edits just refresh the browser (static files are read per-request). Use `PORT` to change the port and `PAPER_LIBRARY_DIR` to relocate the data directory.
+To see a change: restart `python server.py` for Python edits; for frontend edits just refresh the browser (static files are read per-request). Use `PORT` to change the port and `PAPER_LIBRARY_DIR` to relocate the data directory. See `doc/development.md` for module responsibilities and stylesheet order.
 
 ## Architecture
 
@@ -26,11 +29,12 @@ A single Python HTTP server (`server.py`) serves both the static frontend and a 
 
 ### Backend (Python, stdlib only)
 
-- **`server.py`** — everything. `PaperReaderHandler(SimpleHTTPRequestHandler)` inside a `ThreadingHTTPServer`. `do_GET` serves static files and read endpoints; `do_POST` handles mutations and AI calls. `/api/*` routes are dispatched with a chain of `if request_path == ...` checks (no router framework).
+- **`server.py`** — application entry point, HTTP routes, library persistence and AI orchestration. `PaperReaderHandler(SimpleHTTPRequestHandler)` inside a `ThreadingHTTPServer`. `do_GET` serves static files and read endpoints; `do_POST` handles mutations and AI calls. `/api/*` routes are dispatched with a chain of `if request_path == ...` checks (no router framework).
   - AI calls go through `urllib.request` against an OpenAI-compatible endpoint (`build_chat_completions_url`), including SSE streaming for `/api/discuss`.
   - Library persistence is plain JSON: `read_json`/`write_json` helpers, `library_db.json` as the category+paper index ("manifest"), and per-paper folders under `papers/<paper-id>/`.
-- **`config_store.py`** — config + secret encryption. On Windows, secrets are encrypted with DPAPI via `ctypes` (`CryptProtectData`); elsewhere base64. `public_config()` never returns raw secrets, only `hasApiKey`/`apiKeyTail` (last 4 chars). Config lives in `.env/paperlantern_config.json`.
-- **`cloud_sync.py`** — bidirectional sync to a local folder or WebDAV (Jianguoyun/Nextcloud) using stdlib `urllib`. Hash-based three-way merge: SHA-256 file index + `updatedAt`, with content-hash merging for `highlights.json`/`discussion.json` and legacy-index migration.
+- **`backend/config_store.py`** — config + secret encryption. On Windows, secrets are encrypted with DPAPI via `ctypes` (`CryptProtectData`); elsewhere base64. `public_config()` never returns raw secrets, only `hasApiKey`/`apiKeyTail` (last 4 chars). Config lives in `.env/paperlantern_config.json`.
+- **`backend/cloud_sync.py`** — bidirectional sync to a local folder or WebDAV (Jianguoyun/Nextcloud) using stdlib `urllib`. Hash-based three-way merge: SHA-256 file index + `updatedAt`, with content-hash merging for `highlights.json`/`discussion.json` and legacy-index migration.
+- **`backend/category_model.py`**, **`backend/crossref.py`**, **`backend/link_preview.py`** and **`backend/llm_diagnostics.py`** — category semantics/locking, citation metadata, link previews and request timing. Import these through the `backend` package.
 
 ### Data layout
 
@@ -62,8 +66,11 @@ Prompt templates live in `prompts/ai/*.txt` and are rendered with `render_prompt
 
 ### Frontend (vanilla ES modules, no framework)
 
-- **`index.html` + `app.js`** — library home: category tree, paper list, upload (local file / PDF URL / arXiv), settings modal, cloud-sync controls.
-- **`reader.html` + `reader.js`** — the PDF reader (very large, ~143KB). Renders PDF with vendored `vendor/pdfjs/`, extracts text in-browser, and drives the highlight/comment/translate/explain selection menu, discussion threads (streaming), and a notes editor with markdown preview and PDF export. Formulas render via vendored KaTeX + `markdown-it-texmath`; `reader.js` also has a custom inline-math tokenizer for the summary/method sections.
+- **`index.html` + `assets/js/pages/app.js`** — library home: category tree, paper list, upload (local file / PDF URL / arXiv), settings modal, cloud-sync controls.
+- **`reader.html` + `assets/js/pages/reader.js`** — the PDF reader. Renders PDF with vendored `vendor/pdfjs/`, extracts text in-browser, and drives the highlight/comment/translate/explain selection menu, discussion threads (streaming), and a notes editor with markdown preview and PDF export. Formulas render via vendored KaTeX + `markdown-it-texmath`; the reader module also has a custom inline-math tokenizer for the summary/method sections.
+- **`note.html` + `assets/js/pages/note.js`** — standalone note editor and discussion.
+- **`assets/js/components/`** and **`assets/js/lib/`** — shared UI components and utilities. Relative ES module imports resolve from the module location; page navigation still resolves from root HTML documents.
+- **`assets/css/`** — load `styles.css`, then `workspace.css` (design tokens/shared states), then `note.css` (shared editor styles), followed by `library.css` or `reader.css` for those pages. Preserve this order when editing HTML.
 - **`vendor/`** — pdfjs, katex, markdown-it, markdown-it-texmath (all local; no CDN).
 
 ### Frontend ↔ backend contract

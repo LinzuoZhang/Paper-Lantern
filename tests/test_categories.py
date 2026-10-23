@@ -12,9 +12,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-import cloud_sync
+from backend import cloud_sync
 import server
-from category_model import category_ids, set_record_categories
+from backend.category_model import category_ids, set_record_categories
 
 
 class LibraryFixture(unittest.TestCase):

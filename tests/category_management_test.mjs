@@ -6,8 +6,8 @@ async function loadModule(path) {
   const source = await readFile(new URL(path, import.meta.url), 'utf8');
   return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }
-const { collectUniquePapers, getCategoryIds, categorySearchText } = await loadModule('../category_manager.js');
-const { getRecentPapers } = await loadModule('../recent_papers.js');
+const { collectUniquePapers, getCategoryIds, categorySearchText } = await loadModule('../assets/js/components/category_manager.js');
+const { getRecentPapers } = await loadModule('../assets/js/lib/recent_papers.js');
 const paper = { id: 'shared', title: 'Shared', categoryIds: ['Research', 'Research/Navigation', 'References'], categoryNames: ['Research', 'Navigation', 'References'], viewedAt: '2026-10-21T01:00:00Z', todo: true };
 const other = { id: 'other', title: 'Other' };
 const branch = { papers: [paper], folders: [{ papers: [paper], folders: [] }] };
@@ -36,7 +36,7 @@ await api.importLocalPdf('file:///fixture.pdf', { categoryIds: ['Research', 'Ref
 assert.deepEqual(uploadedIds, ['Research', 'References']);
 
 // Exercise the reader's asynchronous import contract, including failed jobs.
-const sidebar = await readFile(new URL('../library_sidebar.js', import.meta.url), 'utf8');
+const sidebar = await readFile(new URL('../assets/js/components/library_sidebar.js', import.meta.url), 'utf8');
 const importer = sidebar.slice(sidebar.indexOf('  async function uploadRemotePaper('), sidebar.indexOf('  function uploadCategory()'));
 async function runReaderImport(responses) {
   const opened = [], requests = [], messages = [];

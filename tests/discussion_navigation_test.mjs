@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 // Execute reader callbacks and navigation with spies, without loading a PDF or AI service.
-const source = await readFile(new URL('../reader.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../assets/js/pages/reader.js', import.meta.url), 'utf8');
 const callbacks = source.slice(source.indexOf('  onActivate: () => {'), source.indexOf('  contextType: "paper",'));
 const navigation = source.slice(source.indexOf('function openActiveDiscussionReference() {'), source.indexOf('function retryApplyReferenceHighlight('));
 let reference = null;

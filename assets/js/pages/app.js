@@ -1,5 +1,5 @@
-import { initSettingsModal } from "./settings_modal.js";
-import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "./category_manager.js";
+import { initSettingsModal } from "../components/settings_modal.js";
+import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "../components/category_manager.js";
 import {
   RECENT_PAPERS_KEY,
   getPaperViewedAt,
@@ -7,7 +7,7 @@ import {
   getRecentPapers,
   migrateLegacyRecentPapers,
   recordPaperViewed,
-} from "./recent_papers.js";
+} from "../lib/recent_papers.js";
 
 const libraryView = document.querySelector("#libraryView");
 const libraryRoot = document.querySelector("#libraryRoot");

@@ -1,4 +1,4 @@
-/* Paper reading layout; colors, type and shared controls come from note.css. */
+/* Paper reading layout; load after workspace.css and shared editor controls in note.css. */
 body.paper-reader-page {
   --reader-pdf-surround: #f0f1ee;
   --reader-selection: rgb(71 118 168 / 24%);

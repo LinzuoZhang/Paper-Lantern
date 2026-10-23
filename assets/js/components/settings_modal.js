@@ -1,4 +1,4 @@
-// 共享设置弹窗：文献库主页（index.html/app.js）与阅读器（reader.html/reader.js）共用。
+// 共享设置弹窗，由文献库和阅读器的页面入口初始化。
 // 单一来源：本模块在运行时把设置弹窗 HTML 注入 document.body，并自持全部设置逻辑。
 // 宿主只需调用 initSettingsModal(options) 并传入少量回调。
 

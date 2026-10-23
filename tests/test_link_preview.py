@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from link_preview import PreviewParser, fetch_link_preview
+from backend.link_preview import PreviewParser, fetch_link_preview
 
 
 class LinkPreviewTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class LinkPreviewTests(unittest.TestCase):
         self.assertEqual(parser.result('https://example.com')['image'], '')
 
     def test_pdf_does_not_download_document(self):
-        with patch('link_preview.urllib.request.urlopen') as fetch:
+        with patch('backend.link_preview.urllib.request.urlopen') as fetch:
             result = fetch_link_preview('https://example.com/paper.pdf?download=1')
         fetch.assert_not_called()
         self.assertEqual(result['title'], 'paper.pdf')

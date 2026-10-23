@@ -8,8 +8,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from config_store import get_secret, load_config, public_config, save_config
-from category_model import library_locked, merge_record_categories, normalize_manifest_categories, copy_category_fields
+from .config_store import get_secret, load_config, public_config, save_config
+from .category_model import library_locked, merge_record_categories, normalize_manifest_categories, copy_category_fields
 
 
 MANIFEST_NAME = "paperlantern-library.json"

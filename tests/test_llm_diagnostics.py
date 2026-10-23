@@ -1,12 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-from llm_diagnostics import RequestTiming
+from backend.llm_diagnostics import RequestTiming
 
 
 class RequestTimingTests(unittest.TestCase):
     def test_records_first_event_and_finishes_once(self):
-        with patch("llm_diagnostics.perf_counter", side_effect=[10, 11, 14]):
+        with patch("backend.llm_diagnostics.perf_counter", side_effect=[10, 11, 14]):
             timing = RequestTiming({"model": "test"}, "https://example.com/v1", True)
             timing.mark("first_content_s")
             timing.mark("first_content_s")

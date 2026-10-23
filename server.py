@@ -21,12 +21,12 @@ import urllib.error
 import urllib.request
 from urllib.parse import unquote, urlparse
 
-from config_store import get_secret, load_config, public_config, save_config
-from llm_diagnostics import RequestTiming
-from link_preview import fetch_link_preview
-from cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
-from crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
-from category_model import LIBRARY_LOCK, library_locked, category_ids, normalize_category_ids, normalize_record_categories, normalize_manifest_categories, set_record_categories, copy_category_fields
+from backend.config_store import get_secret, load_config, public_config, save_config
+from backend.llm_diagnostics import RequestTiming
+from backend.link_preview import fetch_link_preview
+from backend.cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
+from backend.crossref import build_citation_results, build_current_citation_results, candidate_to_basic_info
+from backend.category_model import LIBRARY_LOCK, library_locked, category_ids, normalize_category_ids, normalize_record_categories, normalize_manifest_categories, set_record_categories, copy_category_fields
 
 
 RESOURCE_DIR = Path(__file__).resolve().parent

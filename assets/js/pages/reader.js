@@ -1,11 +1,11 @@
-﻿import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
-import { initAnnotationPanel } from "./annotation_panel.js";
-import { initNotesPanel } from "./notes_panel.js";
-import { initSettingsModal } from "./settings_modal.js";
-import { initLibrarySidebar } from "./library_sidebar.js";
-import { initDiscussionPanel } from "./discussion_panel.js";
-import { recordPaperViewed } from "./recent_papers.js";
-import { getCategoryLabels } from "./category_manager.js";
+import * as pdfjsLib from "../../../vendor/pdfjs/pdf.min.mjs";
+import { initAnnotationPanel } from "../components/annotation_panel.js";
+import { initNotesPanel } from "../components/notes_panel.js";
+import { initSettingsModal } from "../components/settings_modal.js";
+import { initLibrarySidebar } from "../components/library_sidebar.js";
+import { initDiscussionPanel } from "../components/discussion_panel.js";
+import { recordPaperViewed } from "../lib/recent_papers.js";
+import { getCategoryLabels } from "../components/category_manager.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 

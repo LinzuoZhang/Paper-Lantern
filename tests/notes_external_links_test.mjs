@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const source = await readFile(new URL('../notes_panel.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../assets/js/components/notes_panel.js', import.meta.url), 'utf8');
 const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const classify = module.getExternalNoteLink;
 for (const url of [

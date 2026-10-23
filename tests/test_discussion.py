@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import cloud_sync
+from backend import cloud_sync
 import server
 
 

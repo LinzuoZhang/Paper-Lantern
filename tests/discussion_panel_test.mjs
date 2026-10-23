@@ -30,7 +30,7 @@ class Element {
 
 globalThis.document = { createElement: () => new Element() };
 globalThis.window = { requestAnimationFrame: callback => callback() };
-const source = await readFile(new URL('../discussion_panel.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../assets/js/components/discussion_panel.js', import.meta.url), 'utf8');
 const { initDiscussionPanel } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 for (const editedIndex of [0, 2]) {

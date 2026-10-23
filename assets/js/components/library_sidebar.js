@@ -1,6 +1,6 @@
 import { formatPaperCardLabel } from "./notes_panel.js";
 import { getCategoryIds, collectUniquePapers, categorySearchText, showCategoryManager } from "./category_manager.js";
-import { RECENT_PAPERS_KEY, getPaperViewedAt, getRecentPaperRecords, getRecentPapers } from "./recent_papers.js";
+import { RECENT_PAPERS_KEY, getPaperViewedAt, getRecentPaperRecords, getRecentPapers } from "../lib/recent_papers.js";
 
 const ALL_ID = "__library";
 const RECENT_ID = "__recent";

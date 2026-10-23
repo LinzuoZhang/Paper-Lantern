@@ -1,6 +1,6 @@
-import { initNotesPanel } from "./notes_panel.js";
-import { initLibrarySidebar } from "./library_sidebar.js";
-import { initDiscussionPanel } from "./discussion_panel.js";
+import { initNotesPanel } from "../components/notes_panel.js";
+import { initLibrarySidebar } from "../components/library_sidebar.js";
+import { initDiscussionPanel } from "../components/discussion_panel.js";
 
 const noteId = new URLSearchParams(window.location.search).get("id") || "";
 const noteShell = document.querySelector(".standalone-note-shell");
