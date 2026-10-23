@@ -119,6 +119,12 @@ body.standalone-note-page {
 .standalone-note-page .reader-left-rail .reader-logo-button { border-radius: var(--note-radius); }
 .standalone-note-page .reader-left-rail .reader-logo-button:hover { background: var(--note-hover); }
 .standalone-note-page .reader-category-item { font-weight: 500; }
+.standalone-note-page .reader-library-search input { border-radius: var(--note-radius); }
+.standalone-note-page .reader-library-search input:focus { border-color: var(--note-focus); outline: 1px solid var(--note-focus); outline-offset: 1px; }
+.standalone-note-page .reader-left-rail .reader-library-upload-button { border: 0; border-radius: var(--note-radius); color: var(--note-secondary); }
+.standalone-note-page .reader-left-rail .reader-library-upload-button:hover { background: var(--note-hover); }
+.standalone-note-page :is(.reader-location-current, .reader-paper-open) { font-weight: 500; }
+.standalone-note-page .reader-pin-button { color: var(--note-secondary); border-radius: var(--note-radius); }
 .standalone-note-page .reader-paper-item { border-bottom: 0; border-radius: var(--note-radius); }
 .standalone-note-page .reader-left-rail :is(.reader-paper-item.active, .reader-category-item.active) { background: var(--note-active); }
 .standalone-note-page .reader-paper-item::before { display: none; }
@@ -340,6 +346,7 @@ body.standalone-note-page {
 }
 .standalone-note-page .notes-editor-host .vditor-reset pre code { padding: 0; background: transparent; }
 .standalone-note-page .notes-editor-host .vditor-reset .hljs { background: transparent; }
+.standalone-note-page .notes-editor-host .vditor-linenumber__rows { top: 0; }
 .standalone-note-page .notes-editor-host .vditor-reset table { width: max-content; max-width: 100%; margin-block: 1.2em; font-size: .93em; }
 .standalone-note-page .notes-editor-host .vditor-reset :is(th, td) { padding: .65em 1em; border-color: var(--note-line); }
 .standalone-note-page .notes-editor-host .vditor-reset th { background: var(--note-hover); font-weight: 600; }
@@ -403,6 +410,22 @@ body.standalone-note-page {
   .standalone-note-page .notes-editor-host.vditor { --note-gutter: var(--note-space-8); }
   .standalone-note-page .notes-editor-host .vditor-toolbar { gap: 0; padding-inline: var(--note-space-6) !important; }
   .standalone-note-page .notes-editor-host .notes-toolbar-group-start { margin-left: var(--note-space-1); }
+  .standalone-note-page .standalone-note-shell.discussion-open {
+    grid-template-columns: var(--note-rail-width) minmax(0, 1fr) var(--note-side-width);
+  }
+  .standalone-note-page .standalone-note-shell.reader-pinned.discussion-open {
+    grid-template-columns: 272px minmax(0, 1fr) var(--note-side-width);
+  }
+  .standalone-note-page .standalone-note-shell.discussion-open .standalone-note-side-rail { grid-column: 3; }
+  .standalone-note-page .standalone-note-discussion-pane {
+    position: absolute;
+    z-index: 35;
+    inset: 0 var(--note-side-width) 0 auto;
+    width: min(var(--note-discussion-width), calc(100vw - var(--note-rail-width) - var(--note-side-width)));
+    border-left: 1px solid var(--note-line);
+    box-shadow: var(--note-menu-shadow);
+  }
+  .standalone-note-page .standalone-note-discussion-resizer { display: none; }
 }
 @media (max-width: 700px) {
   .standalone-note-page .standalone-note-header { padding-inline: var(--note-space-4); gap: var(--note-space-2); }
@@ -415,16 +438,6 @@ body.standalone-note-page {
     grid-template-columns: var(--note-rail-width) minmax(0, 1fr) var(--note-side-width);
   }
   .standalone-note-page .reader-left-rail.reader-pinned { position: absolute; z-index: 40; height: 100%; max-width: calc(100vw - var(--note-side-width)); box-shadow: var(--note-menu-shadow); }
-  .standalone-note-page .standalone-note-shell.discussion-open .standalone-note-side-rail { grid-column: 3; }
-  .standalone-note-page .standalone-note-discussion-pane {
-    position: absolute;
-    z-index: 35;
-    inset: 0 var(--note-side-width) 0 auto;
-    width: min(var(--note-discussion-width), calc(100vw - var(--note-rail-width) - var(--note-side-width)));
-    border-left: 1px solid var(--note-line);
-    box-shadow: var(--note-menu-shadow);
-  }
-  .standalone-note-page .standalone-note-discussion-resizer { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .standalone-note-page *, .standalone-note-page *::before, .standalone-note-page *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
