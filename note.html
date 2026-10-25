@@ -168,14 +168,20 @@
           </div>
         </div>
         <form id="discussionForm" class="discussion-form">
+          <div class="discussion-composer">
           <div id="discussionReferenceBox" class="discussion-reference-box" hidden><span id="discussionReferenceText" class="discussion-reference-text"></span></div>
-          <textarea id="discussionInput" rows="3" placeholder="围绕当前笔记提问…" aria-label="讨论问题"></textarea>
+          <div id="discussionPapers" class="discussion-papers" aria-label="已加入的论文" hidden></div>
+          <textarea id="discussionInput" rows="3" placeholder="继续提问，或加入论文一起讨论…" aria-label="讨论问题"></textarea>
+          <div class="discussion-compose-actions">
+          <button id="addDiscussionPaperButton" class="add-discussion-paper-button" type="button" aria-label="加入论文" title="加入论文"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"></path></svg></button>
+          <span id="discussionPaperStatus" class="discussion-paper-status" role="status"></span>
           <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="发送" title="发送">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M22 2 11 13"></path>
-              <path d="m22 2-7 20-4-9-9-4 20-7z"></path>
+              <path d="M12 19V5m-7 7 7-7 7 7"></path>
             </svg>
           </button>
+          </div>
+          </div>
         </form>
       </aside>
       <nav class="reader-side-rail standalone-note-side-rail" aria-label="笔记侧栏">

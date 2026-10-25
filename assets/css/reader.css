@@ -274,7 +274,7 @@ body.paper-reader-page {
 .paper-reader-page .discussion-thread-item { padding: 10px 0; border-radius: var(--note-radius); }
 .paper-reader-page .discussion-thread-item-title { font-size: 13px; font-weight: 500; }
 .paper-reader-page .discussion-thread-item:hover { background: var(--note-hover); }
-.paper-reader-page .discussion-form { margin: 0; padding: 12px 16px 16px; border: 0; border-top: 1px solid var(--note-line); border-radius: 0; background: var(--note-canvas); box-shadow: none; }
+.paper-reader-page .discussion-form { margin: 0; padding: 12px; border: 0; border-radius: 0; background: var(--note-canvas); box-shadow: none; }
 .paper-reader-page .discussion-form textarea { border-radius: var(--note-radius); color: var(--note-ink); font-size: 13px; line-height: 1.7; }
 .paper-reader-page .discussion-form textarea:focus { outline: 1px solid var(--note-focus); }
 .paper-reader-page .discussion-message-body { border-radius: var(--note-radius); color: var(--note-ink); font-size: 14px; line-height: 1.8; }

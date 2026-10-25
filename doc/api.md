@@ -135,6 +135,12 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 讨论逐段返回增量，最后发送 `[DONE]`：
 
+论文讨论可传入当前文献的 `paperId`，通过 `paperIds: ["文献ID", ...]` 指定对话中加入的论文，空数组表示不查阅其他论文。笔记讨论也支持 `paperIds`。兼容旧客户端：论文讨论传入 `paperId` 但省略 `paperIds` 时使用文献库中的其他论文。
+
+流中可能先返回 `{"status":"正在查阅…"}` 进度事件；这些事件不是回答内容。主模型接收指定论文的编号和摘要，可通过结构化决策发起最多 4 轮、每轮最多 4 个独立论文问答，完成后才返回 `delta`。流开始后的错误通过 `{"error":"错误说明"}` 返回。非流式请求等待协作结束后返回最终 `answer`。
+
+`POST /api/discussion/paper-summary` 接收 `{"paperId":"文献ID"}`，返回 `{paper}`。已有完整三行摘要时直接复用，否则读取文本缓存或用 PyMuPDF 提取 PDF，通过一次 LLM 调用生成三行摘要并合并保存到元数据。讨论消息支持可选字段 `papers: [{id, title, authors}]`（每条最多12篇），保存、同步、重载时保留。
+
 ```text
 data: {"delta":"回答片段"}
 

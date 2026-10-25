@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 
 from .config_store import get_secret, load_config, public_config, save_config
+from .discussion_research import normalize_paper_references
 from .category_model import library_locked, merge_record_categories, normalize_manifest_categories, copy_category_fields
 
 
@@ -702,7 +703,11 @@ def normalize_discussion_messages(messages):
         role = str(item.get("role", "")).strip()
         content = str(item.get("content", "")).strip()
         if role in {"user", "assistant"} and content:
-            normalized.append({"role": role, "content": content[:3000]})
+            message = {"role": role, "content": content[:3000]}
+            papers = normalize_paper_references(item.get("papers"))
+            if papers:
+                message["papers"] = papers
+            normalized.append(message)
     return normalized
 
 

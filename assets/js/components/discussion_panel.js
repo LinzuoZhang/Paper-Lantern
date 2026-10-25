@@ -1,4 +1,4 @@
-const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7z"></path></svg>';
+const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"></path></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>';
 const EDIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"></path></svg>';
 const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
@@ -23,6 +23,7 @@ export function initDiscussionPanel({
   onScrollLatest = null,
   contextType = "paper",
   taskInstruction = "",
+  paperReferences = null,
 } = {}) {
   const find = (selector) => root.querySelector(selector);
   const listView = find("#discussionListView");
@@ -33,6 +34,9 @@ export function initDiscussionPanel({
   const form = find("#discussionForm");
   const input = find("#discussionInput");
   const send = find("#sendDiscussionButton");
+  const addPaper = find("#addDiscussionPaperButton");
+  const paperTray = find("#discussionPapers");
+  const paperStatus = find("#discussionPaperStatus");
   const referenceBox = find("#discussionReferenceBox");
   const referenceText = find("#discussionReferenceText");
   const newButtons = [find("#newDiscussionListButton"), find("#newDiscussionFromThreadButton"), find("#discussionCompactNewButton")].filter(Boolean);
@@ -48,6 +52,7 @@ export function initDiscussionPanel({
   let threads = [];
   let activeId = null;
   let busy = false;
+  let draftPapers = [];
   let abortController = null;
   let markdownRenderer = null;
   let historyPopover = null;
@@ -60,6 +65,75 @@ export function initDiscussionPanel({
   }
 
   form.addEventListener("submit", submit);
+  addPaper?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!busy) paperReferences?.pickPaper(addPaper, attachPaper);
+  });
+
+  function paperLink(paper) {
+    const link = document.createElement("a");
+    link.className = "discussion-paper-link";
+    link.href = `hash:${paper.id}`;
+    link.title = paper.title;
+    link.textContent = paper.authors?.length > 1 ? `${paper.authors[0]} et al.` : paper.authors?.[0] || paper.title;
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      paperReferences?.showPaperInfo(link, paper.id);
+    });
+    return link;
+  }
+
+  function renderDraftPapers() {
+    if (!paperTray) return;
+    paperTray.replaceChildren();
+    paperTray.hidden = !draftPapers.length;
+    for (const paper of draftPapers) {
+      const chip = document.createElement("span");
+      chip.className = "discussion-paper-chip";
+      chip.appendChild(paperLink(paper));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "discussion-paper-remove";
+      remove.textContent = "×";
+      remove.disabled = busy;
+      remove.setAttribute("aria-label", `移除论文《${paper.title}》`);
+      remove.addEventListener("click", () => {
+        draftPapers = draftPapers.filter((item) => item !== paper);
+        renderDraftPapers();
+      });
+      chip.appendChild(remove);
+      if (paper.pending) chip.setAttribute("aria-busy", "true");
+      paperTray.appendChild(chip);
+    }
+    if (paperStatus) {
+      paperStatus.textContent = draftPapers.some((paper) => paper.pending) ? "正在准备论文摘要…" : draftPapers.find((paper) => paper.error)?.error || "";
+      paperStatus.classList.toggle("error", draftPapers.some((paper) => paper.error));
+    }
+    if (send) send.disabled = !busy && draftPapers.some((paper) => paper.pending || paper.error);
+    if (addPaper) addPaper.disabled = busy || draftPapers.length >= 12;
+  }
+
+  async function attachPaper(value) {
+    if (busy || draftPapers.length >= 12 || draftPapers.some((paper) => paper.id === value.id)) return;
+    const paper = { ...value, pending: true };
+    draftPapers.push(paper);
+    renderDraftPapers();
+    try {
+      const response = await apiFetch("/api/discussion/paper-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paperId: paper.id }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) throw new Error(data.detail || data.error || "摘要准备失败，请移除后重试");
+      paperReferences?.invalidatePaperInfo?.(paper.id);
+    } catch (error) {
+      paper.error = error.message || "摘要准备失败，请移除后重试";
+    } finally {
+      paper.pending = false;
+      renderDraftPapers();
+    }
+  }
   send?.addEventListener("click", (event) => {
     if (!busy) return;
     event.preventDefault();
@@ -87,10 +161,13 @@ export function initDiscussionPanel({
     event.preventDefault();
     if (busy) return;
     const question = input.value.trim();
-    if (!question) return;
+    if (!question || draftPapers.some((paper) => paper.pending || paper.error)) return;
+    const papers = normalizePapers(draftPapers);
     const thread = ensureActive(question);
     const isFirstTurn = thread.messages.length === 0;
-    thread.messages.push({ role: "user", content: question });
+    thread.messages.push({ role: "user", content: question, ...(papers.length ? { papers } : {}) });
+    draftPapers = [];
+    renderDraftPapers();
     thread.updatedAt = new Date().toISOString();
     input.value = "";
     syncNewDiscussionButtons();
@@ -115,6 +192,10 @@ export function initDiscussionPanel({
         history: thread.messages.slice(0, -1),
         selectionReference: thread.reference,
         signal: abortController.signal,
+        paperIds: [...new Set(thread.messages.flatMap((message) => (message.papers || []).map((paper) => paper.id)))],
+        onStatus: (status) => {
+          if (!answer) setMessageBody(pending, status);
+        },
         onDelta: (delta) => {
           if (timings.firstContentMs === undefined) timings.firstContentMs = Date.now() - requestedAt;
           answer += delta;
@@ -149,7 +230,7 @@ export function initDiscussionPanel({
     }
   }
 
-  async function requestAnswer({ question, history, selectionReference, signal, onDelta }) {
+  async function requestAnswer({ question, history, selectionReference, signal, onDelta, onStatus, paperIds }) {
     const context = String(getContextText?.() || "");
     const response = await apiFetch("/api/discuss", {
       method: "POST",
@@ -157,6 +238,8 @@ export function initDiscussionPanel({
       cache: "no-store",
       body: JSON.stringify({
         paperText: context,
+        paperId: contextType === "paper" ? String(getItem?.()?.id || "") : "",
+        paperIds,
         question,
         summary: getSummary?.() || {},
         history,
@@ -172,7 +255,7 @@ export function initDiscussionPanel({
       throw new Error(data.detail || data.error || "讨论失败。");
     }
     if ((response.headers.get("content-type") || "").includes("text/event-stream") && response.body) {
-      return readEventStream(response, onDelta);
+      return readEventStream(response, onDelta, onStatus);
     }
     const data = await readJsonResponse(response);
     const answer = String(data.answer || "");
@@ -206,7 +289,7 @@ export function initDiscussionPanel({
     }
   }
 
-  async function readEventStream(response, onDelta) {
+  async function readEventStream(response, onDelta, onStatus) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -224,6 +307,7 @@ export function initDiscussionPanel({
           if (!raw || raw === "[DONE]") continue;
           try {
             const data = JSON.parse(raw);
+            if (data.status) onStatus?.(String(data.status));
             const delta = String(data.delta || data.answer || data.content || "");
             if (delta) { answer += delta; onDelta?.(delta); }
             if (data.error) throw new Error(data.error);
@@ -284,6 +368,8 @@ export function initDiscussionPanel({
   }
 
   function showList() {
+    draftPapers = [];
+    renderDraftPapers();
     closeHistoryPopover();
     dropEmptyThreads();
     if (listView) listView.hidden = false;
@@ -299,6 +385,8 @@ export function initDiscussionPanel({
   function showThread(id) {
     const thread = threads.find((entry) => entry.id === id);
     if (!thread) return;
+    draftPapers = [];
+    renderDraftPapers();
     dropEmptyThreads(id);
     activeId = id;
     if (listView) listView.hidden = true;
@@ -661,14 +749,20 @@ export function initDiscussionPanel({
     thread.messages.forEach((message, index) => {
       const messageReference = !referenceRendered && message.role === "user" ? thread.reference : null;
       if (messageReference) referenceRendered = true;
-      appendMessage(message.role, message.content, false, messageReference, index);
+      appendMessage(message.role, message.content, false, messageReference, index, message.papers);
     });
   }
 
-  function appendMessage(role, content, pending = false, reference = null, index = -1) {
+  function appendMessage(role, content, pending = false, reference = null, index = -1, papers = []) {
     messages.querySelector(".discussion-empty")?.remove();
     const node = document.createElement("article");
     node.className = `discussion-message ${role === "user" ? "user" : "assistant"}${pending ? " pending" : ""}`;
+    if (papers?.length) {
+      const tray = document.createElement("div");
+      tray.className = "discussion-message-papers";
+      for (const paper of papers) tray.appendChild(paperLink(paper));
+      node.appendChild(tray);
+    }
     const normalizedReference = normalizeReference(reference);
     if (normalizedReference) {
       const referenceCard = document.createElement("button");
@@ -813,6 +907,7 @@ export function initDiscussionPanel({
     (body || node).after(form);
     editInput.focus();
     editInput.setSelectionRange(editInput.value.length, editInput.value.length);
+    form.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   function setMessageBody(node, content) {
@@ -920,6 +1015,7 @@ export function initDiscussionPanel({
   function setBusy(next) {
     busy = Boolean(next);
     input.disabled = busy;
+    renderDraftPapers();
     if (send) { send.classList.toggle("discussion-stop-mode", busy); send.innerHTML = busy ? STOP_ICON : SEND_ICON; send.title = busy ? "停止" : "发送"; }
   }
 
@@ -990,11 +1086,18 @@ function normalizeThreads(value) {
   return raw.map((thread, index) => ({
     id: String(thread?.id || `discussion-${Date.now().toString(36)}-${index}`),
     title: String(thread?.title || "新讨论"),
-    messages: Array.isArray(thread?.messages) ? thread.messages.map((message) => ({ role: message?.role === "user" ? "user" : "assistant", content: String(message?.content || "").trim() })).filter((message) => message.content) : [],
+    messages: Array.isArray(thread?.messages) ? thread.messages.map((message) => ({ role: message?.role === "user" ? "user" : "assistant", content: String(message?.content || "").trim(), ...(message?.papers?.length ? { papers: normalizePapers(message.papers) } : {}) })).filter((message) => message.content) : [],
     reference: normalizeReference(thread?.reference),
     createdAt: String(thread?.createdAt || new Date().toISOString()),
     updatedAt: String(thread?.updatedAt || thread?.createdAt || new Date().toISOString()),
   })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function normalizePapers(papers) {
+  return [...new Map((Array.isArray(papers) ? papers : []).filter((paper) => /^[a-zA-Z0-9_-]+$/.test(paper?.id || "")).map((paper) => [paper.id, {
+    id: String(paper.id), title: String(paper.title || paper.id).slice(0, 500),
+    authors: Array.isArray(paper.authors) ? paper.authors.slice(0, 10).map(String) : [],
+  }])).values()].slice(0, 12);
 }
 
 function normalizeReference(reference) {

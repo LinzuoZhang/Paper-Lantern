@@ -162,6 +162,8 @@ export function initNotesPanel({
   let paperPickerCategory = null;
   let paperPickerActiveIndex = 0;
   let paperPickerRequest = null;
+  let paperPickerOnSelect = null;
+  let paperPickerAnchor = null;
   const paperPickerExpandedCategories = new Set();
   const paperLinkCache = new Map();
 
@@ -442,7 +444,12 @@ export function initNotesPanel({
       return;
     }
     const bookmark = paperPickerBookmark;
+    const onSelect = paperPickerOnSelect;
     closePaperPicker(false);
+    if (onSelect) {
+      onSelect({ id: item.paper.id, title: item.paper.title, authors: paperAuthors(item.paper) });
+      return;
+    }
     insertPaperReference({
       id: item.paper.id,
       title: item.paper.title,
@@ -523,6 +530,7 @@ export function initNotesPanel({
       button.addEventListener("click", () => choosePaperPickerItem(item));
     });
     updatePaperPickerActive(items);
+    positionPaperPicker(paperPickerAnchor);
   }
 
   function positionPaperPicker(anchorRect) {
@@ -544,6 +552,8 @@ export function initNotesPanel({
     paperPickerActiveIndex = 0;
     if (restoreFocus) restoreInsertionBookmark(paperPickerBookmark);
     paperPickerBookmark = null;
+    paperPickerOnSelect = null;
+    paperPickerAnchor = null;
   }
 
   async function loadPaperPickerTree() {
@@ -560,10 +570,12 @@ export function initNotesPanel({
     return paperPickerRequest;
   }
 
-  async function openPaperPicker(anchor, bookmark = captureInsertionBookmark()) {
+  async function openPaperPicker(anchor, bookmark = captureInsertionBookmark(), onSelect = null) {
     closePaperPicker(false);
     closePaperLinkPopover();
     paperPickerBookmark = bookmark;
+    paperPickerOnSelect = onSelect;
+    paperPickerAnchor = anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
     const picker = document.createElement("section");
     picker.className = "notes-paper-picker";
     picker.setAttribute("role", "dialog");
@@ -618,7 +630,7 @@ export function initNotesPanel({
     });
     document.body.appendChild(picker);
     paperPicker = picker;
-    positionPaperPicker(anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor);
+    positionPaperPicker(paperPickerAnchor);
     input.focus();
     try {
       await loadPaperPickerTree();
@@ -1437,5 +1449,10 @@ export function initNotesPanel({
 
   initializeVditor();
 
-  return { render, save, getValue };
+  return {
+    render, save, getValue,
+    pickPaper: (anchor, onSelect) => openPaperPicker(anchor, null, onSelect),
+    showPaperInfo: showPaperLinkPopover,
+    invalidatePaperInfo: (id) => { paperLinkCache.delete(id); paperPickerTree = null; },
+  };
 }

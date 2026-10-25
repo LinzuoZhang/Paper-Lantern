@@ -221,6 +221,7 @@ librarySidebar = initLibrarySidebar({
 });
 
 discussionPanel = initDiscussionPanel({
+  paperReferences: notesPanel,
   getItem: () => currentPaper,
   getContextText: () => lastExtractedText,
   getSummary: () => paperToSummary(currentPaper),

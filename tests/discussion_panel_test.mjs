@@ -25,6 +25,7 @@ class Element {
   remove() { this.parentElement.children = this.parentElement.children.filter(node => node !== this); }
   focus() {}
   setSelectionRange() {}
+  scrollIntoView() {}
   fire(name) { return this.handlers[name]?.({ target: this, preventDefault() {}, stopPropagation() {} }); }
 }
 
@@ -32,6 +33,77 @@ globalThis.document = { createElement: () => new Element() };
 globalThis.window = { requestAnimationFrame: callback => callback() };
 const source = await readFile(new URL('../assets/js/components/discussion_panel.js', import.meta.url), 'utf8');
 const { initDiscussionPanel } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+
+// Added paper chips are prepared before sending, clickable, and survive reload.
+{
+  const ids = ['discussionForm', 'discussionInput', 'discussionMessages', 'discussionThreadList', 'discussionPapers', 'discussionPaperStatus', 'addDiscussionPaperButton', 'sendDiscussionButton'];
+  const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
+  let selectPaper, resolveSummary, request, opened;
+  const paper = { id: 'paper-b', title: '论文B', authors: ['作者A', '作者B'] };
+  const panel = initDiscussionPanel({
+    root: { querySelector: selector => elements[selector.slice(1)] || null },
+    getItem: () => ({ id: 'paper-a' }), getContextText: () => '正文',
+    saveItem: async () => {}, onScrollLatest() {},
+    paperReferences: { pickPaper: (_, select) => { selectPaper = select; }, showPaperInfo: (_, id) => { opened = id; } },
+    apiFetch: async (url, options) => {
+      if (url === '/api/discussion/paper-summary') return new Promise(resolve => { resolveSummary = resolve; });
+      if (url === '/api/discuss') request = JSON.parse(options.body);
+      return { ok: true, headers: { get: () => 'application/json' } };
+    },
+    readJsonResponse: async () => ({ answer: '回答', title: '标题' }),
+  });
+  elements.addDiscussionPaperButton.fire('click');
+  const prepared = selectPaper(paper);
+  assert.equal(elements.sendDiscussionButton.disabled, true);
+  elements.discussionInput.value = '对比方法';
+  await elements.discussionForm.fire('submit');
+  assert.equal(request, undefined);
+  resolveSummary({ ok: true });
+  await prepared;
+  assert.equal(elements.sendDiscussionButton.disabled, false);
+  const chip = elements.discussionPapers.children[0];
+  assert.equal(chip.children[0].textContent, '作者A et al.');
+  chip.children[0].fire('click');
+  assert.equal(opened, 'paper-b');
+  await elements.discussionForm.fire('submit');
+  assert.deepEqual(request.paperIds, ['paper-b']);
+  assert.deepEqual(panel.getThreads()[0].messages[0].papers, [paper]);
+  const stored = structuredClone(panel.getThreads());
+  panel.renderHistory({ threads: stored });
+  elements.discussionThreadList.children[0].fire('click');
+  const links = elements.discussionMessages.children[0].querySelector('.discussion-message-papers');
+  assert.equal(links.children[0].textContent, '作者A et al.');
+  links.children[0].fire('click');
+  assert.equal(opened, 'paper-b');
+}
+
+// Research statuses stay transient, and the current paper ID reaches the backend.
+{
+  const elements = Object.fromEntries(['discussionForm', 'discussionInput', 'discussionMessages', 'discussionThreadList'].map(id => [id, new Element()]));
+  let request;
+  const data = ['data: {"status":"正在查阅论文B"}\n\n', 'data: {"delta":"最终回答"}\n\n', 'data: [DONE]\n\n'];
+  const panel = initDiscussionPanel({
+    root: { querySelector: selector => elements[selector.slice(1)] || null },
+    getItem: () => ({ id: 'current-paper' }),
+    getContextText: () => '当前论文正文',
+    saveItem: async () => {},
+    onScrollLatest() {},
+    apiFetch: async (url, options) => {
+      if (url !== '/api/discuss') return { ok: true };
+      request = JSON.parse(options.body);
+      return { ok: true, headers: { get: () => 'text/event-stream' }, body: {
+        getReader: () => ({ read: async () => data.length ? { value: new TextEncoder().encode(data.shift()), done: false } : { done: true } }),
+      } };
+    },
+    readJsonResponse: async () => ({ title: '测试标题' }),
+  });
+  elements.discussionInput.value = '比较两篇论文';
+  await elements.discussionForm.fire('submit');
+  assert.equal(request.paperId, 'current-paper');
+  const messages = panel.getThreads()[0].messages;
+  assert.equal(messages.at(-1).content, '最终回答');
+  assert.equal(JSON.stringify(messages).includes('正在查阅'), false);
+}
 
 for (const editedIndex of [0, 2]) {
   const elements = Object.fromEntries(['discussionForm', 'discussionInput', 'discussionMessages', 'discussionThreadList'].map(id => [id, new Element()]));

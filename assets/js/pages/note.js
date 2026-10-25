@@ -43,6 +43,7 @@ const notesPanel = initNotesPanel({
 const discussionPane = document.querySelector("#noteDiscussionPane");
 const discussionTab = document.querySelector("#noteDiscussionTab");
 const discussionPanel = initDiscussionPanel({
+  paperReferences: notesPanel,
   getItem: () => currentNote,
   getContextText: () => notesPanel.getValue(),
   getSummary: () => ({ title: currentNote?.title || "", notes: notesPanel.getValue() }),
