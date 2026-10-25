@@ -2174,6 +2174,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     selected_text,
                     paper_text,
                     payload.get("summary", {}),
+                    context_type=payload.get("contextType", "paper"),
                 )
                 self._send_json(200, {"translation": translation})
             except urllib.error.HTTPError as exc:
@@ -2189,7 +2190,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             if not selected_text:
                 self._send_json(400, {"error": "Please select text to explain."})
                 return
-            if len(paper_text) < 80:
+            if len(paper_text) < 80 and payload.get("contextType") != "note":
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
             try:
@@ -2200,6 +2201,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     paper_text,
                     selected_text,
                     payload.get("summary", {}),
+                    context_type=payload.get("contextType", "paper"),
                 )
                 self._send_json(200, {"explanation": explanation})
             except urllib.error.HTTPError as exc:
@@ -3331,26 +3333,29 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
     return parsed, raw
 
 
-def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None):
+def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None, context_type="paper"):
     source_text = text[:MAX_TRANSLATE_CHARS]
     paper_excerpt = str(paper_text or "")[:MAX_PAPER_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
+    system_prompt = render_prompt("translate_system.txt")
+    if context_type == "note":
+        system_prompt = "当前阅读对象是用户笔记。\n\n" + system_prompt.replace("paper", "note").replace("PDF", "note")
     upstream_payload = {
         "model": model,
         "temperature": 0.1,
         "messages": [
             {
                 "role": "system",
-                "content": render_prompt("translate_system.txt"),
+                "content": system_prompt,
             },
             {
                 "role": "user",
                 "content": (
                     "Selected text to translate:\n"
                     f"{source_text}\n\n"
-                    "Existing paper summary JSON:\n"
+                    f"Existing {'note' if context_type == 'note' else 'paper'} summary JSON:\n"
                     f"{summary_context}\n\n"
-                    "Paper context:\n"
+                    f"{'Note' if context_type == 'note' else 'Paper'} context:\n"
                     f"{paper_excerpt}"
                 ),
             },
@@ -3363,29 +3368,32 @@ def translate_text(api_key, model, chat_completions_url, text, paper_text="", su
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None):
+def explain_selected_text(api_key, model, chat_completions_url, paper_text, selected_text, summary=None, context_type="paper"):
     paper_excerpt = paper_text[:MAX_PAPER_CHARS]
     selected_excerpt = selected_text[:MAX_TRANSLATE_CHARS]
     summary_context = json.dumps(summary or {}, ensure_ascii=False)
+    system_prompt = render_prompt("explain_system.txt")
+    if context_type == "note":
+        system_prompt = "当前阅读对象是用户笔记。\n\n" + system_prompt.replace("research paper", "note").replace("paper", "note").replace("PDF", "note")
     upstream_payload = {
         "model": model,
         "temperature": 0.18,
         "messages": [
             {
                 "role": "system",
-                "content": render_prompt("explain_system.txt"),
+                "content": system_prompt,
             },
             {
                 "role": "user",
                 "content": (
-                    "Full paper context:\n"
+                    f"Full {'note' if context_type == 'note' else 'paper'} context:\n"
                     f"{paper_excerpt}\n\n"
                     "Existing summary JSON:\n"
                     f"{summary_context}\n\n"
                     "Selected text to explain:\n"
                     f"{selected_excerpt}\n\n"
                     "Always answer in Chinese.\n"
-                    "Explain the selected text directly. If it is a specialized term, explain the term's meaning and role in this paper. "
+                    f"Explain the selected text directly. If it is a specialized term, explain the term's meaning and role in this {'note' if context_type == 'note' else 'paper'}. "
                     "If it is a sentence or paragraph, explain the key idea or function without repeating where it appears. "
                     "Do not translate the selected text as the main answer."
                 ),

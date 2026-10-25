@@ -1,6 +1,7 @@
 import { initNotesPanel } from "../components/notes_panel.js";
 import { initLibrarySidebar } from "../components/library_sidebar.js";
 import { initDiscussionPanel } from "../components/discussion_panel.js";
+import { initNoteAnnotations } from "../components/note_annotations.js";
 
 const noteId = new URLSearchParams(window.location.search).get("id") || "";
 const noteShell = document.querySelector(".standalone-note-shell");
@@ -60,6 +61,35 @@ discussionTab?.addEventListener("click", () => {
   else closeDiscussionPane();
 });
 
+const annotationPane = document.querySelector("#noteAnnotationPane");
+const annotationTab = document.querySelector("#noteAnnotationTab");
+const noteAnnotations = initNoteAnnotations({
+  host: document.querySelector("#notesEditor"),
+  frame: noteShell,
+  list: document.querySelector("#noteAnnotationList"),
+  getNote: () => currentNote,
+  getValue: () => notesPanel.getValue(),
+  saveNote: saveCurrentNote,
+  apiFetch,
+  readJsonResponse,
+  renderMarkdown: (text) => discussionPanel.renderMarkdown(text),
+  startDiscussion: (reference) => discussionPanel.startFromReference(reference),
+  setStatus,
+});
+annotationTab?.addEventListener("click", () => {
+  if (!annotationPane.hidden) closeDiscussionPane();
+  else {
+    openDiscussionPane();
+    discussionPane.hidden = true;
+    annotationPane.hidden = false;
+    discussionTab.classList.remove("active");
+    discussionTab.setAttribute("aria-selected", "false");
+    annotationTab.classList.add("active");
+    annotationTab.setAttribute("aria-selected", "true");
+    noteAnnotations.renderList();
+  }
+});
+
 const librarySidebar = initLibrarySidebar({
   shell: noteShell,
   getCurrentItem: () => currentNote,
@@ -88,6 +118,7 @@ async function loadNote() {
     renderNoteTitle(currentNote.title || "新建笔记");
     notesPanel.render(currentNote.notes || "");
     discussionPanel.renderHistory(currentNote.discussion || []);
+    noteAnnotations.render();
     librarySidebar.setCurrentItem(currentNote);
     setStatus("");
   } catch (error) {
@@ -99,6 +130,9 @@ async function loadNote() {
 function openDiscussionPane() {
   if (!discussionPane || !discussionTab) return;
   discussionPane.hidden = false;
+  annotationPane.hidden = true;
+  annotationTab.classList.remove("active");
+  annotationTab.setAttribute("aria-selected", "false");
   if (discussionResizer) discussionResizer.hidden = false;
   noteShell?.classList.add("discussion-open");
   setDiscussionPaneWidth(getDiscussionPaneWidth());
@@ -109,6 +143,9 @@ function openDiscussionPane() {
 function closeDiscussionPane() {
   if (!discussionPane || !discussionTab) return;
   discussionPane.hidden = true;
+  annotationPane.hidden = true;
+  annotationTab.classList.remove("active");
+  annotationTab.setAttribute("aria-selected", "false");
   if (discussionResizer) discussionResizer.hidden = true;
   noteShell?.classList.remove("discussion-open");
   discussionTab.classList.remove("active");

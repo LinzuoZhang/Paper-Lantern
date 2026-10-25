@@ -1,4 +1,15 @@
 /* Shared editor controls and standalone note layout. Requires workspace.css. */
+.note-selection-menu { z-index: 2100; }
+.standalone-note-shell > .annotation-editor { z-index: 2090; }
+.note-annotation-list { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.note-annotation-item { display: block; width: 100%; margin-bottom: 12px; padding: 12px; border: 1px solid var(--note-line); border-radius: 6px; background: var(--note-canvas); color: var(--note-ink); text-align: left; }
+.note-annotation-item:hover { background: var(--note-hover); }
+.note-annotation-item blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--annotation-color); font-size: 13px; font-weight: 500; white-space: pre-wrap; }
+.note-annotation-item > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; color: var(--note-secondary); font-size: 12px; white-space: pre-wrap; }
+::highlight(note-yellow) { background-color: rgba(255, 221, 64, .42); }
+::highlight(note-green) { background-color: rgba(120, 196, 162, .36); }
+::highlight(note-blue) { background-color: rgba(111, 178, 214, .32); }
+::highlight(note-pink) { background-color: rgba(239, 147, 171, .32); }
 .workspace-page .standalone-note-shell {
   position: relative;
   height: 100dvh;
@@ -272,6 +283,15 @@
   overflow: auto;
 }
 .workspace-page .notes-editor-host .vditor-reset pre code { padding: 0; background: transparent; }
+/* Collapsed IR math keeps its source in a hidden pre. Remove its box and
+   placeholder lines; expanded formulas still expose the source and $$ markers. */
+.workspace-page .notes-editor-host .vditor-ir__node[data-type="math-block"]:not(.vditor-ir__node--expand) > .vditor-ir__marker--pre {
+  display: none;
+}
+.workspace-page .notes-editor-host .vditor-ir__node[data-type="math-block"]:not(.vditor-ir__node--expand)::before,
+.workspace-page .notes-editor-host .vditor-ir__node[data-type="math-block"]:not(.vditor-ir__node--expand)::after {
+  content: none;
+}
 .workspace-page .notes-editor-host .vditor-reset .hljs { background: transparent; }
 .workspace-page .notes-editor-host .vditor-linenumber__rows { top: 0; }
 .workspace-page .notes-editor-host .vditor-reset table { width: max-content; max-width: 100%; margin-block: 1.2em; font-size: .93em; }

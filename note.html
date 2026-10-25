@@ -113,7 +113,14 @@
           </div>
         </section>
       </section>
-      <div id="noteDiscussionResizer" class="standalone-note-discussion-resizer" role="separator" aria-label="调整笔记与讨论区域宽度" aria-orientation="vertical" aria-valuemin="320" aria-valuemax="720" aria-valuenow="420" tabindex="0" hidden></div>
+      <div id="noteDiscussionResizer" class="standalone-note-discussion-resizer" role="separator" aria-label="调整笔记与侧栏区域宽度" aria-orientation="vertical" aria-valuemin="320" aria-valuemax="720" aria-valuenow="420" tabindex="0" hidden></div>
+      <aside id="noteAnnotationPane" class="standalone-note-discussion-pane" aria-label="笔记批注" hidden>
+        <div class="standalone-note-discussion-header">
+          <h2>批注</h2>
+          <span>选中文字即可批注、翻译或解释</span>
+        </div>
+        <div id="noteAnnotationList" class="note-annotation-list" aria-label="批注列表"></div>
+      </aside>
       <aside id="noteDiscussionPane" class="standalone-note-discussion-pane" aria-label="笔记讨论" hidden>
         <div class="standalone-note-discussion-header">
           <h2>讨论</h2>
@@ -173,6 +180,9 @@
       </aside>
       <nav class="reader-side-rail standalone-note-side-rail" aria-label="笔记侧栏">
         <div class="reader-tabs" role="tablist" aria-orientation="vertical">
+          <button id="noteAnnotationTab" class="reader-tab vditor-tooltipped vditor-tooltipped__sw" type="button" role="tab" aria-selected="false" aria-controls="noteAnnotationPane" aria-label="批注">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path><path d="M8 9h8M8 13h5"></path></svg>
+          </button>
           <button id="noteDiscussionTab" class="reader-tab vditor-tooltipped vditor-tooltipped__sw" type="button" role="tab" aria-selected="false" aria-controls="noteDiscussionPane" aria-label="讨论">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 1 1 21 11.5z"></path></svg>
           </button>

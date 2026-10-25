@@ -18,6 +18,7 @@ export function initAnnotationPanel(options) {
     translateAnnotationText,
     explainAnnotationText,
     clamp,
+    getDiscussionReference,
   } = options;
 
   let activeHighlightGroupId = null;
@@ -35,6 +36,7 @@ export function initAnnotationPanel(options) {
       renderColorSwatches(editor);
     }
 
+    syncActiveColor(editor, highlight);
     const entries = getAnnotationEntries(getHighlightGroup(activeHighlightGroupId));
     if (!entries.length && highlight.type === "comment") {
       const entry = { id: createEntryId(), type: "comment", content: "" };
@@ -43,7 +45,6 @@ export function initAnnotationPanel(options) {
     } else {
       renderAnnotationPreviewList(editor);
     }
-    syncActiveColor(editor, highlight);
     positionEditor(editor, clientX, clientY);
   }
 
@@ -321,6 +322,7 @@ export function initAnnotationPanel(options) {
 
   async function translateActiveAnnotation(editor) {
     if (!activeHighlightGroupId) return;
+    const requestedGroupId = activeHighlightGroupId;
     const group = getHighlightGroup(activeHighlightGroupId);
     if (hasActiveTranslation()) {
       renderAnnotationPreviewList(editor);
@@ -332,6 +334,7 @@ export function initAnnotationPanel(options) {
     try {
       if (button) button.disabled = true;
       const translation = await translateAnnotationText(source);
+      if (activeHighlightGroupId !== requestedGroupId || !editor.isConnected) return;
       const entries = getAnnotationEntries(group).filter((entry) => entry.type !== "translation");
       const entry = { id: createEntryId(), type: "translation", content: translation };
       setEntriesForActiveGroup([entry, ...entries]);
@@ -347,6 +350,7 @@ export function initAnnotationPanel(options) {
 
   async function explainActiveAnnotation(editor) {
     if (!activeHighlightGroupId || typeof explainAnnotationText !== "function") return;
+    const requestedGroupId = activeHighlightGroupId;
     const group = getHighlightGroup(activeHighlightGroupId);
     const source = getHighlightGroupSelectedText(group) || inferTextFromHighlightRanges(getHighlightRanges(group));
     if (!editor || !source) return;
@@ -354,6 +358,7 @@ export function initAnnotationPanel(options) {
     try {
       if (button) button.disabled = true;
       const explanation = await explainAnnotationText(source);
+      if (activeHighlightGroupId !== requestedGroupId || !editor.isConnected) return;
       const content = String(explanation || "").trim();
       if (!content) return;
       const entry = { id: createEntryId(), type: "comment", content };
@@ -379,6 +384,7 @@ export function initAnnotationPanel(options) {
   }
 
   async function refreshTranslationEntry(editor, entryId, options = {}) {
+    const requestedGroupId = activeHighlightGroupId;
     const group = getHighlightGroup(activeHighlightGroupId);
     const source = getHighlightGroupSelectedText(group) || inferTextFromHighlightRanges(getHighlightRanges(group));
     if (!source) return;
@@ -387,6 +393,7 @@ export function initAnnotationPanel(options) {
     try {
       if (button) button.disabled = true;
       const translation = await translateAnnotationText(source);
+      if (activeHighlightGroupId !== requestedGroupId || !editor.isConnected) return;
       const entries = getAnnotationEntries(group).map((entry) => (
         entry.id === entryId ? { ...entry, content: translation } : entry
       ));
@@ -508,6 +515,7 @@ export function initAnnotationPanel(options) {
   function buildDiscussionReferenceFromHighlightGroup(groupId) {
     const group = getHighlightGroup(groupId);
     if (!group.length) return null;
+    if (getDiscussionReference) return getDiscussionReference(group);
     const ranges = getHighlightRanges(group);
     if (!ranges.length) return null;
     const text = getHighlightGroupSelectedText(group) || inferTextFromHighlightRanges(ranges);
