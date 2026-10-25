@@ -31,6 +31,8 @@ async function run({ fail = false, switchPaper = false, saveFail = false } = {})
   const original = { pageNumber: 1, selectedText: 'Already highlighted sentence.', groupId: 'manual' };
   const pdf = { numPages: 2, getPage: async () => ({getTextContent: async () => ({items: [{str: 'Full paper text and original experimental results. '.repeat(3)}]})}) };
   const ctx = vm.createContext({
+    commentColorMeanings: {green: 'Method'}, COMMENT_COLOR_MEANINGS_KEY: 'readerCommentColorMeanings',
+    localStorage: {setItem: (key, value) => {calls.meanings = JSON.parse(value);}},
     currentPdfDocument: pdf, currentPaper: {id: 'paper'}, isPdfLoadingForReadingPosition: false,
     isAutoHighlighting: false, currentPdfTask: 'render', savedHighlights: [original],
     autoHighlightButton: {setAttribute() {}},
@@ -64,13 +66,18 @@ assert.equal(result.calls.saves, 1);
 assert.equal(result.ctx.savedHighlights.length, 2);
 assert.equal(result.ctx.savedHighlights[1].source, 'auto-highlight');
 assert.equal(result.ctx.savedHighlights[1].color, 'purple');
+assert.equal(result.ctx.commentColorMeanings.purple, '自动高亮');
+assert.equal(result.calls.meanings.purple, '自动高亮');
+assert.equal(result.calls.meanings.green, 'Method');
 result = await run({fail: true});
 assert.equal(result.calls.saves, 0);
 assert.equal(result.ctx.savedHighlights.length, 1);
+assert.equal(result.ctx.commentColorMeanings.purple, undefined);
 result = await run({switchPaper: true});
 assert.equal(result.calls.saves, 0);
 assert.equal(result.ctx.savedHighlights.length, 1);
 result = await run({saveFail: true});
 assert.equal(result.ctx.savedHighlights.length, 2);
 assert.match(result.calls.statuses.at(-1), /disk offline/);
+assert.equal(result.ctx.commentColorMeanings.purple, undefined);
 console.log('Automatic highlight matching and reader workflow tests passed.');

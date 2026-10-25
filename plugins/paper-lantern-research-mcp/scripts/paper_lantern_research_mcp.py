@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sys
 import traceback
@@ -12,7 +13,7 @@ from typing import Any, Callable
 
 
 SERVER_NAME = "paper-lantern-research"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 
 
 def find_project_root() -> Path:
@@ -33,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import server as paper_server  # noqa: E402
+from backend.mcp_markdown import MARKDOWN_RULES, validate_note_markdown  # noqa: E402
 
 
 JsonObject = dict[str, Any]
@@ -196,6 +198,56 @@ def tool_get_item(args: JsonObject) -> JsonObject:
     return tool_text({"item": paper, "paperLink": markdown_link(format_paper_link_label(paper), item_id)})
 
 
+def tool_auto_highlight_paper(args: JsonObject) -> JsonObject:
+    from backend.auto_highlight import normalize_pages
+    from backend.pdf_highlights import build_pdf_highlights, require_pymupdf
+
+    item_id = args["id"].strip()
+    save = args.get("save", True)
+    with paper_server.LIBRARY_LOCK:
+        db = read_db()
+        record = db.get("papers", {}).get(item_id)
+        if not record:
+            raise FileNotFoundError("Paper not found.")
+        if record.get("itemType", "paper") != "paper":
+            raise ValueError("Automatic highlighting requires a PDF paper, not a standalone note.")
+        directory = paper_server.paper_dir_from_record(record)
+        pdf_bytes = (directory / "paper.pdf").read_bytes()
+
+    api_key, model, url, _think_mode = paper_server.get_ai_config()
+    if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
+        raise ValueError("Missing AI API key. Open Settings and save your API key.")
+    fitz = require_pymupdf()
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
+        pages = normalize_pages([
+            {"pageNumber": index + 1, "text": page.get_text()}
+            for index, page in enumerate(pdf)
+        ])
+        # Do not hold the library lock while waiting for the model.
+        quotes = paper_server.auto_highlight_quotes(pages, api_key, model, url)
+        with paper_server.LIBRARY_LOCK:
+            current = read_db().get("papers", {}).get(item_id)
+            if not current or paper_server.paper_dir_from_record(current) != directory:
+                raise RuntimeError("The paper moved or was removed during automatic highlighting; retry.")
+            if hashlib.sha256((directory / "paper.pdf").read_bytes()).digest() != hashlib.sha256(pdf_bytes).digest():
+                raise RuntimeError("The PDF changed during automatic highlighting; retry.")
+            existing = paper_server.read_json(directory / "highlights.json", [])
+            if not isinstance(existing, list):
+                raise ValueError("Existing highlights are invalid; no changes were saved.")
+            additions, skipped, duplicates = build_pdf_highlights(pdf, quotes, existing)
+            if save and additions:
+                paper_server.write_json(directory / "highlights.json", existing + additions)
+                paper_server.update_paper_sync_hash(directory)
+    sync = paper_server.maybe_auto_sync_library() if save and additions else None
+    return tool_text({
+        "id": item_id, "saved": save, "color": "purple", "colorMeaning": "自动高亮",
+        "addedCount": len({item["groupId"] for item in additions}),
+        "duplicateCount": duplicates, "unmatchedCount": len(skipped),
+        "highlights": additions, "quotes": quotes, "unmatched": skipped,
+        "openPath": f"reader.html?id={item_id}", "sync": sync,
+    })
+
+
 def tool_import_paper_from_url(args: JsonObject) -> JsonObject:
     """Backward-compatible alias for start_import."""
     return tool_start_import(args)
@@ -284,6 +336,8 @@ def tool_update_paper(args: JsonObject) -> JsonObject:
     record = db.get("papers", {}).get(paper_id)
     if not record:
         raise FileNotFoundError("Paper not found.")
+    if "notes" in args:
+        validate_note_markdown(args["notes"], db, paper_server.MAX_NOTES_CHARS)
     category_changed = any(key in args for key in ("categoryIds", "categoryId", "addCategoryIds", "removeCategoryIds"))
     # Validate every referenced category before changing any files or relationships.
     ids = record["categoryIds"]
@@ -352,6 +406,7 @@ def tool_create_note(args: JsonObject) -> JsonObject:
     title = str(args.get("title", "")).strip() or "Research note"
     category = paper_server.request_category_ids(args)
     content = str(args.get("content", ""))
+    validate_note_markdown(content, read_db(), paper_server.MAX_NOTES_CHARS)
     note = paper_server.add_note_to_db(title, category)
     if content:
         note_dir = paper_server.paper_dir_from_record(read_db()["papers"][note["id"]])
@@ -361,6 +416,7 @@ def tool_create_note(args: JsonObject) -> JsonObject:
     return tool_text({"note": paper_server.read_paper(note["id"]), "openPath": f"note.html?id={note['id']}", "sync": sync})
 
 
+@paper_server.library_locked
 def tool_write_note(args: JsonObject) -> JsonObject:
     note_id = str(args.get("id", "")).strip()
     content = str(args.get("content", ""))
@@ -383,6 +439,7 @@ def tool_write_note(args: JsonObject) -> JsonObject:
         next_content = content
     else:
         raise ValueError("mode must be replace, append, or prepend.")
+    validate_note_markdown(next_content, db, paper_server.MAX_NOTES_CHARS)
     paper_server.write_paper_notes(note_dir, next_content)
     return tool_text({"note": paper_server.read_paper(note_id, db)})
 
@@ -444,6 +501,19 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "additionalProperties": False,
         },
         tool_get_item,
+    ),
+    "auto_highlight_paper": (
+        "Use the configured LLM to select important original text from a library PDF and save purple highlights, preserving existing annotations and skipping duplicates. Requires PyMuPDF. Set save=false to preview without writing. Returns normalized rectangles, quotes, counts, and colorMeaning. Refresh the PDF reader after saving.",
+        {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "minLength": 1, "description": "Library PDF paper ID."},
+                "save": {"type": "boolean", "default": True, "description": "Save merged highlights; false returns a preview without modifying files."},
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        tool_auto_highlight_paper,
     ),
     "import_paper_from_url": (
         "Alias for start_import. Import a PDF into multiple categories; a duplicate adds memberships to the existing item.",
@@ -570,7 +640,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
                 "removeCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Remove these exact memberships while retaining all others. [] makes no change; removal wins if also listed in addCategoryIds."},
                 "doi": {"type": "string"},
                 "basicInfo": {"type": "object"},
-                "notes": {"type": "string"},
+                "notes": {"type": "string", "description": MARKDOWN_RULES},
                 "read": {"type": "boolean"},
                 "todo": {"type": "boolean"},
             },
@@ -608,7 +678,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
                 "title": {"type": "string"},
                 "categoryId": LEGACY_CATEGORY_SCHEMA,
                 "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized. Missing category paths are created."},
-                "content": {"type": "string"},
+                "content": {"type": "string", "description": MARKDOWN_RULES},
             },
             "required": ["title"],
             "additionalProperties": False,
@@ -621,7 +691,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "type": "object",
             "properties": {
                 "id": {"type": "string"},
-                "content": {"type": "string"},
+                "content": {"type": "string", "description": MARKDOWN_RULES},
                 "mode": {"type": "string", "enum": ["replace", "append", "prepend"]},
             },
             "required": ["id", "content"],
@@ -645,7 +715,7 @@ def list_tools() -> list[JsonObject]:
     return [
         {
             "name": name,
-            "description": description,
+            "description": description + (" " + MARKDOWN_RULES if name in {"create_note", "write_note", "update_paper"} else ""),
             "inputSchema": schema,
         }
         for name, (description, schema, _handler) in TOOLS.items()

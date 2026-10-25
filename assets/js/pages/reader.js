@@ -188,7 +188,9 @@ function normalizeCommentColorMeanings(value) {
 }
 
 function getCommentColorLabel(key) {
-  return commentColorMeanings[key] || commentColorNames[key] || key;
+  const autoMeaning = key === "purple" && savedHighlights.some((item) => item.color === "purple" && item.source === "auto-highlight")
+    ? "自动高亮" : "";
+  return commentColorMeanings[key] || autoMeaning || commentColorNames[key] || key;
 }
 
 const annotationPanel = initAnnotationPanel({
@@ -1958,8 +1960,8 @@ async function summarizeText(text) {
       };
       renderBasicInfo(summary.basicInfo);
       renderKeywords(summary.keywords);
-      challenges.textContent = summary.threeLineSummary.challenges || "No response";
-      conclusion.textContent = summary.threeLineSummary.conclusion || "No response";
+      renderSummaryLine(challenges, summary.threeLineSummary.challenges);
+      renderSummaryLine(conclusion, summary.threeLineSummary.conclusion);
     } else if (event.stage === "keywords") {
       summary = { ...summary, keywords: event.summary.keywords || [], keywordExplanations: event.summary.keywordExplanations || {} };
       renderKeywords(summary.keywords, summary.keywordExplanations);
@@ -2032,9 +2034,9 @@ async function regenerateSummarySection(section) {
     const summary = await fetchFullSummary(text);
     if (section === "threeLine") {
       const threeLineSummary = summary.threeLineSummary || {};
-      challenges.textContent = threeLineSummary.challenges || "No response";
-      method.textContent = threeLineSummary.method || "No response";
-      conclusion.textContent = threeLineSummary.conclusion || "No response";
+      renderSummaryLine(challenges, threeLineSummary.challenges);
+      renderSummaryLine(method, threeLineSummary.method);
+      renderSummaryLine(conclusion, threeLineSummary.conclusion);
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), threeLineSummary } });
       clearStatus();
       return;
@@ -2381,7 +2383,16 @@ async function autoHighlightPaper() {
     redrawHighlights();
     refreshCommentsNavigation();
     await saveCurrentPaper();
-    if (isCurrent()) setStatus(`已自动高亮 ${added} 处重要原文${unmatched ? `，${unmatched} 处未能精确定位` : ""}。`);
+    if (!isCurrent()) return;
+    commentColorMeanings = { ...commentColorMeanings, purple: "自动高亮" };
+    refreshCommentsNavigation();
+    try {
+      localStorage.setItem(COMMENT_COLOR_MEANINGS_KEY, JSON.stringify(commentColorMeanings));
+    } catch {
+      setStatus(`已保存 ${added} 处自动高亮，但颜色名称未能保存到浏览器。`, true);
+      return;
+    }
+    setStatus(`已自动高亮 ${added} 处重要原文${unmatched ? `，${unmatched} 处未能精确定位` : ""}。`);
   } catch (error) {
     if (isCurrent()) setStatus(applied
       ? `自动高亮未完成保存：${error.message || "请重试"}`
@@ -4180,6 +4191,10 @@ function buildApiBaseCandidates() {
   return [...new Set(candidates)];
 }
 
+function renderSummaryLine(node, value) {
+  node.replaceChildren(...formatInlineTechnicalText(value || "No response"));
+}
+
 function renderSummary(summary) {
   if (!summary) {
     challenges.textContent = "Waiting";
@@ -4191,9 +4206,9 @@ function renderSummary(summary) {
     return;
   }
 
-  challenges.textContent = summary.threeLineSummary?.challenges || "No response";
-  method.textContent = summary.threeLineSummary?.method || "No response";
-  conclusion.textContent = summary.threeLineSummary?.conclusion || "No response";
+  renderSummaryLine(challenges, summary.threeLineSummary?.challenges);
+  renderSummaryLine(method, summary.threeLineSummary?.method);
+  renderSummaryLine(conclusion, summary.threeLineSummary?.conclusion);
   keywords.innerHTML = "";
   methodSections.innerHTML = "";
 

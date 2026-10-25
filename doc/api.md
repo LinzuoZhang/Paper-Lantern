@@ -126,7 +126,7 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 ## AI 接口
 
-调用前需配置模型服务。正文文本由客户端提取，通过 `paperText` 提交；AI 生成结果需另行调用条目保存接口持久化。
+调用前需配置模型服务。正文文本由客户端提取，多数接口通过 `paperText` 提交，自动高亮通过 `pages` 提交分页文本；AI 生成结果需另行调用条目保存接口持久化。
 
 以下路径均使用 POST：
 
@@ -142,7 +142,41 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 概览、总结、解释和论文讨论要求去除首尾空白后的 `paperText` 至少 80 个字符。讨论设为 `contextType: "note"` 时使用笔记上下文，不受该最低长度限制；`history` 使用 `role`、`content` 消息对象数组。翻译的文本字段是 `text`，解释的文本字段是 `selectedText`。
 
-自动高亮按最多 24,000 字符分批请求当前配置的 LLM，每批最多选择 6 处重要原文。分页文本合计需至少 80 字符、最多 500,000 字符；无法在对应页唯一定位的引文会被丢弃。接口不保存批注，阅读器将结果精确定位为紫色高亮，合并已有批注后保存；已高亮的相同原文不会重复添加。
+### 自动高亮
+
+`POST /api/auto-highlight` 使用当前配置的 LLM，按最多 24,000 字符分批挑选重要原文，每批最多接受 6 处引文。输入的 `pages` 为非空数组，元素包含互不重复、从 1 开始的整数 `pageNumber` 和原文字符串 `text`；最多 1,000 页，分页文本合计需至少 80 字符、最多 500,000 字符。
+
+请求示例：
+
+```json
+{
+  "pages": [
+    {
+      "pageNumber": 1,
+      "text": "We study memory-efficient training for large models. Our method reduces memory usage by forty percent while preserving accuracy. Experiments compare the method with three baselines."
+    }
+  ]
+}
+```
+
+响应结构示例（具体引文由模型选择，也可能返回空数组）：
+
+```json
+{
+  "highlights": [
+    {
+      "pageNumber": 1,
+      "text": "Our method reduces memory usage by forty percent while preserving accuracy."
+    }
+  ]
+}
+```
+
+服务端会剔除无法在对应页唯一定位的引文，允许空白、软连字符和兼容字符的差异。接口不返回矩形坐标，也不保存批注。阅读器会进一步精确定位 PDF 文本层，将结果转换为紫色高亮，合并已有批注后调用 `/api/library/paper` 保存；相同页的相同原文不重复添加。成功新增并保存后，阅读器将紫色标签改为“自动高亮”。
+
+无效页码、文本格式、文字不足或超出长度限制返回 `400`；未配置 AI、调用失败或模型响应格式无效会返回错误响应，上游 HTTP 错误可能透传其状态码。没有合适或可唯一定位的引文时仍返回 `200` 和 `{"highlights":[]}`。
+
+Research MCP 提供 `auto_highlight_paper`：必填 `id`，可选布尔参数 `save`，默认为 `true`。它直接读取库内 PDF，默认合并保存紫色高亮，`save: false` 仅预览但仍调用 LLM；无需打开阅读器或 HTTP 服务。MCP 返回包含相对矩形坐标的 `highlights`、原文 `quotes`、新增或预览组数 `addedCount`、重复数 `duplicateCount`、无法定位数 `unmatchedCount`，以及 `color: "purple"`、`colorMeaning: "自动高亮"`。该路径依赖 PyMuPDF，完整调用示例见 [Research MCP 自动高亮](../plugins/paper-lantern-research-mcp/README.md#automatic-highlights-v030)。
 
 ### 流式响应
 

@@ -2246,15 +2246,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": str(exc)})
                 return
             try:
-                def complete(prompt):
-                    parsed, _raw = call_chat_completions(
-                        api_key, model, chat_completions_url, prompt,
-                        system_prompt="你是严谨的论文阅读助手。仅选择可在原文中逐字定位的重要文字，返回 JSON。",
-                        temperature=0.1,
-                    )
-                    return parsed
-
-                highlights = select_important_quotes(pages, complete)
+                highlights = auto_highlight_quotes(pages, api_key, model, chat_completions_url)
                 self._send_json(200, {"highlights": highlights})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -3467,6 +3459,18 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
         on_stage("keywords", {"keywords": parsed["keywords"], "keywordExplanations": parsed["keywordExplanations"]})
     write_ai_stage(run_dir, "overview", {"prompt": prompt, "parsed": parsed, "raw": raw})
     return parsed, raw
+
+
+def auto_highlight_quotes(pages, api_key, model, chat_completions_url):
+    def complete(prompt):
+        parsed, _raw = call_chat_completions(
+            api_key, model, chat_completions_url, prompt,
+            system_prompt="你是严谨的论文阅读助手。仅选择可在原文中逐字定位的重要文字，返回 JSON。",
+            temperature=0.1,
+        )
+        return parsed
+
+    return select_important_quotes(pages, complete)
 
 
 def translate_text(api_key, model, chat_completions_url, text, paper_text="", summary=None, context_type="paper"):

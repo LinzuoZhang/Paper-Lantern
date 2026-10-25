@@ -1,4 +1,5 @@
 import { formatPaperCardLabel } from "./notes_panel.js";
+import { getPaperFlagIds } from "./paper_flags.js";
 import { getCategoryIds, collectUniquePapers, categorySearchText, showCategoryManager } from "./category_manager.js";
 import { RECENT_PAPERS_KEY, getPaperViewedAt, getRecentPaperRecords, getRecentPapers } from "../lib/recent_papers.js";
 
@@ -56,6 +57,7 @@ export function initLibrarySidebar({
   }
 
   let tree = null;
+  let flagDefinitions = [{ id: "read", name: "已读" }, { id: "todo", name: "待办" }];
   let selectedId = "";
   let query = "";
   const explicitlyCollapsed = new Set();
@@ -90,6 +92,7 @@ export function initLibrarySidebar({
   });
   search?.addEventListener("input", () => {
     query = String(search.value || "").trim().toLowerCase();
+    setPicker(false);
     render();
   });
   back?.addEventListener("click", () => setPicker(true));
@@ -179,6 +182,7 @@ export function initLibrarySidebar({
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "文献库加载失败。");
     tree = data.tree;
+    if (Array.isArray(data.flags)) flagDefinitions = data.flags;
     const fresh = collectPapers(tree).find((paper) => paper.id === current()?.id);
     if (fresh) syncCurrentCategories(fresh);
     if (!selectedId && current()?.category) selectedId = current().category;
@@ -214,21 +218,30 @@ export function initLibrarySidebar({
     if (!isCollapsedForDisplay(ALL_ID, showPath)) renderCategoryChildren(tree, 0);
 
     let papers;
-    if (!selectedId || selectedId === ALL_ID) papers = collectPapers(tree);
+    if (query || !selectedId || selectedId === ALL_ID) papers = collectPapers(tree);
     else if (selectedId === RECENT_ID) papers = recentPapers();
     else if (selectedId === TODO_ID) papers = collectPapers(tree).filter((item) => item.todo);
     else papers = collectPapers(findCategory(tree, selectedId));
+    if (query) {
+      const terms = query.split(/\s+/);
+      papers = papers.filter((paper) => {
+        const flagIds = new Set(getPaperFlagIds(paper));
+        const text = [paper.title, categorySearchText(paper), ...paperAuthors(paper),
+          ...flagDefinitions.filter((flag) => flagIds.has(flag.id)).map((flag) => flag.name),
+          ...(Array.isArray(paper.keywords) ? paper.keywords : [])].filter(Boolean).join(" ").toLowerCase();
+        return terms.every((term) => text.includes(term));
+      });
+    }
     papers = sortPapers(papers);
 
     const isRoot = !selectedId || selectedId === ALL_ID;
     const selected = categories.find((item) => item.id === selectedId);
-    const name = selectedId === RECENT_ID ? "最近" : selectedId === TODO_ID ? "待办" : isRoot ? "文献库" : selected?.name || "文献库";
+    const name = query ? "全库搜索" : selectedId === RECENT_ID ? "最近" : selectedId === TODO_ID ? "待办" : isRoot ? "文献库" : selected?.name || "文献库";
     if (locationName) locationName.textContent = name;
-    if (locationCount) locationCount.textContent = papers.length ? String(papers.length) : "";
+    if (locationCount) locationCount.textContent = query || papers.length ? String(papers.length) : "";
     if (locationCurrent) locationCurrent.title = `${name} (${papers.length})`;
     if (title) title.textContent = "文献库";
-    if (sortButton) sortButton.hidden = selectedId === RECENT_ID || !papers.length;
-    if (query) papers = papers.filter((paper) => `${paper.title || ""} ${categorySearchText(paper)}`.toLowerCase().includes(query));
+    if (sortButton) sortButton.hidden = (!query && selectedId === RECENT_ID) || !papers.length;
 
     paperList.replaceChildren();
     if (!papers.length) {
@@ -670,7 +683,7 @@ export function initLibrarySidebar({
   }
   function recentPapers() { return getRecentPapers(collectPapers(tree)); }
   function sortPapers(items) {
-    const key = selectedId === RECENT_ID ? "lastRead" : sortKey;
+    const key = selectedId === RECENT_ID && !query ? "lastRead" : sortKey;
     const direction = sortDirection === "asc" ? 1 : -1;
     const recentRecords = key === "lastRead" ? getRecentPaperRecords() : [];
     return [...(items || [])].sort((a, b) => {
