@@ -6,6 +6,7 @@ import { initLibrarySidebar } from "../components/library_sidebar.js";
 import { initDiscussionPanel } from "../components/discussion_panel.js";
 import { recordPaperViewed } from "../lib/recent_papers.js";
 import { getCategoryLabels } from "../components/category_manager.js";
+import { findAutoHighlightRange, normalizeHighlightQuote } from "../lib/auto_highlight.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -15,6 +16,8 @@ const appShell = document.querySelector(".app-shell");
 const paneResizer = document.querySelector("#paneResizer");
 const readerSideRail = document.querySelector("#readerSideRail");
 const exportPdfButton = document.querySelector("#exportPdfButton");
+const autoHighlightButton = document.querySelector("#autoHighlightButton");
+let isAutoHighlighting = false;
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "ftp:"]);
 let pdfLinkAnnotationsCache = new Map(); // pageNumber -> Promise<Annotation[]>
 let pdfLinkDestCache = new Map();        // destName(string) -> Promise<{pageIndex, top, left}|null>
@@ -143,6 +146,9 @@ const highlightColors = {
   green: "rgba(120, 196, 162, 0.36)",
   blue: "rgba(111, 178, 214, 0.32)",
   pink: "rgba(239, 147, 171, 0.32)",
+  orange: "rgba(255, 170, 76, 0.36)",
+  purple: "rgba(174, 139, 219, 0.32)",
+  red: "rgba(239, 107, 107, 0.32)",
 };
 
 const commentSwatchColors = {
@@ -150,7 +156,40 @@ const commentSwatchColors = {
   green: "#78c4a2",
   blue: "#6fb2d6",
   pink: "#ef93ab",
+  orange: "#ffaa4c",
+  purple: "#ae8bdb",
+  red: "#ef6b6b",
 };
+
+const commentColorNames = {
+  yellow: "黄色", green: "绿色", blue: "蓝色", pink: "粉色",
+  orange: "橙色", purple: "紫色", red: "红色",
+};
+const COMMENT_COLOR_MEANINGS_KEY = "readerCommentColorMeanings";
+let commentColorMeanings = loadCommentColorMeanings();
+
+function loadCommentColorMeanings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COMMENT_COLOR_MEANINGS_KEY) || "{}");
+    return normalizeCommentColorMeanings(saved);
+  } catch {
+    return {};
+  }
+}
+
+function normalizeCommentColorMeanings(value) {
+  const meanings = {};
+  for (const key of Object.keys(commentColorNames)) {
+    if (typeof value?.[key] === "string" && value[key].trim()) {
+      meanings[key] = value[key].trim().slice(0, 40);
+    }
+  }
+  return meanings;
+}
+
+function getCommentColorLabel(key) {
+  return commentColorMeanings[key] || commentColorNames[key] || key;
+}
 
 const annotationPanel = initAnnotationPanel({
   getPdfFrameElement,
@@ -514,6 +553,7 @@ translateButton.addEventListener("mousedown", (event) => event.preventDefault())
 explainButton.addEventListener("mousedown", (event) => event.preventDefault());
 askSelectionButton?.addEventListener("mousedown", (event) => event.preventDefault());
 highlightButton.addEventListener("click", highlightSelection);
+autoHighlightButton?.addEventListener("click", autoHighlightPaper);
 commentButton.addEventListener("click", commentSelection);
 translateButton.addEventListener("click", translateSelection);
 explainButton.addEventListener("click", explainSelection);
@@ -1045,6 +1085,7 @@ async function renderPdf(file) {
   hideTranslationBubble();
   hideReferencePopover();
   isPdfLoadingForReadingPosition = true;
+  updateAutoHighlightButton();
   pdfOutlineItems = [];
   closePdfOutlinePanel();
   updatePdfOutlineUI();
@@ -1082,6 +1123,7 @@ async function renderPdf(file) {
     await renderPdfPages(renderId, { restoreReadingPosition: true });
   } finally {
     if (currentPdfTask === renderId) isPdfLoadingForReadingPosition = false;
+    updateAutoHighlightButton();
   }
 }
 
@@ -2264,6 +2306,93 @@ function hideSelectionMenu() {
   selectionMenu.hidden = true;
 }
 
+function updateAutoHighlightButton() {
+  if (!autoHighlightButton) return;
+  autoHighlightButton.disabled = isAutoHighlighting || !currentPdfDocument || isPdfLoadingForReadingPosition;
+  autoHighlightButton.setAttribute("aria-busy", String(isAutoHighlighting));
+  const label = isAutoHighlighting ? "正在自动高亮…" : "自动高亮重要原文";
+  autoHighlightButton.title = label;
+  autoHighlightButton.setAttribute("aria-label", label);
+}
+
+async function autoHighlightPaper() {
+  if (isAutoHighlighting || !currentPdfDocument || !currentPaper || isPdfLoadingForReadingPosition) return;
+  const pdf = currentPdfDocument;
+  const paperId = currentPaper.id;
+  const isCurrent = () => currentPdfDocument === pdf && currentPaper?.id === paperId;
+  isAutoHighlighting = true;
+  updateAutoHighlightButton();
+  let added = 0;
+  let applied = false;
+  try {
+    setStatus("正在提取 PDF 文字，准备自动高亮…");
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      if (!isCurrent()) return;
+      const text = content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim();
+      if (text) pages.push({ pageNumber, text });
+    }
+    if (pages.reduce((total, page) => total + page.text.length, 0) < 80) {
+      throw new Error("PDF 可提取文字不足，扫描件需要先进行 OCR。");
+    }
+    setStatus("AI 正在挑选论文中的重要原文…");
+    const response = await apiFetch("/api/auto-highlight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages }),
+    });
+    const data = await readJsonResponse(response);
+    if (!isCurrent()) return;
+    if (!response.ok) throw new Error(data.error || "自动高亮失败，请重试。");
+    if (!Array.isArray(data.highlights)) throw new Error("自动高亮返回格式无效，请重试。");
+    const existing = new Set(savedHighlights.map((item) => `${item.pageNumber}:${normalizeHighlightQuote(item.selectedText)}`));
+    const pending = [];
+    let unmatched = 0;
+    for (const quote of data.highlights) {
+      if (!isCurrent()) return;
+      if (!quote || !Number.isInteger(quote.pageNumber) || typeof quote.text !== "string") continue;
+      const key = `${quote.pageNumber}:${normalizeHighlightQuote(quote.text)}`;
+      if (existing.has(key)) continue;
+      const pageNode = pdfViewer.querySelector(`.pdf-page[data-page-number="${quote.pageNumber}"]`);
+      if (!pageNode) { unmatched += 1; continue; }
+      const renderId = currentPdfTask;
+      await renderPdfPageInto(quote.pageNumber, pageNode, renderId);
+      if (!isCurrent()) return;
+      if (currentPdfTask !== renderId) throw new Error("页面布局已变化，请重新点击自动高亮。");
+      const range = findAutoHighlightRange(pageNode.querySelector(".pdf-text-layer"), quote.text);
+      const highlights = range ? createHighlightsFromRange(range, {
+        groupId: createAnnotationId(), color: "purple", selectedText: quote.text,
+        text: [], source: "auto-highlight",
+      }) : [];
+      if (!highlights.length) { unmatched += 1; continue; }
+      pending.push(...highlights);
+      existing.add(key);
+      added += 1;
+    }
+    if (!isCurrent()) return;
+    if (!pending.length) {
+      setStatus(unmatched ? "未能在 PDF 中精确定位重要原文，未新增高亮。" : "没有发现需要新增高亮的重要原文。");
+      return;
+    }
+    savedHighlights.push(...pending);
+    applied = true;
+    redrawHighlights();
+    refreshCommentsNavigation();
+    await saveCurrentPaper();
+    if (isCurrent()) setStatus(`已自动高亮 ${added} 处重要原文${unmatched ? `，${unmatched} 处未能精确定位` : ""}。`);
+  } catch (error) {
+    if (isCurrent()) setStatus(applied
+      ? `自动高亮未完成保存：${error.message || "请重试"}`
+      : (error.message || "自动高亮失败，请重试。"), true);
+  } finally {
+    isAutoHighlighting = false;
+    updateAutoHighlightButton();
+    scheduleVisiblePdfRender();
+  }
+}
+
 function highlightSelection() {
   if (!selectedPdfRange) return;
 
@@ -3294,7 +3423,7 @@ function renderCommentsFilter(card, groups) {
   Object.keys(commentSwatchColors).forEach((key) => {
     options.push({
       key,
-      label: key,
+      label: getCommentColorLabel(key),
       count: groups.filter((entry) => entry.color === key).length,
     });
   });
@@ -3315,7 +3444,7 @@ function renderCommentsFilter(card, groups) {
       swatch.className = "comments-color-filter-swatch";
       swatch.style.background = commentSwatchColors[option.key];
       const count = document.createElement("span");
-      count.textContent = String(option.count);
+      count.textContent = `${option.label} ${option.count}`;
       button.append(swatch, count);
     }
 
@@ -3324,8 +3453,82 @@ function renderCommentsFilter(card, groups) {
       commentsNavIndex = 0;
       refreshCommentsNavigation();
     });
-    filter.appendChild(button);
+    if (option.key === "all") {
+      filter.appendChild(button);
+      return;
+    }
+    const item = document.createElement("div");
+    item.className = "comments-color-filter-item";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "comments-color-edit-button";
+    edit.dataset.color = option.key;
+    edit.title = `编辑${commentColorNames[option.key]}批注含义`;
+    edit.setAttribute("aria-label", edit.title);
+    edit.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 5 5-12 12H4v-5Z"></path><path d="m13 6 5 5"></path></svg>';
+    edit.addEventListener("click", () => editCommentColorMeaning(item, button, edit, option, card));
+    item.append(button, edit);
+    filter.appendChild(item);
   });
+}
+
+function editCommentColorMeaning(item, button, edit, option, card) {
+  if (item.querySelector("input")) return;
+  const field = document.createElement("div");
+  field.className = "comments-color-inline-editor";
+  const swatch = document.createElement("span");
+  swatch.className = "comments-color-filter-swatch";
+  swatch.style.background = commentSwatchColors[option.key];
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "comments-color-meaning-input";
+  input.maxLength = 40;
+  input.value = commentColorMeanings[option.key] || "";
+  input.placeholder = commentColorNames[option.key];
+  input.setAttribute("aria-label", `${commentColorNames[option.key]}批注含义`);
+  input.title = "回车或移开焦点保存，Esc 取消；留空恢复颜色名称";
+  input.style.width = `${Math.max(4, Math.min(16, [...(input.value || input.placeholder)].length + 1))}em`;
+  const count = document.createElement("span");
+  count.textContent = String(option.count);
+  field.append(swatch, input, count);
+  button.replaceWith(field);
+  edit.hidden = true;
+  let finished = false;
+
+  function finish(save, restoreFocus = false) {
+    if (finished) return;
+    if (save) {
+      const next = normalizeCommentColorMeanings({ ...commentColorMeanings, [option.key]: input.value });
+      try {
+        localStorage.setItem(COMMENT_COLOR_MEANINGS_KEY, JSON.stringify(next));
+      } catch {
+        input.setAttribute("aria-invalid", "true");
+        setStatus("颜色含义保存失败，请检查浏览器存储权限后重试。", true);
+        return;
+      }
+      commentColorMeanings = next;
+    }
+    finished = true;
+    if (save) {
+      refreshCommentsNavigation();
+      if (restoreFocus) card.querySelector(`.comments-color-edit-button[data-color="${option.key}"]`)?.focus();
+    } else {
+      field.replaceWith(button);
+      edit.hidden = false;
+      if (restoreFocus) edit.focus();
+    }
+  }
+
+  input.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter" || event.key === "Escape") {
+      event.preventDefault();
+      finish(event.key === "Enter", true);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+  input.focus();
+  input.select();
 }
 
 function renderCommentsNavCard(card, groups, totalCount = groups.length) {
@@ -3351,6 +3554,11 @@ function renderCommentsNavCard(card, groups, totalCount = groups.length) {
     const swatch = document.createElement("span");
     swatch.className = "comments-nav-swatch";
     swatch.style.background = commentSwatchColors[entry.color] || entry.color || commentSwatchColors.yellow;
+    swatch.title = getCommentColorLabel(entry.color);
+
+    const meaning = document.createElement("span");
+    meaning.className = "comments-nav-meaning";
+    meaning.textContent = getCommentColorLabel(entry.color);
 
     const page = document.createElement("span");
     page.className = "comments-nav-page";
@@ -3368,7 +3576,7 @@ function renderCommentsNavCard(card, groups, totalCount = groups.length) {
       deleteCommentEntry(entry.groupId, entry.entryIndex);
     });
 
-    head.append(swatch, page, deleteButton);
+    head.append(swatch, meaning, page, deleteButton);
 
     const body = document.createElement("span");
     body.className = "comments-nav-body";

@@ -1,4 +1,5 @@
 import { initSettingsModal } from "../components/settings_modal.js";
+import { initPaperFlags } from "../components/paper_flags.js";
 import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "../components/category_manager.js";
 import {
   RECENT_PAPERS_KEY,
@@ -57,14 +58,6 @@ const libraryCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>';
 const folderCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
-const paperReadUncheckedSvg =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
-const paperReadCheckedSvg =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 22v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
-const paperTodoUncheckedSvg =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 7v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 10h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
-const paperTodoCheckedSvg =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="m9 12 2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 const todoCategoryIconSvg =
   '<svg class="category-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>';
 const plusCircleSvg =
@@ -113,6 +106,20 @@ let libCitationFormats = null;
 let libCitationFormat = "gbt7714";
 const selectedPaperIds = new Set();
 let paperBulkBusy = false;
+const paperFlags = initPaperFlags({
+  apiFetch,
+  readJsonResponse,
+  getPapers: () => collectPapers(libraryTree),
+  onChange: data => { libraryTree = data.tree || libraryTree; },
+  onClose: ({ changed, paperId, restoreFocus }) => {
+    if (!changed) return;
+    renderLibrary();
+    if (restoreFocus) {
+      const row = [...paperList.querySelectorAll(".paper-table-row")].find(row => row.dataset.paperId === paperId);
+      (row?.querySelector(".paper-flags-button") || categoryTree.querySelector(".category-item.active"))?.focus();
+    }
+  },
+});
 
 migrateLegacyRecentPapers();
 loadLibrary();
@@ -553,6 +560,7 @@ async function loadLibrary(focusPaperId = "") {
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || "Failed to load library.");
     libraryTree = data.tree;
+    paperFlags.setDefinitions(data.flags);
     libraryRoot.textContent = `Storage: ${data.root}`;
     if (focusPaperId) selectedCategoryId = findPaperCategory(libraryTree, focusPaperId) || selectedCategoryId;
     renderLibrary();
@@ -565,6 +573,7 @@ async function loadLibrary(focusPaperId = "") {
 }
 
 function renderLibrary() {
+  paperFlags.close({ restoreFocus: false, notify: false });
   // The search bar is a static child of the tree, so only clear the dynamic
   // rows — this keeps the search input mounted and focused while typing.
   categoryTopRows.innerHTML = "";
@@ -862,8 +871,9 @@ function renderPaperList(papers) {
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
   const sortableHeaders = { "标题": "title", "上传时间": "uploadedAt", "上次阅读": "lastRead" };
-  ["标题", "上传时间", "上次阅读", "已读", "待办", "选项"].forEach((label) => {
+  ["标题", "上传时间", "上次阅读", "标志", "选项"].forEach((label) => {
     const th = document.createElement("th");
+    if (label === "标志") th.className = "paper-flags-column";
     const sortKey = sortableHeaders[label];
     if (sortKey) {
       th.classList.add("paper-sortable");
@@ -957,32 +967,10 @@ function renderPaperList(papers) {
     viewedTd.className = "paper-date-cell";
     viewedTd.textContent = formatViewedDate(viewedAt);
 
-    const readTd = document.createElement("td");
-    readTd.className = "paper-read-cell";
-    const readToggle = document.createElement("button");
-    readToggle.type = "button";
-    readToggle.className = "paper-read-toggle";
-    readToggle.classList.toggle("checked", Boolean(paper.read));
-    readToggle.setAttribute("aria-label", "已读");
-    readToggle.title = "已读";
-    readToggle.innerHTML = paper.read ? paperReadCheckedSvg : paperReadUncheckedSvg;
-    readToggle.addEventListener("click", () => updatePaperRead(paper, readToggle, !paper.read));
-    readTd.appendChild(readToggle);
-
-    const cells = [titleTd, uploadTd, viewedTd, readTd];
-
-    const todoTd = document.createElement("td");
-    todoTd.className = "paper-todo-cell";
-    const todoToggle = document.createElement("button");
-    todoToggle.type = "button";
-    todoToggle.className = "paper-todo-toggle";
-    todoToggle.classList.toggle("checked", Boolean(paper.todo));
-    todoToggle.setAttribute("aria-label", "待办");
-    todoToggle.title = "待办";
-    todoToggle.innerHTML = paper.todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
-    todoToggle.addEventListener("click", () => updatePaperTodo(paper, todoToggle, !paper.todo));
-    todoTd.appendChild(todoToggle);
-    cells.push(todoTd);
+    const flagsTd = document.createElement("td");
+    flagsTd.className = "paper-flags-cell";
+    flagsTd.appendChild(paperFlags.createButton(paper));
+    const cells = [titleTd, uploadTd, viewedTd, flagsTd];
 
     const optionsTd = document.createElement("td");
     optionsTd.className = "paper-options-cell";
@@ -1139,58 +1127,12 @@ async function runLegacyPaperBatch(payload) {
   return lastData;
 }
 
-async function updatePaperRead(paper, toggle, read) {
-  try {
-    const response = await apiFetch("/api/library/paper", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: paper.id, read }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "更新已读状态失败。");
-    paper.read = read;
-    if (toggle) {
-      toggle.classList.toggle("checked", read);
-      toggle.innerHTML = read ? paperReadCheckedSvg : paperReadUncheckedSvg;
-    }
-  } catch (error) {
-    console.error("Failed to update read marker.", error);
-    renderLibrary();
-  }
-}
-
-async function updatePaperTodo(paper, toggle, todo) {
-  try {
-    const response = await apiFetch("/api/library/paper", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: paper.id, todo }),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || "更新待办状态失败。");
-    paper.todo = todo;
-    // In the Todo view, unchecking removes the paper from the list, so refresh
-    // the view to reflect that immediately.
-    if (selectedCategoryId === TODO_CATEGORY_ID) {
-      renderLibrary();
-      return;
-    }
-    if (toggle) {
-      toggle.classList.toggle("checked", todo);
-      toggle.innerHTML = todo ? paperTodoCheckedSvg : paperTodoUncheckedSvg;
-    }
-  } catch (error) {
-    console.error("Failed to update todo marker.", error);
-    renderLibrary();
-  }
-}
-
 let paperColumnWidths = [];
 
 function initPaperTableResize(table) {
   const ths = Array.from(table.querySelectorAll("thead th"));
   const resizableCount = ths.length - 1;
-  const defaults = [50, 14, 14, 6, 6];
+  const defaults = [54, 14, 14, 12];
   if (paperColumnWidths.length !== resizableCount) paperColumnWidths = [...defaults];
   // Columns before the last are resizable; the last (选项) is width:auto and
   // absorbs the delta so the table always fills 100%.
@@ -1914,13 +1856,17 @@ function findCategoryNode(node, id) {
 }
 
 function filterPapers(papers, query) {
-  if (!query) return papers;
+  const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return papers;
   return papers.filter((paper) => {
-    const haystack = [paper.title, categorySearchText(paper), ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
+    const authors = paper.basicInfo?.authors;
+    const haystack = [paper.title, categorySearchText(paper),
+      ...(Array.isArray(authors) ? authors : [authors]), paperFlags.searchText(paper),
+      ...(Array.isArray(paper.keywords) ? paper.keywords : [])]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    return haystack.includes(query);
+    return terms.every(term => haystack.includes(term));
   });
 }
 

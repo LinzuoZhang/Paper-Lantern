@@ -72,7 +72,7 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 - 内容与元数据：`title`、`notes`（Markdown 字符串）、`doi`、`basicInfo`、`summary`、`overviewInfo`。
 - 批注与讨论：`highlights`（数组）、`discussion`（数组或包含线程的对象）。提交这些字段会替换相应已保存内容，客户端应先读取并合并。
 - 分类：`categoryIds`。
-- 本地状态：`read`、`todo`（布尔值），仅保存在本机，不触发云同步。
+- 本地状态：`read`、`todo`（布尔值），或 `flags`（完整的标志 ID 数组），仅保存在本机，不触发云同步。`flags` 替换当前全部标志，空数组清空；内置 ID `read`、`todo` 与原有布尔字段保持兼容。
 - 文本缓存：`extractedText`（字符串）。
 
 ```json
@@ -80,6 +80,18 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 ```
 
 `action: "view"` 更新最近阅读时间，返回 `{id, viewedAt}`。
+
+### 文献标志
+
+`GET /api/library/flags` 返回 `{flags: [{id, name, builtin}]}`，包含内置“已读”“待办”和已创建的自定义标志。`GET /api/library` 也提供同一 `flags` 列表；每篇文献的 `flags` 字段表示已选择的标志 ID。
+
+`POST /api/library/flags` 接受 `{name: "精读"}`，创建可重复使用的自定义标志，返回 `{flag, flags}`。名称限 1–24 个字符，同名标志会复用已有 ID；最多创建 100 个自定义标志。创建定义后，通过保存接口分配给文献：
+
+```json
+{"id":"<paper-id>","flags":["read","<custom-flag-id>"]}
+```
+
+定义和选择状态保存在文献库目录的 `paperlantern-flags.json`，与最近阅读记录共用本机状态文件。旧版 `read`、`todo` 更新仍可使用，并保留其他自定义标志。
 
 `action: "delete"` 使用 `id` 归档条目；`delete-many` 使用 `ids` 数组批量归档，返回中包含 `deleted` 数量。当前 HTTP 删除操作会将条目移入可恢复归档；恢复与永久删除工具见 MCP 文档。
 
@@ -124,10 +136,13 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 | `/api/summarize` | `paperText`，可选 `paperId`、`stream` | `{summary, raw}` |
 | `/api/translate` | `text`，可选 `paperText`、`summary` | `{translation}` |
 | `/api/explain` | `selectedText`、`paperText`，可选 `summary` | `{explanation}` |
+| `/api/auto-highlight` | `pages: [{pageNumber, text}]`，页码从 1 开始 | `{highlights: [{pageNumber, text}]}` |
 | `/api/discuss` | `question`、`paperText`，可选 `summary`、`history`、`selectionReference`、`contextType`、`taskInstruction`、`stream` | `{answer}` |
 | `/api/discussion-title` | `question`，可选 `answer`、`paperTitle`、`selectionReference` | `{title}` |
 
 概览、总结、解释和论文讨论要求去除首尾空白后的 `paperText` 至少 80 个字符。讨论设为 `contextType: "note"` 时使用笔记上下文，不受该最低长度限制；`history` 使用 `role`、`content` 消息对象数组。翻译的文本字段是 `text`，解释的文本字段是 `selectedText`。
+
+自动高亮按最多 24,000 字符分批请求当前配置的 LLM，每批最多选择 6 处重要原文。分页文本合计需至少 80 字符、最多 500,000 字符；无法在对应页唯一定位的引文会被丢弃。接口不保存批注，阅读器将结果精确定位为紫色高亮，合并已有批注后保存；已高亮的相同原文不会重复添加。
 
 ### 流式响应
 

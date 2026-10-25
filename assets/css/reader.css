@@ -70,6 +70,12 @@ body.paper-reader-page {
 .paper-reader-page :is(.pdf-toolbar-button, .metadata-action-button, .citation-search-button):hover:not(:disabled) { background: var(--note-hover); color: var(--note-ink); }
 .paper-reader-page .pdf-toolbar-button:is(.active, [aria-expanded="true"]) { background: var(--note-active); color: var(--note-ink); }
 .paper-reader-page .pdf-toolbar-button:disabled { opacity: .35; }
+.paper-reader-page #autoHighlightButton[aria-busy="true"] { opacity: .7; }
+.paper-reader-page #autoHighlightButton[aria-busy="true"] svg { animation: auto-highlight-pulse 1.2s ease-in-out infinite; }
+@keyframes auto-highlight-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) {
+  .paper-reader-page #autoHighlightButton[aria-busy="true"] svg { animation: none; }
+}
 .paper-reader-page :is(.pdf-toolbar-button, .metadata-action-button, .citation-search-button) svg { width: 17px; height: 17px; stroke-width: 1.7; }
 .paper-reader-page .pdf-zoom-label {
   width: 52px;

@@ -23,6 +23,7 @@ from urllib.parse import unquote, urlparse
 
 from backend.config_store import get_secret, load_config, public_config, save_config
 from backend.llm_diagnostics import RequestTiming
+from backend.auto_highlight import normalize_pages, select_important_quotes
 from backend.link_preview import fetch_link_preview
 from backend.discussion_research import research_discussion, normalize_paper_references
 from backend.cloud_sync import SyncCancelled, auto_sync_library, get_sync_config, public_status, read_sync_progress, request_sync_cancel, save_sync_config, sync_library, update_paper_sync_hash, write_sync_progress
@@ -56,6 +57,10 @@ LIBRARY_DIR = Path(os.environ.get("PAPER_LIBRARY_DIR", BASE_DIR / "literature_li
 DB_FILE = LIBRARY_DIR / "library_db.json"
 FLAGS_FILE = LIBRARY_DIR / "paperlantern-flags.json"
 FLAGS_LOCK = threading.RLock()
+BUILTIN_PAPER_FLAGS = [
+    {"id": "read", "name": "已读", "builtin": True},
+    {"id": "todo", "name": "待办", "builtin": True},
+]
 KEYWORD_EXPLANATIONS_FILE = LIBRARY_DIR / "keyword_explanations.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 NOTE_STORAGE_DIR = LIBRARY_DIR / "notes"
@@ -559,7 +564,7 @@ def write_json(path, data):
 
 
 def load_paper_flags():
-    """Local-only read/todo/recent state, stored in a library-level file that is NOT
+    """Local-only flags/recent state, stored in a library-level file that is NOT
     part of cloud sync."""
     with FLAGS_LOCK:
         data = read_json(FLAGS_FILE, {"papers": {}})
@@ -567,31 +572,88 @@ def load_paper_flags():
             data = {"papers": {}}
         if not isinstance(data.get("papers"), dict):
             data["papers"] = {}
+        if not isinstance(data.get("customFlags"), list):
+            data["customFlags"] = []
         return data
 
 
 def save_paper_flags(flags):
     with FLAGS_LOCK:
+        FLAGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         write_json(FLAGS_FILE, flags)
+
+
+def library_flag_definitions(data=None):
+    data = load_paper_flags() if data is None else data
+    custom = [
+        {"id": item["id"], "name": item["name"], "builtin": False}
+        for item in data.get("customFlags", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+        and item["id"].startswith("flag-") and isinstance(item.get("name"), str)
+        and item["name"].strip()
+    ]
+    return [dict(item) for item in BUILTIN_PAPER_FLAGS] + custom
+
+
+def create_library_flag(name):
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 24:
+        raise ValueError("标志名称须为 1–24 个字符。")
+    name = name.strip()
+    if any(ord(char) < 32 or ord(char) == 127 for char in name):
+        raise ValueError("标志名称不能包含控制字符。")
+    with FLAGS_LOCK:
+        data = load_paper_flags()
+        for item in library_flag_definitions(data):
+            if item["name"].casefold() == name.casefold():
+                return item
+        if len(data["customFlags"]) >= 100:
+            raise ValueError("最多可创建 100 个自定义标志。")
+        item = {"id": f"flag-{uuid.uuid4().hex}", "name": name}
+        data["customFlags"].append(item)
+        save_paper_flags(data)
+        return {**item, "builtin": False}
+
+
+def normalize_paper_flag_ids(value):
+    if not isinstance(value, list) or len(value) > 102 or any(not isinstance(item, str) for item in value):
+        raise ValueError("flags 须为标志 ID 数组。")
+    known = {item["id"] for item in library_flag_definitions()}
+    if any(item not in known for item in value):
+        raise ValueError("标志不存在，请刷新后重试。")
+    return list(dict.fromkeys(value))
 
 
 def paper_local_state(paper_id, metadata):
     """Return local-only paper state, with legacy metadata fallbacks."""
-    entry = load_paper_flags().get("papers", {}).get(paper_id, {})
+    data = load_paper_flags()
+    entry = data.get("papers", {}).get(paper_id, {})
     if not isinstance(entry, dict):
         entry = {}
     viewed_at = entry.get("viewedAt", metadata.get("viewedAt", ""))
+    read = bool(entry.get("read", metadata.get("read", False)))
+    todo = bool(entry.get("todo", metadata.get("todo", False)))
+    custom_ids = {item["id"] for item in library_flag_definitions(data) if not item["builtin"]}
+    stored = entry.get("flags", [])
+    selected = [item for item in stored if isinstance(item, str) and item in custom_ids] if isinstance(stored, list) else []
     return {
-        "read": bool(entry.get("read", metadata.get("read", False))),
-        "todo": bool(entry.get("todo", metadata.get("todo", False))),
+        "read": read,
+        "todo": todo,
+        "flags": (["read"] if read else []) + (["todo"] if todo else []) + list(dict.fromkeys(selected)),
         "viewedAt": str(viewed_at).strip() if isinstance(viewed_at, str) else "",
     }
 
 
 def update_paper_local_state(paper_id, updates):
     with FLAGS_LOCK:
+        updates = dict(updates)
+        if "flags" in updates:
+            selected = normalize_paper_flag_ids(updates["flags"])
+            updates.update(read="read" in selected, todo="todo" in selected,
+                           flags=[item for item in selected if item not in {"read", "todo"}])
         flags = load_paper_flags()
-        entry = flags["papers"].setdefault(str(paper_id), {})
+        if not isinstance(flags["papers"].get(str(paper_id)), dict):
+            flags["papers"][str(paper_id)] = {}
+        entry = flags["papers"][str(paper_id)]
         entry.update(updates)
         save_paper_flags(flags)
 
@@ -1043,6 +1105,7 @@ def read_paper(paper_id):
         "methodConclusion": str(metadata.get("methodConclusion", "")).strip(),
         "read": local_state["read"],
         "todo": local_state["todo"],
+        "flags": local_state["flags"],
         "viewedAt": local_state["viewedAt"],
         "notes": read_paper_notes(paper_dir, metadata),
     }
@@ -1433,6 +1496,7 @@ def read_paper(paper_id, db=None, include_extracted_text=False):
         "notes": read_paper_notes(paper_dir, metadata),
         "read": local_state["read"],
         "todo": local_state["todo"],
+        "flags": local_state["flags"],
         "viewedAt": local_state["viewedAt"],
         "discussion": discussion,
         "extractedText": extracted_text,
@@ -1989,6 +2053,7 @@ def merge_duplicate_items(canonical_id, duplicate_ids):
             duplicate_state = paper_local_state(duplicate_id, duplicate_metadata)
             read_state["read"] = read_state["read"] or duplicate_state["read"]
             read_state["todo"] = read_state["todo"] or duplicate_state["todo"]
+            read_state["flags"] = unique_strings(read_state["flags"] + duplicate_state["flags"])
             read_state["viewedAt"] = max(read_state["viewedAt"], duplicate_state["viewedAt"])
             merged_ids.append(duplicate_id)
 
@@ -2120,6 +2185,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/library/paper":
             self._handle_library_save()
             return
+        if request_path == "/api/library/flags":
+            self._handle_library_flag_create()
+            return
         if request_path == "/api/library/notes/pdf":
             self._handle_notes_pdf_export()
             return
@@ -2145,7 +2213,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._handle_citation_apply()
             return
 
-        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/discuss", "/api/discussion-title", "/api/discussion/paper-summary"}:
+        if request_path not in {"/api/summarize", "/api/overview", "/api/translate", "/api/explain", "/api/auto-highlight", "/api/discuss", "/api/discussion-title", "/api/discussion/paper-summary"}:
             self.send_error(404, "Not found")
             return
 
@@ -2169,6 +2237,30 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self._send_json(404, {"error": str(exc)})
             except Exception as exc:
                 self._send_json(500, {"error": "论文摘要准备失败。", "detail": str(exc)})
+            return
+
+        if request_path == "/api/auto-highlight":
+            try:
+                pages = normalize_pages(payload.get("pages") if isinstance(payload, dict) else None)
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            try:
+                def complete(prompt):
+                    parsed, _raw = call_chat_completions(
+                        api_key, model, chat_completions_url, prompt,
+                        system_prompt="你是严谨的论文阅读助手。仅选择可在原文中逐字定位的重要文字，返回 JSON。",
+                        temperature=0.1,
+                    )
+                    return parsed
+
+                highlights = select_important_quotes(pages, complete)
+                self._send_json(200, {"highlights": highlights})
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(exc.code, {"error": "自动高亮 AI 请求失败。", "detail": detail})
+            except Exception as exc:
+                self._send_json(500, {"error": "自动高亮失败。", "detail": str(exc)})
             return
 
         if request_path == "/api/translate":
@@ -2353,7 +2445,10 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "app": "Paper Lantern", "root": str(LIBRARY_DIR)})
             return
         if request_path == "/api/library":
-            self._send_json(200, {"root": str(LIBRARY_DIR), "tree": read_library_tree()})
+            self._send_json(200, {"root": str(LIBRARY_DIR), "tree": read_library_tree(), "flags": library_flag_definitions()})
+            return
+        if request_path == "/api/library/flags":
+            self._send_json(200, {"flags": library_flag_definitions()})
             return
         if request_path == "/api/library/import/status":
             try:
@@ -2684,6 +2779,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             update_paper_local_state(record["id"], {"viewedAt": viewed_at})
             self._send_json(200, {"id": record["id"], "viewedAt": viewed_at})
             return
+        local_updates = {key: payload[key] for key in ("read", "todo") if isinstance(payload.get(key), bool)}
+        if "flags" in payload:
+            try:
+                local_updates["flags"] = normalize_paper_flag_ids(payload["flags"])
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+        if local_updates and set(payload) <= {"id", "action", "read", "todo", "flags"}:
+            update_paper_local_state(record["id"], local_updates)
+            self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree()})
+            return
         paper_dir = paper_dir_from_record(record)
 
         metadata = read_json(paper_dir / "metadata.json", default_metadata(record.get("title", record["id"]), record.get("categoryId", UNCATEGORIZED_ID)))
@@ -2743,14 +2849,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             write_paper_notes(paper_dir, payload["notes"])
             metadata.pop("notes", None)
             sync_relevant_changed = True
-        if isinstance(payload.get("read"), bool) or isinstance(payload.get("todo"), bool):
-            updates = {}
-            if isinstance(payload.get("read"), bool):
-                updates["read"] = payload["read"]
-            if isinstance(payload.get("todo"), bool):
-                updates["todo"] = payload["todo"]
-            update_paper_local_state(record["id"], updates)
-            # Read/todo markers are local-only preferences, stored outside
+        if local_updates:
+            update_paper_local_state(record["id"], local_updates)
+            # Markers are local-only preferences, stored outside
             # metadata.json so cloud sync is never triggered.
         if isinstance(payload.get("extractedText"), str):
             extracted_text = payload["extractedText"].strip()
@@ -2761,6 +2862,17 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         save_library_db(db)
         sync = maybe_auto_sync_library() if sync_relevant_changed else None
         self._send_json(200, {"paper": read_paper(record["id"], db), "tree": read_library_tree(), "sync": sync})
+
+    def _handle_library_flag_create(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Invalid JSON request.")
+            flag = create_library_flag(payload.get("name"))
+            self._send_json(200, {"flag": flag, "flags": library_flag_definitions()})
+        except (ValueError, OSError) as exc:
+            self._send_json(400, {"error": str(exc)})
 
     def _handle_library_note_create(self):
         try:
