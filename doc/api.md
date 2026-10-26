@@ -83,12 +83,22 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 ### 文献标志
 
-`GET /api/library/flags` 返回 `{flags: [{id, name, builtin}]}`，包含内置“已读”“待办”和已创建的自定义标志。`GET /api/library` 也提供同一 `flags` 列表；每篇文献的 `flags` 字段表示已选择的标志 ID。
+`GET /api/library/flags` 返回 `{flags: [{id, name, builtin, color, icon}]}`，包含内置“已读”“待办”和已创建的自定义标志。`color` 为 `#RRGGBB` 格式的图标颜色，默认为 `#73777d`；`icon` 默认为 `flag`。`GET /api/library` 也提供同一 `flags` 列表；每篇文献的 `flags` 字段表示已选择的标志 ID。
 
 `POST /api/library/flags` 接受 `{name: "精读"}`，创建可重复使用的自定义标志，返回 `{flag, flags}`。名称限 1–24 个字符，同名标志会复用已有 ID；最多创建 100 个自定义标志。创建定义后，通过保存接口分配给文献：
 
 ```json
 {"id":"<paper-id>","flags":["read","<custom-flag-id>"]}
+```
+
+同一标志接口也接受 `{id: "todo", color: "#4776a8", icon: "star"}`，其中 `color`、`icon` 均可单独提交，返回 `{flag, flags}`。`icon` 支持 `flag`、`star`、`bookmark`、`circle`、`heart`、`bolt`、`check`、`tag`。支持内置和自定义标志，保留未提交的设置，不修改文献分配状态或触发云同步。
+
+批量管理使用 `POST /api/library/paper` 的 `flags-many` 操作。`ids` 为文献 ID 数组，`flags` 为需要添加或移除的标志 ID 数组，`operation` 为 `add` 或 `remove`；每篇文献的其他标志保持不变。返回 `{papers, tree, sync: null}`，全部 ID 验证通过后才保存，不触发云同步。
+
+文献库前端提交 `response: "flags"` 获取轻量响应：`{papers: [{id, read, todo, flags, viewedAt}], sync: null}`，只更新本地列表中的标志，不重新读取或返回整库正文、讨论及笔记。未指定该字段时保留完整响应。
+
+```json
+{"action":"flags-many","ids":["<paper-id-a>","<paper-id-b>"],"flags":["todo","<custom-flag-id>"],"operation":"add"}
 ```
 
 定义和选择状态保存在文献库目录的 `paperlantern-flags.json`，与最近阅读记录共用本机状态文件。旧版 `read`、`todo` 更新仍可使用，并保留其他自定义标志。

@@ -1955,12 +1955,14 @@ async function summarizeText(text) {
         threeLineSummary: {
           ...summary.threeLineSummary,
           challenges: event.summary.threeLineSummary?.challenges || "",
+          method: event.summary.threeLineSummary?.method || "",
           conclusion: event.summary.threeLineSummary?.conclusion || "",
         },
       };
       renderBasicInfo(summary.basicInfo);
       renderKeywords(summary.keywords);
       renderSummaryLine(challenges, summary.threeLineSummary.challenges);
+      renderSummaryLine(method, summary.threeLineSummary.method);
       renderSummaryLine(conclusion, summary.threeLineSummary.conclusion);
     } else if (event.stage === "keywords") {
       summary = { ...summary, keywords: event.summary.keywords || [], keywordExplanations: event.summary.keywordExplanations || {} };

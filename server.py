@@ -61,6 +61,9 @@ BUILTIN_PAPER_FLAGS = [
     {"id": "read", "name": "已读", "builtin": True},
     {"id": "todo", "name": "待办", "builtin": True},
 ]
+DEFAULT_FLAG_COLOR = "#73777d"
+DEFAULT_FLAG_ICON = "flag"
+PAPER_FLAG_ICONS = ("flag", "star", "bookmark", "circle", "heart", "bolt", "check", "tag")
 KEYWORD_EXPLANATIONS_FILE = LIBRARY_DIR / "keyword_explanations.json"
 PAPER_STORAGE_DIR = LIBRARY_DIR / "papers"
 NOTE_STORAGE_DIR = LIBRARY_DIR / "notes"
@@ -592,7 +595,17 @@ def library_flag_definitions(data=None):
         and item["id"].startswith("flag-") and isinstance(item.get("name"), str)
         and item["name"].strip()
     ]
-    return [dict(item) for item in BUILTIN_PAPER_FLAGS] + custom
+    colors = data.get("flagColors", {})
+    colors = colors if isinstance(colors, dict) else {}
+    icons = data.get("flagIcons", {})
+    icons = icons if isinstance(icons, dict) else {}
+    definitions = [dict(item) for item in BUILTIN_PAPER_FLAGS] + custom
+    for item in definitions:
+        color = colors.get(item["id"])
+        item["color"] = color.lower() if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else DEFAULT_FLAG_COLOR
+        icon = icons.get(item["id"])
+        item["icon"] = icon if isinstance(icon, str) and icon in PAPER_FLAG_ICONS else DEFAULT_FLAG_ICON
+    return definitions
 
 
 def create_library_flag(name):
@@ -611,21 +624,55 @@ def create_library_flag(name):
         item = {"id": f"flag-{uuid.uuid4().hex}", "name": name}
         data["customFlags"].append(item)
         save_paper_flags(data)
-        return {**item, "builtin": False}
+        return {**item, "builtin": False, "color": DEFAULT_FLAG_COLOR, "icon": DEFAULT_FLAG_ICON}
 
 
-def normalize_paper_flag_ids(value):
+def update_library_flag_color(flag_id, color):
+    return update_library_flag_appearance(flag_id, {"color": color})
+
+
+def update_library_flag_appearance(flag_id, updates):
+    if not isinstance(updates, dict):
+        raise ValueError("图标设置须为对象。")
+    values = {}
+    if "color" in updates:
+        color = updates["color"]
+        if not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise ValueError("颜色须为 #RRGGBB 格式。")
+        values["color"] = color.lower()
+    if "icon" in updates:
+        icon = updates["icon"]
+        if not isinstance(icon, str) or icon not in PAPER_FLAG_ICONS:
+            raise ValueError("请选择预设图标。")
+        values["icon"] = icon
+    if not values:
+        raise ValueError("请提供图标或颜色。")
+    with FLAGS_LOCK:
+        data = load_paper_flags()
+        flag = next((item for item in library_flag_definitions(data) if item["id"] == flag_id), None)
+        if flag is None:
+            raise ValueError("标志不存在，请刷新后重试。")
+        for key, value in values.items():
+            field = "flagColors" if key == "color" else "flagIcons"
+            if not isinstance(data.get(field), dict):
+                data[field] = {}
+            data[field][flag["id"]] = value
+        save_paper_flags(data)
+        return {**flag, **values}
+
+
+def normalize_paper_flag_ids(value, data=None):
     if not isinstance(value, list) or len(value) > 102 or any(not isinstance(item, str) for item in value):
         raise ValueError("flags 须为标志 ID 数组。")
-    known = {item["id"] for item in library_flag_definitions()}
+    known = {item["id"] for item in library_flag_definitions(data)}
     if any(item not in known for item in value):
         raise ValueError("标志不存在，请刷新后重试。")
     return list(dict.fromkeys(value))
 
 
-def paper_local_state(paper_id, metadata):
+def paper_local_state(paper_id, metadata, data=None):
     """Return local-only paper state, with legacy metadata fallbacks."""
-    data = load_paper_flags()
+    data = load_paper_flags() if data is None else data
     entry = data.get("papers", {}).get(paper_id, {})
     if not isinstance(entry, dict):
         entry = {}
@@ -1729,6 +1776,35 @@ def move_papers(paper_ids, category_values):
         return [read_paper(paper_id, db) for paper_id in ids]
 
 
+def update_papers_flags(paper_ids, flag_ids, operation, *, compact=False):
+    ids = normalize_paper_ids(paper_ids)
+    if not isinstance(operation, str) or operation not in {"add", "remove"}:
+        raise ValueError("operation 须为 add 或 remove。")
+    with LIBRARY_LOCK, FLAGS_LOCK:
+        db = load_library_db()
+        missing = [paper_id for paper_id in ids if paper_id not in db["papers"]]
+        if missing:
+            raise FileNotFoundError(f"Paper not found: {missing[0]}")
+        data = load_paper_flags()
+        selected = normalize_paper_flag_ids(flag_ids, data)
+        if not selected:
+            raise ValueError("请选择至少一个标志。")
+        states = []
+        for paper_id in ids:
+            record = db["papers"][paper_id]
+            metadata = read_json(paper_dir_from_record(record) / "metadata.json", {})
+            current = paper_local_state(paper_id, metadata, data)["flags"]
+            updated = list(dict.fromkeys(current + selected)) if operation == "add" else [item for item in current if item not in selected]
+            entry = data["papers"].get(paper_id, {})
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            entry.update(read="read" in updated, todo="todo" in updated,
+                         flags=[item for item in updated if item not in {"read", "todo"}])
+            data["papers"][paper_id] = entry
+            states.append({"id": paper_id, **paper_local_state(paper_id, metadata, data)})
+        save_paper_flags(data)
+        return states if compact else [read_paper(paper_id, db) for paper_id in ids]
+
+
 def delete_papers(paper_ids):
     ids = normalize_paper_ids(paper_ids)
     with LIBRARY_LOCK:
@@ -2719,6 +2795,19 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         action = str(payload.get("action", "save")).strip() or "save"
+        if action == "flags-many":
+            try:
+                compact = payload.get("response") == "flags"
+                papers = update_papers_flags(payload.get("ids"), payload.get("flags"), payload.get("operation"), compact=compact)
+                result = {"papers": papers, "sync": None}
+                if not compact:
+                    result["tree"] = read_library_tree()
+                self._send_json(200, result)
+            except FileNotFoundError as exc:
+                self._send_json(404, {"error": str(exc)})
+            except (OSError, ValueError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if action == "move-many":
             try:
                 papers = move_papers(payload.get("ids"), request_category_ids(payload))
@@ -2861,7 +2950,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("Invalid JSON request.")
-            flag = create_library_flag(payload.get("name"))
+            flag = update_library_flag_appearance(payload.get("id"), payload) if "id" in payload else create_library_flag(payload.get("name"))
             self._send_json(200, {"flag": flag, "flags": library_flag_definitions()})
         except (ValueError, OSError) as exc:
             self._send_json(400, {"error": str(exc)})
@@ -3231,7 +3320,7 @@ def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=No
         "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
         "threeLineSummary": {
             "challenges": three_line.get("challenges", ""),
-            "method": method_text,
+            "method": three_line.get("method", "") or method_text,
             "conclusion": three_line.get("conclusion", ""),
         },
         "methodOverview": str(formatted.get("methodOverview", "")).strip(),
@@ -3449,6 +3538,7 @@ def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run
         "methodPoints": normalize_method_points(overview.get("methodPoints", [])),
         "threeLineSummary": {
             "challenges": str(three_line.get("challenges", "")).strip(),
+            "method": str(three_line.get("method", "")).strip(),
             "conclusion": str(three_line.get("conclusion", "")).strip(),
         },
     }

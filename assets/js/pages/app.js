@@ -1,5 +1,6 @@
 import { initSettingsModal } from "../components/settings_modal.js";
-import { initPaperFlags } from "../components/paper_flags.js";
+import { initPaperFlags, applyPaperFlagUpdates } from "../components/paper_flags.js";
+import { initPaperFlagFilter } from "../components/paper_flag_filter.js";
 import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "../components/category_manager.js";
 import {
   RECENT_PAPERS_KEY,
@@ -25,6 +26,7 @@ const paperInfoPanel = document.querySelector("#paperInfoPanel");
 const currentCategoryName = document.querySelector("#currentCategoryName");
 const paperBulkToolbar = document.querySelector("#paperBulkToolbar");
 const paperBulkCount = document.querySelector("#paperBulkCount");
+const paperBulkFlagsButton = document.querySelector("#paperBulkFlagsButton");
 const paperBulkMoveButton = document.querySelector("#paperBulkMoveButton");
 const paperBulkDeleteButton = document.querySelector("#paperBulkDeleteButton");
 const librarySearchInput = document.querySelector("#librarySearchInput");
@@ -95,6 +97,7 @@ function sortPapers(papers) {
   return list;
 }
 let searchQuery = "";
+let flagFilterPapers = [];
 let libraryDragState = null;
 let libraryFileDragDepth = 0;
 let arxivDownloadOverlayTimer = null;
@@ -110,14 +113,31 @@ const paperFlags = initPaperFlags({
   apiFetch,
   readJsonResponse,
   getPapers: () => collectPapers(libraryTree),
-  onChange: data => { libraryTree = data.tree || libraryTree; },
-  onClose: ({ changed, paperId, restoreFocus }) => {
+  onBulkBusyChange: setPaperBulkBusy,
+  onChange: data => {
+    if (data.tree) libraryTree = data.tree;
+    else applyPaperFlagUpdates(libraryTree, data.papers || [data.paper]);
+  },
+  onClose: ({ changed, paperId, restoreFocus, bulk }) => {
     if (!changed) return;
     renderLibrary();
     if (restoreFocus) {
       const row = [...paperList.querySelectorAll(".paper-table-row")].find(row => row.dataset.paperId === paperId);
-      (row?.querySelector(".paper-flags-button") || categoryTree.querySelector(".category-item.active"))?.focus();
+      const target = bulk && !paperBulkFlagsButton?.disabled && !paperBulkToolbar.hidden
+        ? paperBulkFlagsButton : row?.querySelector(".paper-flags-button");
+      (target || categoryTree.querySelector(".category-item.active"))?.focus();
     }
+  },
+});
+
+const paperFlagFilter = initPaperFlagFilter({
+  getDefinitions: () => paperFlags.getDefinitions(),
+  getPapers: () => flagFilterPapers,
+  getAllPapers: () => collectPapers(libraryTree),
+  onBeforeOpen: () => paperFlags.close({ restoreFocus: false }),
+  onChange: () => {
+    clearPaperSelection();
+    renderLibrary({ preserveFlagFilter: true });
   },
 });
 
@@ -294,9 +314,14 @@ paperBulkMoveButton?.addEventListener("click", () => {
 });
 
 paperBulkDeleteButton?.addEventListener("click", deleteSelectedPapers);
+paperBulkFlagsButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const papers = getSelectedPapers();
+  if (papers.length && !paperBulkBusy) paperFlags.openBulk(paperBulkFlagsButton, papers);
+});
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
+  if (event.key !== "Escape" || event.defaultPrevented || paperBulkBusy) return;
   const menu = document.querySelector(".library-menu");
   if (menu) {
     menu.remove();
@@ -572,7 +597,8 @@ async function loadLibrary(focusPaperId = "") {
   }
 }
 
-function renderLibrary() {
+function renderLibrary({ preserveFlagFilter = false } = {}) {
+  if (!preserveFlagFilter) paperFlagFilter.close({ restoreFocus: false });
   paperFlags.close({ restoreFocus: false, notify: false });
   // The search bar is a static child of the tree, so only clear the dynamic
   // rows — this keeps the search input mounted and focused while typing.
@@ -602,7 +628,8 @@ function renderLibrary() {
     // Show the papers of the selected category and all of its subcategories.
     papers = selectedCategoryId ? collectPapers(findCategoryNode(libraryTree, selectedCategoryId) || selected) : allPapers;
   }
-  const visiblePapers = filterPapers(papers, searchQuery);
+  flagFilterPapers = filterPapers(papers, searchQuery);
+  const visiblePapers = paperFlagFilter.filter(flagFilterPapers);
   reconcilePaperSelection(visiblePapers);
   renderPaperList(visiblePapers);
   // In "最近", the list is always ordered by reading time, so the preview follows that order too.
@@ -842,7 +869,7 @@ function clearLibraryDragFeedback() {
 }
 
 function renderPaperList(papers) {
-  if (!papers.length) {
+  if (!papers.length && !paperFlagFilter.hasSelection()) {
     const empty = document.createElement("div");
     empty.className = "library-empty";
     empty.textContent = searchQuery
@@ -906,6 +933,8 @@ function renderPaperList(papers) {
         }
         renderLibrary();
       });
+    } else if (label === "标志") {
+      th.appendChild(paperFlagFilter.createButton());
     } else {
       th.textContent = label;
     }
@@ -990,6 +1019,22 @@ function renderPaperList(papers) {
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
+  if (!papers.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.className = "paper-flag-filter-empty";
+    const message = document.createElement("p");
+    message.textContent = "没有符合当前标志筛选的文献。";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "paper-flag-filter-reset";
+    reset.textContent = "清除标志筛选";
+    reset.addEventListener("click", paperFlagFilter.clear);
+    cell.append(message, reset);
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  }
   wrap.appendChild(table);
   paperList.appendChild(wrap);
   initPaperTableResize(table);
@@ -1029,6 +1074,7 @@ function syncPaperSelectionUi() {
   const isSelecting = count > 0;
   if (paperBulkToolbar) paperBulkToolbar.hidden = !isSelecting;
   if (paperBulkCount) paperBulkCount.textContent = `已选 ${count} 项`;
+  if (paperBulkFlagsButton) paperBulkFlagsButton.disabled = paperBulkBusy || !isSelecting;
   if (paperBulkMoveButton) paperBulkMoveButton.disabled = paperBulkBusy || !isSelecting;
   if (paperBulkDeleteButton) paperBulkDeleteButton.disabled = paperBulkBusy || !isSelecting;
   paperList.classList.toggle("is-multi-selecting", isSelecting);
@@ -1042,12 +1088,14 @@ function syncPaperSelectionUi() {
     const checkbox = row.querySelector(".paper-select-checkbox");
     if (checkbox) {
       checkbox.checked = checked;
+      checkbox.disabled = paperBulkBusy;
       checkbox.tabIndex = isSelecting ? 0 : -1;
     }
   });
   const selectAllCheckbox = paperList.querySelector(".paper-select-all-checkbox");
   if (selectAllCheckbox) {
     selectAllCheckbox.checked = rows.length > 0 && selectedVisibleCount === rows.length;
+    selectAllCheckbox.disabled = paperBulkBusy;
     selectAllCheckbox.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < rows.length;
     selectAllCheckbox.tabIndex = isSelecting ? 0 : -1;
   }
@@ -2163,7 +2211,8 @@ async function apiFetch(path, options = {}) {
     try {
       tried.push(base || window.location.origin || "current origin");
       const response = await fetch(`${base}${url}`, options);
-      if (response.status !== 404 || !url.startsWith("/api/")) {
+      if (response.status !== 404 || !url.startsWith("/api/")
+        || response.headers.get("content-type")?.includes("application/json")) {
         apiBaseUrl = base;
         return response;
       }

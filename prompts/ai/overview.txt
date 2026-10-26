@@ -16,6 +16,7 @@ JSON schema:
   ],
   "threeLineSummary": {{
     "challenges": "one Chinese sentence about the challenge addressed by the paper",
+    "method": "one Chinese sentence summarizing the core method or approach",
     "conclusion": "one Chinese sentence about the main conclusion, results, or limitations"
   }}
 }}
