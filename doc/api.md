@@ -214,7 +214,8 @@ data: [DONE]
 | --- | --- | --- |
 | GET | `/api/settings` | 返回公开配置 `{ai, sync}`；密钥与密码仅返回是否存在及尾部标识 |
 | POST | `/api/settings` | 保存 `{ai, sync}`，返回 `{settings, sync}` |
-| POST | `/api/settings/test-ai` | 使用 `{ai: {...}}` 测试 AI 配置，内部支持 `baseUrl`、`model`、`apiKey`、`thinkMode`；缺省值取已保存配置 |
+| POST | `/api/settings/test-ai` | 使用 `{ai: {...}}` 测试 AI 配置，支持 `id`、`baseUrl`、`model`、`apiKey`、`thinkMode`；提供 `id` 时从对应组补全配置，否则使用当前组 |
+| POST | `/api/settings/models` | 使用 `{ai: {id, baseUrl, apiKey}}` 读取对应接口的可用模型，返回 `{models: ["模型 ID", ...]}`；不保存配置 |
 | GET | `/api/cloud-sync` | 获取同步配置与状态 |
 | GET | `/api/cloud-sync/progress` | 获取同步进度 |
 | POST | `/api/cloud-sync/config` | 保存同步字段，返回公开同步状态 |
@@ -225,6 +226,33 @@ AI 设置示例：
 ```json
 {"ai":{"baseUrl":"https://api.example.com/v1","model":"your-model","apiKey":"your-api-key","thinkMode":false}}
 ```
+
+多组模型和 API 配置示例：
+
+```json
+{
+  "ai": {
+    "activeProfileId": "reading",
+    "profiles": [
+      {"id": "reading", "name": "日常阅读", "baseUrl": "https://api.example.com/v1", "model": "fast-model", "apiKey": "key-one"},
+      {"id": "research", "name": "深度分析", "baseUrl": "https://other.example.com/v1", "model": "reasoning-model", "apiKey": "key-two"}
+    ],
+    "modules": {
+      "summary": {"profileId": "research", "thinkMode": true},
+      "translate": {"profileId": "reading", "thinkMode": false},
+      "discuss": {"profileId": "", "thinkMode": true}
+    }
+  }
+}
+```
+
+`profiles` 为完整配置列表，省略已有组即删除该组，列表至少包含一组，`id` 必须唯一；新组可省略 `id`，由服务端生成。密钥省略或留空只会保留相同 ID 的密钥，新 ID 不继承其他组的密钥。仅切换时可提交 `{"ai":{"activeProfileId":"research"}}`。GET 返回每组的 `hasApiKey` 和 `apiKeyTail`，不返回密钥；顶层 `ai.baseUrl`、`model`、`thinkMode` 等字段继续反映当前组，旧版单组写入更新当前组。
+
+测试指定组可提交 `{"ai":{"id":"research"}}`，也可同时传入表单中尚未保存的字段。测试不会修改已保存配置；未知 ID 没有可复用的已存密钥，需显式提供 `apiKey`。
+
+读取模型列表使用同样的 `id`、`baseUrl`、`apiKey` 补全规则，向兼容 OpenAI 的 `/models` 接口发送 GET；完整 `/chat/completions` 地址也能转换为对应的 `/models` 地址。模型 ID 去重后排序返回。密钥留空复用同 ID 的已存密钥，新 ID 不继承默认密钥；无密钥的本地接口也可读取。接口未实现模型列表时仍可手动配置模型 ID。
+
+`ai.modules` 支持部分更新，各模块包含 `profileId`（空字符串表示跟随 `activeProfileId`）和独立的 `thinkMode`。模块 ID 为 `overview`、`summary`、`keywords`、`translate`、`explain`、`discuss`、`research`、`discussionTitle` 和 `autoHighlight`。GET 另返回 `ai.moduleDefinitions`，包含模块 ID、名称和说明。普通请求、流式请求和 MCP 自动高亮均使用对应模块设置。旧版 profile 上的 `thinkMode` 仅用于兼容和初始化模块默认值；模块设置优先生效。
 
 `/api/settings` 中 `sync` 的字段包括 `provider`（`local` 或 `webdav`）、`localDir`、`webdavUrl`、`username`、`password`、`autoSync`。本地同步示例：
 

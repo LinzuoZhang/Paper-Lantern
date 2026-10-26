@@ -214,7 +214,7 @@ def tool_auto_highlight_paper(args: JsonObject) -> JsonObject:
         directory = paper_server.paper_dir_from_record(record)
         pdf_bytes = (directory / "paper.pdf").read_bytes()
 
-    api_key, model, url, _think_mode = paper_server.get_ai_config()
+    api_key, model, url, _think_mode = paper_server.get_ai_config("autoHighlight")
     if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
         raise ValueError("Missing AI API key. Open Settings and save your API key.")
     fitz = require_pymupdf()

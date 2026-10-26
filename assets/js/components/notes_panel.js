@@ -164,6 +164,7 @@ export function initNotesPanel({
   let paperPickerRequest = null;
   let paperPickerOnSelect = null;
   let paperPickerAnchor = null;
+  let paperPickerFocusTarget = null;
   const paperPickerExpandedCategories = new Set();
   const paperLinkCache = new Map();
 
@@ -414,18 +415,22 @@ export function initNotesPanel({
 
   function togglePaperPickerCategory(item) {
     if (!item?.hasChildren) return;
+    const restoreFocus = document.activeElement?.classList.contains("notes-paper-picker-disclosure");
     if (paperPickerExpandedCategories.has(item.category.id)) {
       paperPickerExpandedCategories.delete(item.category.id);
     } else {
       paperPickerExpandedCategories.add(item.category.id);
     }
     renderPaperPicker();
+    if (restoreFocus) paperPicker.querySelectorAll(".notes-paper-picker-disclosure")[paperPickerActiveIndex]?.focus({ preventScroll: true });
   }
 
-  function updatePaperPickerActive(items) {
+  function updatePaperPickerActive(scroll = true) {
     const buttons = Array.from(paperPicker?.querySelectorAll(".notes-paper-picker-item") || []);
+    const input = paperPicker?.querySelector(".notes-paper-picker-search");
     if (!buttons.length) {
       paperPickerActiveIndex = 0;
+      input?.removeAttribute("aria-activedescendant");
       return;
     }
     paperPickerActiveIndex = Math.min(Math.max(paperPickerActiveIndex, 0), buttons.length - 1);
@@ -433,7 +438,8 @@ export function initNotesPanel({
       button.classList.toggle("active", index === paperPickerActiveIndex);
       button.setAttribute("aria-selected", String(index === paperPickerActiveIndex));
     });
-    buttons[paperPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
+    input?.setAttribute("aria-activedescendant", buttons[paperPickerActiveIndex].id);
+    if (scroll) buttons[paperPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
   }
 
   function choosePaperPickerItem(item) {
@@ -441,6 +447,7 @@ export function initNotesPanel({
       paperPickerCategory = item.directOnly ? { ...item.category, folders: [] } : item.category;
       paperPickerActiveIndex = 0;
       renderPaperPicker();
+      paperPicker.querySelector(".notes-paper-picker-search").focus({ preventScroll: true });
       return;
     }
     const bookmark = paperPickerBookmark;
@@ -463,17 +470,26 @@ export function initNotesPanel({
     const query = String(input?.value || "").trim();
     const title = paperPicker.querySelector(".notes-paper-picker-title");
     const back = paperPicker.querySelector(".notes-paper-picker-back");
-    if (title) title.textContent = query ? "搜索结果" : paperPickerCategory?.name || "选择目录";
+    if (title) {
+      title.textContent = query ? "搜索结果" : paperPickerCategory?.name || "选择目录";
+      title.title = title.textContent;
+    }
     if (back) back.hidden = !paperPickerCategory || Boolean(query);
+    const clear = paperPicker.querySelector(".notes-paper-picker-clear");
+    if (clear) clear.hidden = !input.value;
     const list = paperPicker.querySelector(".notes-paper-picker-list");
+    list.setAttribute("aria-label", query ? "搜索结果" : paperPickerCategory ? "选择论文" : "选择目录");
     const items = paperPickerItems();
     list.replaceChildren();
 
     if (!items.length) {
       const empty = document.createElement("p");
       empty.className = "notes-paper-picker-empty";
+      empty.setAttribute("role", "status");
       empty.textContent = query ? "没有匹配的论文" : (paperPickerCategory ? "此目录中没有论文" : "文献库中没有可插入的论文");
       list.appendChild(empty);
+      updatePaperPickerActive();
+      positionPaperPicker(paperPickerAnchor);
       return;
     }
 
@@ -481,6 +497,7 @@ export function initNotesPanel({
       const button = document.createElement("button");
       button.type = "button";
       button.className = `notes-paper-picker-item notes-paper-picker-${item.type}`;
+      button.id = `notes-paper-picker-option-${index}`;
       button.setAttribute("role", "option");
       if (item.type === "category") {
         const row = document.createElement("div");
@@ -492,23 +509,30 @@ export function initNotesPanel({
         disclosure.disabled = !item.hasChildren;
         disclosure.setAttribute("aria-label", item.expanded ? `收起 ${item.category.name}` : `展开 ${item.category.name}`);
         disclosure.setAttribute("aria-expanded", String(Boolean(item.expanded)));
+        disclosure.title = item.expanded ? "收起子目录" : "展开子目录";
+        disclosure.addEventListener("focus", () => {
+          paperPickerActiveIndex = index;
+          updatePaperPickerActive(false);
+        });
         disclosure.innerHTML = item.hasChildren
           ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>'
           : "";
-        disclosure.addEventListener("click", () => togglePaperPickerCategory(item));
+        disclosure.addEventListener("click", () => {
+          paperPickerActiveIndex = index;
+          togglePaperPickerCategory(item);
+        });
         button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h6l2 3h10v11H3z"></path></svg>';
         button.title = item.path;
+        button.setAttribute("aria-label", `打开目录 ${item.category.name || item.path}，${item.count} 篇论文`);
         const text = document.createElement("span");
         text.className = "notes-paper-picker-item-text";
         const name = document.createElement("strong");
         name.textContent = item.category.name || item.path;
+        name.title = item.path;
         const meta = document.createElement("small");
         meta.textContent = `${item.count} 篇论文`;
         text.append(name, meta);
-        const arrow = document.createElement("span");
-        arrow.className = "notes-paper-picker-arrow";
-        arrow.textContent = "›";
-        button.append(text, arrow);
+        button.appendChild(text);
         row.append(disclosure, button);
         list.appendChild(row);
       } else {
@@ -517,19 +541,26 @@ export function initNotesPanel({
         text.className = "notes-paper-picker-item-text";
         const name = document.createElement("strong");
         name.textContent = item.paper.title || "未命名论文";
+        name.title = name.textContent;
+        button.title = name.textContent;
         const meta = document.createElement("small");
         meta.textContent = paperAuthors(item.paper).join("、") || item.paper.categoryName || "论文";
+        meta.title = meta.textContent;
         text.append(name, meta);
         button.appendChild(text);
         list.appendChild(button);
       }
       button.addEventListener("mouseenter", () => {
         paperPickerActiveIndex = index;
-        updatePaperPickerActive(items);
+        updatePaperPickerActive(false);
+      });
+      button.addEventListener("focus", () => {
+        paperPickerActiveIndex = index;
+        updatePaperPickerActive(false);
       });
       button.addEventListener("click", () => choosePaperPickerItem(item));
     });
-    updatePaperPickerActive(items);
+    updatePaperPickerActive();
     positionPaperPicker(paperPickerAnchor);
   }
 
@@ -550,10 +581,11 @@ export function initNotesPanel({
     paperPicker = null;
     paperPickerCategory = null;
     paperPickerActiveIndex = 0;
-    if (restoreFocus) restoreInsertionBookmark(paperPickerBookmark);
+    if (restoreFocus && !restoreInsertionBookmark(paperPickerBookmark)) paperPickerFocusTarget?.focus({ preventScroll: true });
     paperPickerBookmark = null;
     paperPickerOnSelect = null;
     paperPickerAnchor = null;
+    paperPickerFocusTarget = null;
   }
 
   async function loadPaperPickerTree() {
@@ -573,36 +605,46 @@ export function initNotesPanel({
   async function openPaperPicker(anchor, bookmark = captureInsertionBookmark(), onSelect = null) {
     closePaperPicker(false);
     closePaperLinkPopover();
+    paperPickerFocusTarget = document.activeElement;
     paperPickerBookmark = bookmark;
     paperPickerOnSelect = onSelect;
     paperPickerAnchor = anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
     const picker = document.createElement("section");
     picker.className = "notes-paper-picker";
     picker.setAttribute("role", "dialog");
-    picker.setAttribute("aria-label", "插入其它论文");
+    picker.setAttribute("aria-labelledby", "notes-paper-picker-title");
     picker.innerHTML = `
       <header class="notes-paper-picker-header">
-        <button class="notes-paper-picker-back" type="button" aria-label="返回目录" title="返回目录" hidden>‹</button>
-        <strong class="notes-paper-picker-title">选择目录</strong>
+        <button class="notes-paper-picker-back" type="button" aria-label="返回目录" title="返回目录" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg></button>
+        <strong id="notes-paper-picker-title" class="notes-paper-picker-title">选择目录</strong>
       </header>
-      <label class="notes-paper-picker-search-wrap">
+      <div class="notes-paper-picker-search-wrap">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-        <input class="notes-paper-picker-search" type="search" placeholder="搜索论文、作者或目录…" autocomplete="off" />
-      </label>
-      <div class="notes-paper-picker-list" role="listbox"><p class="notes-paper-picker-empty">正在加载文献库…</p></div>`;
+        <input class="notes-paper-picker-search" type="search" role="combobox" aria-label="搜索论文、作者或目录" aria-controls="notes-paper-picker-list" aria-expanded="true" aria-autocomplete="list" placeholder="搜索论文、作者或目录…" autocomplete="off" />
+        <button class="notes-paper-picker-clear" type="button" aria-label="清除搜索" title="清除搜索" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
+      </div>
+      <div id="notes-paper-picker-list" class="notes-paper-picker-list" role="listbox" aria-label="选择目录"><p class="notes-paper-picker-empty" role="status">正在加载文献库…</p></div>`;
     picker.addEventListener("click", (event) => event.stopPropagation());
     const input = picker.querySelector(".notes-paper-picker-search");
     input.addEventListener("input", () => {
       paperPickerActiveIndex = 0;
       renderPaperPicker();
     });
-    input.addEventListener("keydown", (event) => {
+    picker.querySelector(".notes-paper-picker-clear").addEventListener("click", () => {
+      input.value = "";
+      paperPickerActiveIndex = 0;
+      renderPaperPicker();
+      input.focus();
+    });
+    picker.addEventListener("keydown", (event) => {
+      if (event.isComposing) return;
       const items = paperPickerItems();
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const direction = event.key === "ArrowDown" ? 1 : -1;
         paperPickerActiveIndex = (paperPickerActiveIndex + direction + items.length) % Math.max(items.length, 1);
-        updatePaperPickerActive(items);
+        updatePaperPickerActive();
+        input.focus({ preventScroll: true });
       } else if (event.key === "ArrowRight" && items[paperPickerActiveIndex]?.type === "category") {
         const item = items[paperPickerActiveIndex];
         if (item.hasChildren && !item.expanded) {
@@ -615,18 +657,32 @@ export function initNotesPanel({
           event.preventDefault();
           togglePaperPickerCategory(item);
         }
-      } else if (event.key === "Enter" && items[paperPickerActiveIndex]) {
+      } else if (event.key === "Enter" && event.target === input && items[paperPickerActiveIndex]) {
         event.preventDefault();
         choosePaperPickerItem(items[paperPickerActiveIndex]);
       } else if (event.key === "Escape") {
         event.preventDefault();
-        closePaperPicker();
+        event.stopPropagation();
+        if (input.value) {
+          input.value = "";
+          paperPickerActiveIndex = 0;
+          renderPaperPicker();
+          input.focus();
+        } else if (paperPickerCategory) {
+          paperPickerCategory = null;
+          paperPickerActiveIndex = 0;
+          renderPaperPicker();
+          input.focus();
+        } else {
+          closePaperPicker();
+        }
       }
     });
     picker.querySelector(".notes-paper-picker-back").addEventListener("click", () => {
       paperPickerCategory = null;
       paperPickerActiveIndex = 0;
       renderPaperPicker();
+      input.focus();
     });
     document.body.appendChild(picker);
     paperPicker = picker;

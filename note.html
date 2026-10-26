@@ -171,16 +171,20 @@
           <div class="discussion-composer">
           <div id="discussionReferenceBox" class="discussion-reference-box" hidden><span id="discussionReferenceText" class="discussion-reference-text"></span></div>
           <div id="discussionPapers" class="discussion-papers" aria-label="已加入的论文" hidden></div>
-          <textarea id="discussionInput" rows="3" placeholder="继续提问，或加入论文一起讨论…" aria-label="讨论问题"></textarea>
+          <textarea id="discussionInput" rows="1" placeholder="继续提问，或加入论文一起讨论…" aria-label="讨论问题"></textarea>
           <div class="discussion-compose-actions">
           <button id="addDiscussionPaperButton" class="add-discussion-paper-button" type="button" aria-label="加入论文" title="加入论文"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"></path></svg></button>
           <span id="discussionPaperStatus" class="discussion-paper-status" role="status"></span>
+          <div class="discussion-send-controls">
+          <select id="discussionModelSelect" class="discussion-model-select" aria-label="讨论模型" aria-describedby="discussionModelStatus" title="仅切换讨论使用的模型" disabled><option value="">讨论模型</option></select>
           <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="发送" title="发送">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 19V5m-7 7 7-7 7 7"></path>
             </svg>
           </button>
           </div>
+          </div>
+          <p id="discussionModelStatus" class="discussion-model-status" role="status" aria-live="polite" hidden></p>
           </div>
         </form>
       </aside>

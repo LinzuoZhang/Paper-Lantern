@@ -34,6 +34,8 @@ export function initDiscussionPanel({
   const form = find("#discussionForm");
   const input = find("#discussionInput");
   const send = find("#sendDiscussionButton");
+  const modelSelect = find("#discussionModelSelect");
+  const modelStatus = find("#discussionModelStatus");
   const addPaper = find("#addDiscussionPaperButton");
   const paperTray = find("#discussionPapers");
   const paperStatus = find("#discussionPaperStatus");
@@ -52,6 +54,11 @@ export function initDiscussionPanel({
   let threads = [];
   let activeId = null;
   let busy = false;
+  let modelLoading = false;
+  let modelSaving = false;
+  let modelsReady = false;
+  let selectedModelProfile = "";
+  let modelsRevision = 0;
   let draftPapers = [];
   let abortController = null;
   let markdownRenderer = null;
@@ -65,6 +72,88 @@ export function initDiscussionPanel({
   }
 
   form.addEventListener("submit", submit);
+  modelSelect?.addEventListener("focus", loadDiscussionModels);
+  modelSelect?.addEventListener("pointerdown", () => { if (!modelsReady) loadDiscussionModels(); });
+  modelSelect?.addEventListener("change", saveDiscussionModel);
+  documentNode.addEventListener?.("paperlantern:ai-settings-changed", (event) => {
+    if (modelSelect && !busy && !modelSaving && event.detail?.ai) {
+      modelsRevision += 1;
+      renderDiscussionModels(event.detail.ai);
+    }
+  });
+
+  function showModelError(message = "") {
+    if (!modelStatus) return;
+    modelStatus.textContent = message;
+    modelStatus.hidden = !message;
+  }
+
+  function renderDiscussionModels(ai) {
+    const profiles = (ai?.profiles || []).filter((profile) => String(profile.model || "").trim());
+    const defaultProfile = profiles.find((profile) => profile.id === ai.activeProfileId);
+    const options = profiles.map((profile) => ({ id: profile.id, label: profile.model.trim() }));
+    modelSelect.replaceChildren(...options.map(({ id, label }) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = label;
+      return option;
+    }));
+    const configured = ai?.modules?.discuss?.profileId || "";
+    selectedModelProfile = profiles.some((profile) => profile.id === configured)
+      ? configured : defaultProfile?.id || profiles[0]?.id || "";
+    modelSelect.value = selectedModelProfile;
+    modelsReady = true;
+    modelSelect.disabled = busy || modelSaving;
+  }
+
+  async function loadDiscussionModels() {
+    if (!modelSelect || busy || modelLoading || modelSaving) return;
+    modelLoading = true;
+    const requestedRevision = modelsRevision;
+    try {
+      const response = await apiFetch("/api/settings", { cache: "no-store" });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !Array.isArray(data.ai?.profiles)) throw new Error(data.error || "无法读取讨论模型，请检查接口配置。");
+      if (requestedRevision !== modelsRevision) return;
+      if (!modelSaving && !busy) renderDiscussionModels(data.ai);
+      showModelError();
+    } catch (error) {
+      if (requestedRevision !== modelsRevision) return;
+      showModelError(error.message || "无法读取讨论模型。");
+    } finally {
+      modelLoading = false;
+      modelSelect.disabled = busy || modelSaving;
+    }
+  }
+
+  async function saveDiscussionModel() {
+    if (!modelSelect || busy || modelSaving || modelSelect.value === selectedModelProfile) return;
+    const requestedProfile = modelSelect.value;
+    modelSaving = true;
+    modelsRevision += 1;
+    modelSelect.disabled = true;
+    showModelError();
+    renderDraftPapers();
+    try {
+      const response = await apiFetch("/api/settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ai: { modules: { discuss: { profileId: requestedProfile } } } }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || data.settings?.ai?.modules?.discuss?.profileId !== requestedProfile) {
+        throw new Error(data.error || "讨论模型未保存，请重试。");
+      }
+      renderDiscussionModels(data.settings.ai);
+      documentNode.dispatchEvent?.(new CustomEvent("paperlantern:ai-settings-changed", { detail: { source: "discussion", ai: data.settings.ai } }));
+    } catch (error) {
+      modelSelect.value = selectedModelProfile;
+      showModelError(error.message || "切换讨论模型失败。");
+    } finally {
+      modelSaving = false;
+      modelSelect.disabled = busy || !modelsReady;
+      renderDraftPapers();
+    }
+  }
   addPaper?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!busy) paperReferences?.pickPaper(addPaper, attachPaper);
@@ -85,6 +174,8 @@ export function initDiscussionPanel({
   }
 
   function renderDraftPapers() {
+    if (send) send.disabled = !busy && (modelSaving || draftPapers.some((paper) => paper.pending || paper.error));
+    if (addPaper) addPaper.disabled = busy || draftPapers.length >= 12;
     if (!paperTray) return;
     paperTray.replaceChildren();
     paperTray.hidden = !draftPapers.length;
@@ -110,8 +201,6 @@ export function initDiscussionPanel({
       paperStatus.textContent = draftPapers.some((paper) => paper.pending) ? "正在准备论文摘要…" : draftPapers.find((paper) => paper.error)?.error || "";
       paperStatus.classList.toggle("error", draftPapers.some((paper) => paper.error));
     }
-    if (send) send.disabled = !busy && draftPapers.some((paper) => paper.pending || paper.error);
-    if (addPaper) addPaper.disabled = busy || draftPapers.length >= 12;
   }
 
   async function attachPaper(value) {
@@ -159,7 +248,7 @@ export function initDiscussionPanel({
 
   async function submit(event) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || modelSaving) return;
     const question = input.value.trim();
     if (!question || draftPapers.some((paper) => paper.pending || paper.error)) return;
     const papers = normalizePapers(draftPapers);
@@ -1015,6 +1104,7 @@ export function initDiscussionPanel({
   function setBusy(next) {
     busy = Boolean(next);
     input.disabled = busy;
+    if (modelSelect) modelSelect.disabled = busy || modelSaving || !modelsReady;
     renderDraftPapers();
     if (send) { send.classList.toggle("discussion-stop-mode", busy); send.innerHTML = busy ? STOP_ICON : SEND_ICON; send.title = busy ? "停止" : "发送"; }
   }
@@ -1023,6 +1113,7 @@ export function initDiscussionPanel({
 
   setBusy(false);
   renderHistory(getItem?.()?.discussion || []);
+  if (modelSelect) loadDiscussionModels();
   return { renderHistory, renderMarkdown, getMarkdownRenderer, startFromReference, showList, getActiveReference, focus: () => input.focus(), getThreads: () => threads };
 }
 

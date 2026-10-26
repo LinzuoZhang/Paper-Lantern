@@ -313,7 +313,8 @@
 }
 
 /* Native menus and auxiliary surfaces share one set of interaction states. */
-.workspace-page :is(.notes-export-menu, .notes-editor-host .vditor-hint, .notes-editor-host .vditor-panel, .notes-paper-picker, .notes-paper-link-popover, .reader-upload-menu) {
+.workspace-page .notes-paper-picker button:focus-visible { outline: 1px solid var(--note-focus); outline-offset: -1px; }
+.workspace-page :is(.notes-export-menu, .notes-editor-host .vditor-hint, .notes-editor-host .vditor-panel, .notes-paper-link-popover, .reader-upload-menu) {
   padding: var(--note-space-1);
   border: 1px solid var(--note-line);
   border-radius: var(--note-menu-radius);
@@ -435,10 +436,17 @@
 .workspace-page .discussion-form { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; border: 0; border-radius: 0; box-shadow: none; }
 .workspace-page .discussion-composer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 12px 10px; border: 1px solid var(--note-line); border-radius: 26px; background: var(--note-hover); transition: border-color 140ms ease; }
 .workspace-page .discussion-composer:focus-within { border-color: #b9bdb9; }
-.workspace-page .discussion-form .discussion-composer textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 72px; max-height: min(280px, 36dvh); margin: 0; padding: 0 5px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--note-ink); font: 400 14px/1.65 var(--note-font); field-sizing: content; resize: none; overflow-y: auto; }
+.workspace-page .discussion-form .discussion-composer textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 1lh; max-height: min(280px, 36dvh); margin: 0; padding: 0 5px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--note-ink); font: 400 14px/1.65 var(--note-font); field-sizing: content; resize: none; overflow-y: auto; }
 .workspace-page .discussion-form .discussion-composer textarea:focus { outline: none; border: 0; box-shadow: none; }
 .workspace-page .discussion-composer textarea::placeholder { color: #939791; opacity: 1; }
 .discussion-compose-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.discussion-send-controls { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: calc(100% - 44px); margin-left: auto; }
+.workspace-page .discussion-model-select { field-sizing: content; width: auto; max-width: min(200px, calc(100% - 44px)); min-width: 0; height: 30px; min-height: 30px; padding: 0 2px 0 4px; border: 0; border-radius: 0; background: transparent; color: var(--note-secondary); box-shadow: none; font: 400 13px/1.5 var(--note-font); text-overflow: ellipsis; cursor: pointer; transition: color 140ms ease; }
+.workspace-page .discussion-model-select option { background: var(--note-canvas); color: var(--note-ink); }
+.workspace-page .discussion-model-select:hover:not(:disabled) { background: transparent; color: var(--note-ink); }
+.workspace-page .discussion-model-select:focus-visible { outline: 1px solid var(--note-focus); outline-offset: 2px; }
+.workspace-page .discussion-model-select:disabled { opacity: .5; cursor: default; }
+.discussion-model-status { margin: 0 5px; color: #a14d45; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .workspace-page .discussion-compose-actions .send-discussion-button { margin-left: auto; flex: 0 0 36px; width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--note-ink); color: var(--note-canvas); box-shadow: none; }
 .workspace-page .discussion-compose-actions .send-discussion-button:hover:not(:disabled) { background: #424740; color: var(--note-canvas); box-shadow: none; transform: none; }
 .workspace-page .discussion-composer:has(textarea:placeholder-shown) .send-discussion-button:not(.discussion-stop-mode), .workspace-page .discussion-compose-actions .send-discussion-button:disabled { background: #dcdfd9; color: #858a82; }

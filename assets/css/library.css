@@ -229,7 +229,7 @@ body.library-page {
 .library-page .paper-info-empty { min-height: 200px; color: var(--note-tertiary); font-size: 12px; line-height: 1.8; }
 
 /* Upload, category management and settings retain their existing controls. */
-.library-page :is(.upload-menu, .library-menu, .category-manager, .cloud-config-card, .citation-overlay-card, .arxiv-download-overlay, .cloud-sync-progress-overlay) { padding: 6px; border: 1px solid var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); color: var(--note-ink); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
+.library-page :is(.upload-menu, .library-menu, .category-manager, .citation-overlay-card, .arxiv-download-overlay, .cloud-sync-progress-overlay) { padding: 6px; border: 1px solid var(--note-line); border-radius: var(--note-menu-radius); background: var(--note-canvas); color: var(--note-ink); box-shadow: var(--note-menu-shadow); backdrop-filter: none; }
 .library-page :is(.library-menu button, .library-menu a) { min-height: 32px; padding: 7px 10px; border-radius: var(--note-radius); color: #5e6369; font-size: 13px; font-weight: 400; line-height: 1.5; }
 .library-page .library-menu { max-height: calc(100dvh - 16px); overflow-y: auto; }
 .library-page :is(.library-menu button, .library-menu a):hover:not(:disabled) { color: var(--note-ink); background: var(--note-hover); }
@@ -252,14 +252,9 @@ body.library-page {
 .library-page .category-manager .category-manager-footer .category-manager-save { border-color: #d5d8d6; background: var(--note-active); color: var(--note-ink); }
 .library-page .category-manager .category-manager-footer .category-manager-save:hover:not(:disabled) { border-color: #c7ccc8; background: #dfe2dd; }
 .library-page .category-manager :is(input, button):focus-visible { outline-color: var(--note-focus); }
-.library-page :is(.cloud-config-overlay, .citation-overlay) { background: rgb(36 39 43 / 14%); }
-.library-page :is(.cloud-config-card, .citation-overlay-card) { padding: 20px; }
-.library-page :is(.cloud-config-header h2, .citation-overlay-header h2) { font-size: 17px; font-weight: 600; }
-.library-page .settings-nav-item { border-radius: var(--note-radius); font-size: 13px; font-weight: 500; }
-.library-page .settings-nav-item.is-active { background: var(--note-active); }
-.library-page .cloud-config-card label { color: var(--note-secondary); font-size: 12px; font-weight: 500; }
-.library-page .cloud-config-card :is(input:not([type="checkbox"]), select) { min-height: 34px; border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font-size: 13px; }
-.library-page .cloud-config-card :is(input, select):focus { outline: 1px solid var(--note-focus); outline-offset: 1px; border-color: var(--note-focus); }
+.library-page .citation-overlay { background: rgb(36 39 43 / 14%); }
+.library-page .citation-overlay-card { padding: 20px; }
+.library-page .citation-overlay-header h2 { font-size: 17px; font-weight: 600; }
 .library-page .citation-output { border-color: var(--note-line); border-radius: var(--note-radius); background: var(--note-hover); color: var(--note-ink); font: 13px/1.8 var(--note-mono); }
 .library-page :is(.arxiv-download-overlay, .cloud-sync-progress-overlay) { padding: 16px; }
 .library-page .library-view.library-file-drag-over { outline: 1px dashed var(--note-focus); outline-offset: -8px; }
@@ -295,6 +290,4 @@ body.library-page {
   .library-page .paper-list-header .upload-form { flex: 1 1 100%; }
   .library-page .category-search { flex: 1 1 auto; width: auto; }
   .library-page .upload-menu { width: min(300px, calc(100vw - 40px)); }
-  .library-page .settings-split { grid-template-columns: 1fr; }
-  .library-page .settings-nav { flex-direction: row; padding: 0 0 8px; border-right: 0; border-bottom: 1px solid var(--note-line); }
 }

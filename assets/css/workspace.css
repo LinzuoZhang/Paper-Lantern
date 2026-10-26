@@ -71,3 +71,312 @@ body.workspace-page {
   outline: 1px solid var(--note-focus);
   outline-offset: 2px;
 }
+
+/* Settings share the workspace typography; tokens stay local to the dialog. */
+#cloudConfigOverlay {
+  --settings-bg: #fafaf9;
+  --settings-input: #fff;
+  --settings-ink: #262626;
+  --settings-secondary: #777;
+  --settings-line: #e7e7e5;
+  --settings-hover: #f1f1ef;
+  --settings-focus: #a1a19c;
+  --settings-danger: #ad4540;
+  --settings-radius: 6px;
+  --settings-group-gap: 24px;
+  --settings-field-gap: 20px;
+  position: fixed;
+  z-index: 160;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: rgb(26 26 26 / 18%);
+  color: var(--settings-ink);
+}
+
+#cloudConfigForm {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, 100%);
+  max-height: 85vh;
+  max-height: 85dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--settings-line);
+  border-radius: 10px;
+  background: var(--settings-bg);
+  color: var(--settings-ink);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 9%), 0 1px 4px rgb(0 0 0 / 4%);
+  backdrop-filter: none;
+  font: 400 13px/1.5 var(--note-font, system-ui, sans-serif);
+  text-align: left;
+}
+
+#cloudConfigForm:focus { outline: none; }
+#cloudConfigForm :is(h2, h3, h4, p, dl, dd) { margin: 0; }
+#cloudConfigForm svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#cloudConfigForm .cloud-config-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 12px 20px 12px 24px;
+  border-bottom: 1px solid var(--settings-line);
+}
+#cloudConfigForm .cloud-config-header h2 { font-size: 14px; font-weight: 600; }
+#cloudConfigForm .drawer-close-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--settings-radius);
+  background: transparent;
+  color: var(--settings-secondary);
+}
+#cloudConfigForm .drawer-close-button::before,
+#cloudConfigForm .drawer-close-button::after { width: 13px; height: 1px; }
+#cloudConfigForm .settings-split {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  gap: 0;
+}
+#cloudConfigForm .settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 20px 12px;
+  border-right: 1px solid var(--settings-line);
+}
+#cloudConfigForm .settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--settings-radius);
+  background: transparent;
+  color: var(--settings-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+#cloudConfigForm .settings-nav-item.is-active { background: var(--settings-hover); color: var(--settings-ink); }
+#cloudConfigForm .settings-nav-item svg { width: 17px; height: 17px; }
+#cloudConfigForm .settings-content {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+#cloudConfigForm .settings-page {
+  display: grid;
+  align-content: start;
+  gap: var(--settings-group-gap);
+  min-width: 0;
+  height: auto;
+  padding: 24px 32px 28px;
+}
+#cloudConfigForm .settings-page:focus-visible { outline-offset: -4px; }
+#cloudConfigForm .settings-page-heading h3 { font-size: 16px; font-weight: 600; letter-spacing: -.2px; }
+#cloudConfigForm .settings-page-heading p { margin-top: 5px; color: var(--settings-secondary); font-size: 12px; line-height: 1.6; }
+#cloudConfigForm .settings-profile-toolbar { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+#cloudConfigForm .settings-profile-toolbar > .settings-field { flex: 1; }
+#cloudConfigForm .settings-group { min-width: 0; }
+#cloudConfigForm .settings-group > h4,
+#cloudConfigForm .settings-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--settings-line);
+}
+#cloudConfigForm h4 { font-size: 12px; font-weight: 500; color: var(--settings-ink); }
+#cloudConfigForm .settings-fields { display: grid; gap: var(--settings-field-gap); }
+#cloudConfigForm .settings-field { display: grid; gap: 6px; min-width: 0; }
+#cloudConfigForm .settings-field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+#cloudConfigForm label { display: block; color: var(--settings-secondary); font-size: 12px; font-weight: 500; }
+#cloudConfigForm :is(input:not([type="checkbox"]), select) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--settings-radius);
+  background: var(--settings-input);
+  color: var(--settings-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  box-shadow: none;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out;
+}
+#cloudConfigForm select { padding-right: 28px; text-overflow: ellipsis; }
+#cloudConfigForm input::placeholder { color: #999994; opacity: 1; }
+#cloudConfigForm :is(input:not([type="checkbox"]), select):hover:not(:disabled) { border-color: #cdcdc8; }
+#cloudConfigForm :is(input:not([type="checkbox"]), select):focus {
+  border-color: var(--settings-focus);
+  outline: none;
+  box-shadow: none;
+}
+#cloudConfigForm :is(button, input, select):disabled { opacity: .45; cursor: default; }
+#cloudConfigForm button { cursor: pointer; transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out; }
+#cloudConfigForm button:hover:not(:disabled) { transform: none; box-shadow: none; }
+#cloudConfigForm :is(button, .settings-switch, [tabindex]):focus-visible { outline: 1px solid var(--settings-focus); outline-offset: 2px; }
+#cloudConfigForm .settings-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--settings-radius);
+  background: var(--settings-input);
+  color: var(--settings-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+#cloudConfigForm .settings-icon-button { width: 38px; padding: 0; }
+#cloudConfigForm .settings-model-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#cloudConfigForm .settings-model-control select { flex: 1; min-width: 0; }
+#cloudConfigForm .settings-model-control .settings-button { min-width: 82px; }
+#cloudConfigForm .settings-icon-button circle { fill: currentColor; stroke: none; }
+#cloudConfigForm :is(.settings-button, .settings-secret-toggle, .drawer-close-button):hover:not(:disabled) { background: var(--settings-hover); color: var(--settings-ink); }
+#cloudConfigForm .settings-menu-wrap { position: relative; flex: 0 0 auto; }
+#cloudConfigForm .settings-menu {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 170px;
+  padding: 4px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--settings-radius);
+  background: var(--settings-input);
+  box-shadow: var(--note-menu-shadow);
+}
+#cloudConfigForm .settings-menu button { width: 100%; min-height: 32px; padding: 6px 9px; border: 0; border-radius: 4px; background: transparent; color: var(--settings-danger); font: inherit; font-size: 12px; text-align: left; }
+#cloudConfigForm .settings-menu button:hover:not(:disabled) { background: #fcf1f0; }
+#cloudConfigForm .settings-secret-wrap { position: relative; display: flex; align-items: center; min-width: 0; }
+#cloudConfigForm .settings-secret-wrap input { padding-right: 40px; }
+#cloudConfigForm .settings-secret-toggle { position: absolute; right: 4px; display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--settings-secondary); }
+#cloudConfigForm .settings-eye-closed { display: none; }
+#cloudConfigForm .settings-secret-toggle[aria-pressed="true"] .settings-eye-open { display: none; }
+#cloudConfigForm .settings-secret-toggle[aria-pressed="true"] .settings-eye-closed { display: inline; }
+#cloudConfigForm .settings-hint { margin-top: 6px; color: var(--settings-secondary); font-size: 11px; line-height: 1.6; font-weight: 400; }
+#cloudConfigForm .settings-field .settings-hint { margin-top: 0; }
+#cloudConfigForm .ai-api-test-row { display: flex; align-items: flex-start; gap: 12px; margin-top: 18px; }
+#cloudConfigForm .ai-api-test-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; padding-top: 10px; color: var(--settings-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+#cloudConfigForm .ai-api-status-indicator { display: none; flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--settings-secondary); }
+#cloudConfigForm .ai-api-test-status:is(.testing, .ok, .error) .ai-api-status-indicator { display: inline-block; }
+#cloudConfigForm .ai-api-test-status.ok .ai-api-status-indicator { background: #608266; }
+#cloudConfigForm .ai-api-test-status.error .ai-api-status-indicator { background: var(--settings-danger); }
+#cloudConfigForm .ai-api-status-main { color: var(--settings-ink); font-weight: 400; }
+#cloudConfigForm .ai-api-test-status.error .ai-api-status-sub { flex-basis: 100%; }
+#cloudConfigForm .settings-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+#cloudConfigForm .settings-preference-row label { color: var(--settings-ink); font-size: 13px; }
+#cloudConfigForm .settings-preference-row .settings-hint { max-width: 360px; margin-top: 3px; }
+#cloudConfigForm .settings-switch {
+  appearance: none;
+  flex: 0 0 auto;
+  position: relative;
+  width: 30px;
+  min-width: 30px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #d4d4cf;
+  border-radius: 10px;
+  background: #e2e2de;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out;
+}
+#cloudConfigForm .settings-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left 140ms ease-out; }
+#cloudConfigForm .settings-switch:checked { background: #555550; border-color: #555550; }
+#cloudConfigForm .settings-switch:checked::after { left: 14px; }
+#cloudConfigForm .settings-switch:hover:not(:disabled) { border-color: #999991; }
+#cloudConfigForm .settings-switch:focus { outline: none; }
+#cloudConfigForm .settings-switch:focus-visible { outline: 1px solid var(--settings-focus); outline-offset: 3px; }
+#cloudConfigForm .settings-sync-group .settings-group-heading { margin-bottom: 12px; padding-bottom: 9px; }
+#cloudConfigForm .settings-text-button { min-height: 22px; padding: 0 3px; border: 0; border-radius: 3px; background: transparent; color: var(--settings-secondary); font: inherit; font-size: 11px; }
+#cloudConfigForm .settings-text-button:hover:not(:disabled) { background: var(--settings-hover); color: var(--settings-ink); }
+#cloudConfigForm .settings-sync-status { display: grid; gap: 7px; font-size: 12px; }
+#cloudConfigForm .settings-sync-status > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 12px; }
+#cloudConfigForm .settings-sync-status dt { color: var(--settings-secondary); }
+#cloudConfigForm .settings-sync-status dd { color: var(--settings-ink); overflow-wrap: anywhere; }
+#cloudConfigForm .settings-inline-error { color: var(--settings-danger); font-size: 12px; overflow-wrap: anywhere; }
+#cloudConfigForm #settingsSyncError { margin-top: 10px; }
+#cloudConfigForm .settings-footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 10px 24px; border-top: 1px solid var(--settings-line); color: var(--settings-secondary); font-size: 11px; }
+#cloudConfigForm .settings-keyboard-hint { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; color: #92928b; }
+#cloudConfigForm kbd { padding: 0 4px; border: 1px solid var(--settings-line); border-radius: 3px; font: inherit; font-size: 10px; }
+#cloudConfigForm .settings-modules-hint { margin: 0 0 18px; }
+#cloudConfigForm :is(.settings-module-columns, .settings-module-row) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 190px) 32px;
+  align-items: center;
+  gap: 16px;
+}
+#cloudConfigForm .settings-module-columns { padding-bottom: 8px; color: var(--settings-secondary); font-size: 11px; }
+#cloudConfigForm .settings-module-row { min-height: 76px; padding: 14px 0; border-top: 1px solid var(--settings-line); }
+#cloudConfigForm .settings-module-row > div { min-width: 0; }
+#cloudConfigForm .settings-module-row label { color: var(--settings-ink); font-size: 13px; }
+#cloudConfigForm .settings-module-row .settings-hint { margin-top: 3px; font-size: 11px; }
+#cloudConfigForm .settings-module-row select { font-size: 12px; }
+
+@media (max-width: 640px) {
+  #cloudConfigOverlay { padding: 12px; }
+  #cloudConfigForm .settings-split { grid-template-columns: minmax(0, 1fr); }
+  #cloudConfigForm .settings-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--settings-line); }
+  #cloudConfigForm .settings-nav-item { width: auto; padding: 6px 10px; }
+  #cloudConfigForm .settings-page { padding: 20px; }
+  #cloudConfigForm .settings-content { min-height: 0; }
+  #cloudConfigForm .settings-field-pair { grid-template-columns: minmax(0, 1fr); gap: var(--settings-field-gap); }
+  #cloudConfigForm .settings-profile-toolbar { gap: 6px; }
+  #cloudConfigForm .settings-button { padding: 0 10px; }
+  #cloudConfigForm .settings-icon-button { width: 32px; padding: 0; }
+  #cloudConfigForm .settings-footer { padding: 10px 20px; }
+  #cloudConfigForm .settings-module-columns { display: none; }
+  #cloudConfigForm .settings-module-row { grid-template-columns: minmax(0, 1fr) 32px; gap: 10px 16px; }
+  #cloudConfigForm .settings-module-row > div { grid-column: 1 / -1; }
+  #cloudConfigForm .settings-module-row input { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #cloudConfigForm *, #cloudConfigForm *::after { transition: none; }
+}

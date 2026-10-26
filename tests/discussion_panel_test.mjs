@@ -34,6 +34,55 @@ globalThis.window = { requestAnimationFrame: callback => callback() };
 const source = await readFile(new URL('../assets/js/components/discussion_panel.js', import.meta.url), 'utf8');
 const { initDiscussionPanel } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
+// The composer selector changes only the discussion profile. Sending waits
+// until that selection is saved, and failures restore the previous selection.
+for (const fail of [false,true]) {
+  const ids=['discussionForm','discussionInput','discussionMessages','sendDiscussionButton','discussionModelSelect','discussionModelStatus'];
+  const elements=Object.fromEntries(ids.map(id=>[id,new Element()]));
+  const ai={activeProfileId:'a',profiles:[
+    {id:'a',name:'阅读',model:'fast-model'},{id:'b',name:'讨论',model:'deep-model'},
+  ],modules:{discuss:{profileId:'a',thinkMode:true},translate:{profileId:'a',thinkMode:false}}};
+  let finishSave, requestedPatch, discussionCalls=0;
+  initDiscussionPanel({
+    root:{querySelector:selector=>elements[selector.slice(1)] || null},
+    getItem:()=>({id:'paper'}),getContextText:()=> '论文正文',saveItem:async()=>{},onScrollLatest(){},
+    apiFetch:async(url,options)=>{
+      if(url==='/api/settings' && !options?.method) return {ok:true,data:{ai}};
+      if(url==='/api/settings') {
+        requestedPatch=JSON.parse(options.body);
+        return new Promise(resolve=>{finishSave=()=>resolve(fail
+          ? {ok:false,data:{error:'保存失败'}}
+          : {ok:true,data:{settings:{ai:{...ai,modules:{...ai.modules,discuss:{profileId:'b',thinkMode:true}}}}}});});
+      }
+      if(url==='/api/discuss') discussionCalls++;
+      return {ok:true,headers:{get:()=> 'application/json'},data:{answer:'回答',title:'标题'}};
+    },
+    readJsonResponse:async response=>response.data,
+  });
+  for(let tick=0;tick<20;tick++) await Promise.resolve();
+  assert.equal(elements.discussionModelSelect.value,'a');
+  assert.deepEqual(elements.discussionModelSelect.children.map(option=>option.textContent),['fast-model','deep-model']);
+  assert.equal(elements.discussionModelSelect.children.some(option=>!option.value),false);
+  elements.discussionModelSelect.value='b';
+  const saving=elements.discussionModelSelect.fire('change');
+  assert.equal(elements.discussionModelSelect.disabled,true);
+  assert.equal(elements.sendDiscussionButton.disabled,true);
+  elements.discussionInput.value='比较方法';
+  await elements.discussionForm.fire('submit');
+  assert.equal(discussionCalls,0);
+  assert.deepEqual(requestedPatch,{ai:{modules:{discuss:{profileId:'b'}}}});
+  finishSave();
+  await saving;
+  assert.equal(elements.discussionModelSelect.value,fail?'a':'b');
+  assert.equal(elements.sendDiscussionButton.disabled,false);
+  assert.equal(elements.discussionInput.value,'比较方法');
+  if(fail) assert.equal(elements.discussionModelStatus.textContent,'保存失败');
+  else {
+    await elements.discussionForm.fire('submit');
+    assert.equal(discussionCalls,1);
+  }
+}
+
 // Added paper chips are prepared before sending, clickable, and survive reload.
 {
   const ids = ['discussionForm', 'discussionInput', 'discussionMessages', 'discussionThreadList', 'discussionPapers', 'discussionPaperStatus', 'addDiscussionPaperButton', 'sendDiscussionButton'];

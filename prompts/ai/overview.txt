@@ -1,10 +1,14 @@
 Read the paper content below and return strict JSON only. Do not return Markdown.
-All user-facing JSON values must be in Chinese.
+
+All user-facing JSON values must be in Chinese, except for paperTitle, author names, institution names, venue names, and proper nouns or technical terms that should retain their original spelling.
+
+**IMPORTANT: The paperTitle field MUST preserve the paper's exact original title as written in the paper. Never translate, paraphrase, rewrite, or localize the paper title into Chinese, even if the rest of the output is in Chinese.**
 
 JSON schema:
+```json
 {{
   "keywords": ["keyword or technical term"],
-  "paperTitle": "paper title in original language when available",
+  "paperTitle": "exact original-language paper title",
   "basicInfo": {{
     "authors": ["author full name"],
     "venue": "journal, conference, preprint server, or publisher venue; empty string if unknown",
@@ -12,7 +16,7 @@ JSON schema:
     "institutions": ["author affiliation or institution"]
   }},
   "methodPoints": [
-    {{"title": "method point name", "description": "one sentence about its role"}}
+    {{"title": "Chinese method point name", "description": "one Chinese sentence about its role"}}
   ],
   "threeLineSummary": {{
     "challenges": "one Chinese sentence about the challenge addressed by the paper",
@@ -20,16 +24,51 @@ JSON schema:
     "conclusion": "one Chinese sentence about the main conclusion, results, or limitations"
   }}
 }}
+```
 
 Requirements:
+
+**Keywords**
 - Return 8 to 14 keyword strings only.
-- Return paperTitle as the paper's real title, not the PDF file name. If the title is unclear, return an empty string.
+- Use Chinese for general concepts, while preserving established English technical terms, acronyms, and method names when appropriate.
+- Prioritize keywords that represent the paper's core research problem, technical methods, and contributions.
+
+**Paper Title**
+- Return paperTitle as the paper's real, original-language title, not the PDF file name.
+- Copy the paper title exactly from the source text, preserving its original language, wording, capitalization, and technical terminology.
+- NEVER translate the paper title into Chinese or generate a Chinese equivalent.
+- Do not summarize, shorten, paraphrase, or otherwise modify the original title.
+- If the original paper title cannot be reliably identified, return an empty string.
+
+**Basic Information**
 - Extract basicInfo only from evidence in the paper text, especially the title page, header/footer, citation block, DOI metadata-like text, and author affiliation text.
-- Preserve author and institution names in their original spelling. Return up to 30 authors and up to 20 institutions.
+- Preserve author and institution names in their original spelling.
+- Return up to 30 authors and up to 20 institutions.
 - For venue, prefer a journal or conference name. Use arXiv/preprint only if no formal venue is shown.
+- Do not infer or fabricate missing bibliographic information.
+- Use an empty string for unknown venue or publishedDate, and an empty array for unknown authors or institutions.
+
+**Method Points**
 - Return 3 to 5 methodPoints in logical order.
 - Method point order should follow the paper: representation/problem setup, architecture or algorithm, training/inference/optimization, then evaluation/deployment if relevant.
 - Each method point must be concrete enough to support a separate technical explanation.
+- Write methodPoints.title and methodPoints.description in Chinese, preserving established English method names and technical acronyms where appropriate.
+- Each description should be one concise sentence explaining the method point's role, without unnecessary implementation details.
+- Focus on the paper's actual technical contributions rather than generic research workflow steps.
+
+**Three-Line Summary**
+- Write all three fields in Chinese.
+- Each field must contain exactly one concise, informative sentence.
+- challenges: Explain the specific research problem or limitation that motivates the paper.
+- method: Summarize the core technical approach and its key distinguishing idea.
+- conclusion: State the main experimental findings, demonstrated capabilities, or significant limitations.
+- Avoid generic statements and unsupported claims.
+
+**Output Constraints**
+- Return a single valid JSON object matching the schema exactly.
+- Do not include Markdown fences, explanations, comments, or additional fields.
+- Preserve the original paper title without translation under all circumstances.
+- Ensure all extracted information is grounded in the provided paper content.
 
 Paper content:
 {paper_text}
