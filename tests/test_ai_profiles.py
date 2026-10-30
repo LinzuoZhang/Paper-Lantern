@@ -111,44 +111,100 @@ class AIProfileTests(unittest.TestCase):
             self.assertEqual(server.get_ai_config("summary")[0:2], ("reading-secret", "fast"))
             self.assertFalse(server.get_ai_config("discuss")[3])
         config = save_config(self.base, {"ai": {"profiles": [{"id": "reading"}]}})
-        self.assertEqual(config["ai"]["modules"]["translate"], {"profileId": "", "thinkMode": True})
+        self.assertEqual(config["ai"]["modules"]["translate"], {"profileId": "", "thinkMode": True, "customPrompt": ""})
 
     def test_discussion_picker_partial_update_only_changes_discussion_profile(self):
         self.save_profiles()
-        before = save_config(self.base, {"ai": {"modules": {"discuss": {"profileId": "reading", "thinkMode": True}}}})
+        before = save_config(self.base, {"ai": {"modules": {"discuss": {
+            "profileId": "reading", "thinkMode": True, "customPrompt": "先给出结论，再列举依据。",
+        }}}})
         after = save_config(self.base, {"ai": {"modules": {"discuss": {"profileId": "research"}}}})
         self.assertEqual(after["ai"]["activeProfileId"], before["ai"]["activeProfileId"])
         self.assertEqual(after["ai"]["profiles"], before["ai"]["profiles"])
-        self.assertEqual(after["ai"]["modules"]["discuss"], {"profileId": "research", "thinkMode": True})
+        self.assertEqual(after["ai"]["modules"]["discuss"], {
+            "profileId": "research", "thinkMode": True, "customPrompt": "先给出结论，再列举依据。",
+        })
         for module, _, _ in AI_MODULES:
             if module != "discuss":
                 self.assertEqual(after["ai"]["modules"][module], before["ai"]["modules"][module])
 
     def test_all_modules_route_regular_and_streaming_requests_with_their_think_setting(self):
         self.save_profiles()
-        modules = {key: {"profileId": "research", "thinkMode": index % 2 == 0}
+        modules = {key: {"profileId": "research", "thinkMode": index % 2 == 0, "customPrompt": f"{key} 独立要求\n保留公式"}
                    for index, (key, _, _) in enumerate(AI_MODULES)}
         save_config(self.base, {"ai": {"modules": modules}})
+        original = {"model": "wrong-model", "messages": [
+            {"role": "system", "content": "Return only JSON."}, {"role": "user", "content": "paper"},
+        ]}
         with patch.object(server, "BASE_DIR", self.base):
             for module, setting in modules.items():
                 with self.subTest(module=module), patch.object(server, "send_chat_completion", return_value={}) as send:
-                    server.post_chat_completion("wrong-key", "https://wrong.test", {"model": "wrong-model"}, 30, module=module)
+                    server.post_chat_completion("wrong-key", "https://wrong.test", original, 30, module=module)
                     self.assertEqual(send.call_args.args[:2], ("research-secret", "https://research.test/v1/chat/completions"))
                     payload = send.call_args.args[2]
                     self.assertEqual(payload["model"], "deep")
                     self.assertEqual("reasoning_effort" in payload, setting["thinkMode"])
+                    self.assertTrue(payload["messages"][0]["content"].startswith("Return only JSON."))
+                    self.assertIn(setting["customPrompt"], payload["messages"][0]["content"])
+                    self.assertEqual(payload["messages"][1:], original["messages"][1:])
                 with self.subTest(module=module, stream=True), patch.object(server, "open_chat_completion_request", return_value=io.BytesIO(b'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n')) as send:
-                    self.assertEqual(list(server.stream_chat_completion("wrong", "https://wrong.test", {"model": "wrong"}, 30, module=module)), ["OK"])
+                    self.assertEqual(list(server.stream_chat_completion("wrong", "https://wrong.test", original, 30, module=module)), ["OK"])
                     request = send.call_args.args[0]
                     self.assertEqual(request.get_header("Authorization"), "Bearer research-secret")
                     payload = json.loads(request.data)
                     self.assertEqual(payload["model"], "deep")
                     self.assertEqual("reasoning_effort" in payload, setting["thinkMode"])
+                    self.assertEqual(payload["messages"][0]["content"].count(setting["customPrompt"]), 1)
+        self.assertEqual(original["messages"][0]["content"], "Return only JSON.")
+
+    def test_custom_prompt_round_trip_clear_and_profile_deletion(self):
+        self.save_profiles()
+        save_config(self.base, {"ai": {"modules": {
+            "summary": {"profileId": "research", "customPrompt": "强调实验依据。\n保留 $x^2$ 与 {字段}。"},
+            "translate": {"customPrompt": "保留专业术语的英文。"},
+        }}})
+        config = public_config(load_config(self.base))
+        self.assertEqual(config["ai"]["modules"]["summary"]["customPrompt"], "强调实验依据。\n保留 $x^2$ 与 {字段}。")
+        save_config(self.base, {"ai": {"profiles": [{"id": "reading"}]}})
+        config = load_config(self.base)
+        self.assertEqual(config["ai"]["modules"]["summary"]["profileId"], "")
+        self.assertEqual(config["ai"]["modules"]["summary"]["customPrompt"], "强调实验依据。\n保留 $x^2$ 与 {字段}。")
+        save_config(self.base, {"ai": {"modules": {"summary": {"customPrompt": ""}}}})
+        with patch.object(server, "BASE_DIR", self.base), patch.object(server, "send_chat_completion", return_value={}) as send:
+            original = {"messages": [{"role": "system", "content": "default"}]}
+            server.post_chat_completion("", "", original, 30, module="summary")
+            self.assertEqual(send.call_args.args[2]["messages"], original["messages"])
+        self.assertEqual(load_config(self.base)["ai"]["modules"]["translate"]["customPrompt"], "保留专业术语的英文。")
+
+    def test_custom_prompt_adds_system_message_when_missing(self):
+        original = {"messages": [{"role": "user", "content": "question"}]}
+        result = server.apply_module_custom_prompt(original, "用中文")
+        self.assertEqual(result["messages"][0]["role"], "system")
+        self.assertIn("用中文", result["messages"][0]["content"])
+        self.assertEqual(result["messages"][1:], original["messages"])
+        self.assertEqual(len(original["messages"]), 1)
+
+    def test_personalized_keyword_explanations_do_not_reuse_or_pollute_default_cache(self):
+        self.save_profiles()
+        save_config(self.base, {"ai": {"modules": {"keywords": {"customPrompt": "用英文解释"}}}})
+        generic = {"attention": {"version": server.KEYWORD_EXPLANATION_CACHE_VERSION, "explanation": "默认中文解释"}}
+        with patch.object(server, "BASE_DIR", self.base), \
+             patch.object(server, "load_keyword_explanation_cache", return_value=generic) as load, \
+             patch.object(server, "save_keyword_explanation_cache") as save, \
+             patch.object(server, "call_chat_completions", return_value=({"keywords": {"attention": "English explanation"}}, {})) as complete:
+            self.assertEqual(server.explain_keywords("", "", "", ["attention"]), {"attention": "English explanation"})
+            complete.assert_called_once()
+            load.assert_not_called()
+            save.assert_not_called()
+            save_config(self.base, {"ai": {"modules": {"keywords": {"customPrompt": ""}}}})
+            self.assertEqual(server.explain_keywords("", "", "", ["attention"]), {"attention": "默认中文解释"})
+            self.assertEqual(complete.call_count, 1)
 
     def test_invalid_module_references_do_not_overwrite_file(self):
         self.save_profiles()
         original = config_path(self.base).read_bytes()
-        for modules in ([], {"unknown": {}}, {"translate": {"profileId": "missing"}}, {"summary": None}):
+        for modules in ([], {"unknown": {}}, {"translate": {"profileId": "missing"}}, {"summary": None},
+                        {"summary": {"customPrompt": None}}, {"summary": {"customPrompt": ["text"]}}):
             with self.subTest(modules=modules), self.assertRaises(ValueError):
                 save_config(self.base, {"ai": {"modules": modules}})
             self.assertEqual(config_path(self.base).read_bytes(), original)
@@ -171,7 +227,9 @@ class AIProfileTests(unittest.TestCase):
                         with opener.open(url) as response:
                             payload = json.load(response)
                         payload["ai"]["activeProfileId"] = "research"
-                        payload["ai"]["modules"]["translate"] = {"profileId": "reading", "thinkMode": True}
+                        payload["ai"]["modules"]["translate"] = {
+                            "profileId": "reading", "thinkMode": True, "customPrompt": "保留术语英文。\n使用简体中文。",
+                        }
                         request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
                         with opener.open(request) as response:
                             self.assertEqual(len(json.load(response)["settings"]["ai"]["profiles"]), 2)
@@ -179,7 +237,9 @@ class AIProfileTests(unittest.TestCase):
                         ai = json.load(response)["ai"]
                     self.assertEqual(ai["activeProfileId"], "research")
                     self.assertEqual([item["id"] for item in ai["profiles"]], ["reading", "research"])
-                    self.assertEqual(ai["modules"]["translate"], {"profileId": "reading", "thinkMode": True})
+                    self.assertEqual(ai["modules"]["translate"], {
+                        "profileId": "reading", "thinkMode": True, "customPrompt": "保留术语英文。\n使用简体中文。",
+                    })
                     self.assertTrue(all(item["hasApiKey"] for item in ai["profiles"]))
                     self.assertEqual(server.get_ai_config("translate")[0], "reading-secret")
                 finally:

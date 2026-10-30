@@ -223,7 +223,7 @@ body.workspace-page {
 #cloudConfigForm .settings-field { display: grid; gap: 6px; min-width: 0; }
 #cloudConfigForm .settings-field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
 #cloudConfigForm label { display: block; color: var(--settings-secondary); font-size: 12px; font-weight: 500; }
-#cloudConfigForm :is(input:not([type="checkbox"]), select) {
+#cloudConfigForm :is(input:not([type="checkbox"]), textarea, select) {
   display: block;
   width: 100%;
   min-width: 0;
@@ -242,14 +242,14 @@ body.workspace-page {
   transition: border-color 140ms ease-out, background-color 140ms ease-out;
 }
 #cloudConfigForm select { padding-right: 28px; text-overflow: ellipsis; }
-#cloudConfigForm input::placeholder { color: #999994; opacity: 1; }
-#cloudConfigForm :is(input:not([type="checkbox"]), select):hover:not(:disabled) { border-color: #cdcdc8; }
-#cloudConfigForm :is(input:not([type="checkbox"]), select):focus {
+#cloudConfigForm :is(input, textarea)::placeholder { color: #999994; opacity: 1; }
+#cloudConfigForm :is(input:not([type="checkbox"]), textarea, select):hover:not(:disabled) { border-color: #cdcdc8; }
+#cloudConfigForm :is(input:not([type="checkbox"]), textarea, select):focus {
   border-color: var(--settings-focus);
   outline: none;
   box-shadow: none;
 }
-#cloudConfigForm :is(button, input, select):disabled { opacity: .45; cursor: default; }
+#cloudConfigForm :is(button, input, textarea, select):disabled { opacity: .45; cursor: default; }
 #cloudConfigForm button { cursor: pointer; transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out; }
 #cloudConfigForm button:hover:not(:disabled) { transform: none; box-shadow: none; }
 #cloudConfigForm :is(button, .settings-switch, [tabindex]):focus-visible { outline: 1px solid var(--settings-focus); outline-offset: 2px; }
@@ -358,6 +358,9 @@ body.workspace-page {
 #cloudConfigForm .settings-module-row label { color: var(--settings-ink); font-size: 13px; }
 #cloudConfigForm .settings-module-row .settings-hint { margin-top: 3px; font-size: 11px; }
 #cloudConfigForm .settings-module-row select { font-size: 12px; }
+#cloudConfigForm .settings-module-prompt { grid-column: 1 / -1; }
+#cloudConfigForm .settings-module-prompt label { color: var(--settings-secondary); font-size: 11px; }
+#cloudConfigForm .settings-module-prompt textarea { height: auto; min-height: 70px; padding: 8px 11px; resize: vertical; }
 
 @media (max-width: 640px) {
   #cloudConfigOverlay { padding: 12px; }

@@ -1,6 +1,6 @@
 {
   "name": "paper-lantern-research-mcp",
-  "version": "0.3.0",
+  "version": "0.6.0",
   "description": "Local MCP tools for managing a Paper Lantern literature library.",
   "author": {
     "name": "Paper Lantern"
@@ -8,7 +8,7 @@
   "interface": {
     "displayName": "Paper Lantern Research",
     "shortDescription": "MCP tools for Paper Lantern papers and notes.",
-    "longDescription": "Adds local MCP tools for importing paper PDFs into multiple categories, managing memberships, searching papers, automatically highlighting important original text with the configured LLM, writing notes and reports, and generating Paper Lantern paper links.",
+    "longDescription": "Adds local MCP tools for listing article hashes and summaries, searching article content and reading versioned passages with PDF page numbers, reading full text, asking questions with Paper Lantern's configured AI, importing PDFs, managing category trees and custom flags, previewing and applying batch updates, searching papers, automatically highlighting important original text, and writing linked research notes and reports.",
     "developerName": "Paper Lantern",
     "category": "Productivity",
     "capabilities": [

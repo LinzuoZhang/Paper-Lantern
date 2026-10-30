@@ -238,7 +238,7 @@ AI 设置示例：
       {"id": "research", "name": "深度分析", "baseUrl": "https://other.example.com/v1", "model": "reasoning-model", "apiKey": "key-two"}
     ],
     "modules": {
-      "summary": {"profileId": "research", "thinkMode": true},
+      "summary": {"profileId": "research", "thinkMode": true, "customPrompt": "优先解释实验依据，保留关键公式。"},
       "translate": {"profileId": "reading", "thinkMode": false},
       "discuss": {"profileId": "", "thinkMode": true}
     }
@@ -253,6 +253,8 @@ AI 设置示例：
 读取模型列表使用同样的 `id`、`baseUrl`、`apiKey` 补全规则，向兼容 OpenAI 的 `/models` 接口发送 GET；完整 `/chat/completions` 地址也能转换为对应的 `/models` 地址。模型 ID 去重后排序返回。密钥留空复用同 ID 的已存密钥，新 ID 不继承默认密钥；无密钥的本地接口也可读取。接口未实现模型列表时仍可手动配置模型 ID。
 
 `ai.modules` 支持部分更新，各模块包含 `profileId`（空字符串表示跟随 `activeProfileId`）和独立的 `thinkMode`。模块 ID 为 `overview`、`summary`、`keywords`、`translate`、`explain`、`discuss`、`research`、`discussionTitle` 和 `autoHighlight`。GET 另返回 `ai.moduleDefinitions`，包含模块 ID、名称和说明。普通请求、流式请求和 MCP 自动高亮均使用对应模块设置。旧版 profile 上的 `thinkMode` 仅用于兼容和初始化模块默认值；模块设置优先生效。
+
+各模块还包含 `customPrompt` 字符串，默认 `""`。保存时省略该字段会保留已有提示词，传空字符串会清除；非字符串返回 400。提示词作为模块系统指令的补充，应用于后续普通和流式请求，保留默认任务及输出格式要求，不随接口切换或删除而清除。例如仅更新翻译提示词可提交 `{"ai":{"modules":{"translate":{"customPrompt":"保留专业术语的英文。"}}}}`。已有分析不会自动重新生成；关键词模块有非空提示词时跳过通用解释缓存，避免复用或覆盖不同要求的结果。
 
 `/api/settings` 中 `sync` 的字段包括 `provider`（`local` 或 `webdav`）、`localDir`、`webdavUrl`、`username`、`password`、`autoSync`。本地同步示例：
 

@@ -93,6 +93,7 @@ def normalize_ai_profiles(config):
         modules[module_id] = {
             "profileId": profile_id if profile_id in profile_ids else "",
             "thinkMode": bool(setting.get("thinkMode", False if module_id == "translate" else ai.get("thinkMode", False))),
+            "customPrompt": setting.get("customPrompt", "") if isinstance(setting.get("customPrompt", ""), str) else "",
         }
     ai["modules"] = modules
 
@@ -158,6 +159,10 @@ def save_ai_profiles(current, payload):
                 current_setting["profileId"] = profile_id
             if "thinkMode" in setting:
                 current_setting["thinkMode"] = bool(setting["thinkMode"])
+            if "customPrompt" in setting:
+                if not isinstance(setting["customPrompt"], str):
+                    raise ValueError("个性化提示词必须是文本。")
+                current_setting["customPrompt"] = setting["customPrompt"]
             ai["modules"][module_id] = current_setting
     normalize_ai_profiles(current)
 

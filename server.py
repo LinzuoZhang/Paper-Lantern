@@ -3892,7 +3892,9 @@ def explain_keywords(api_key, model, chat_completions_url, keywords, run_dir=Non
     if not keyword_list:
         return {}
 
-    cache = load_keyword_explanation_cache()
+    # Personalized explanations must neither reuse nor overwrite generic ones.
+    use_cache = not get_module_custom_prompt("keywords")
+    cache = load_keyword_explanation_cache() if use_cache else {}
     result = {}
     missing = []
     for keyword in keyword_list:
@@ -3924,7 +3926,8 @@ def explain_keywords(api_key, model, chat_completions_url, keywords, run_dir=Non
                 "explanation": explanation,
             }
             result[keyword] = explanation
-        save_keyword_explanation_cache(cache)
+        if use_cache:
+            save_keyword_explanation_cache(cache)
         write_ai_stage(
             run_dir,
             "keyword_explanations",
@@ -4301,12 +4304,32 @@ def call_chat_completions(api_key, model, chat_completions_url, prompt, system_p
     return parsed, raw
 
 
+def get_module_custom_prompt(module):
+    setting = load_config(BASE_DIR).get("ai", {}).get("modules", {}).get(module, {})
+    return setting.get("customPrompt", "").strip()
+
+
+def apply_module_custom_prompt(payload, custom_prompt):
+    if not custom_prompt:
+        return payload
+    instruction = "模块个性化要求（请在遵守任务要求及输出格式的前提下应用）：\n" + custom_prompt
+    messages = list(payload.get("messages", []))
+    # Copy the system message so shared analysis/discussion history stays clean
+    # when subsequent requests use a different module or updated preferences.
+    if messages and messages[0].get("role") == "system" and isinstance(messages[0].get("content"), str):
+        messages[0] = {**messages[0], "content": messages[0]["content"] + "\n\n" + instruction}
+    else:
+        messages.insert(0, {"role": "system", "content": instruction})
+    return {**payload, "messages": messages}
+
+
 def resolve_module_request(module, api_key, chat_completions_url, payload, think_mode):
     if module:
         api_key, model, chat_completions_url, think_mode = get_ai_config(module)
         if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
             raise ValueError("当前模块缺少 AI API 密钥，请在设置中选择已配置密钥的接口。")
         payload = {**payload, "model": model}
+        payload = apply_module_custom_prompt(payload, get_module_custom_prompt(module))
     return api_key, chat_completions_url, payload, think_mode
 
 

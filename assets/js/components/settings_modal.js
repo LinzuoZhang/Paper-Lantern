@@ -95,7 +95,7 @@ const SETTINGS_HTML = `
             </div>
             <section class="settings-group" aria-labelledby="aiModulesTitle">
               <h4 id="aiModulesTitle">模块调用</h4>
-              <p class="settings-hint settings-modules-hint">选择“跟随默认”时使用 AI 接口页的默认配置。Think 由各模块单独控制。</p>
+              <p class="settings-hint settings-modules-hint">选择“跟随默认”时使用 AI 接口页的默认配置。Think 和个性化提示词由各模块单独控制。提示词留空使用默认规则，填写后作为补充要求应用于后续生成。</p>
               <div class="settings-module-columns" aria-hidden="true"><span>模块</span><span>接口配置</span><span>Think</span></div>
               <div id="aiModuleRows" class="settings-module-rows"></div>
             </section>
@@ -382,7 +382,10 @@ export function initSettingsModal(options = {}) {
     const rows = (ai.moduleDefinitions || []).map((definition) => {
       const id = definition.id;
       const saved = ai.modules?.[id] || {};
-      moduleSettings[id] = { profileId: saved.profileId || "", thinkMode: Boolean(saved.thinkMode) };
+      moduleSettings[id] = {
+        profileId: saved.profileId || "", thinkMode: Boolean(saved.thinkMode),
+        customPrompt: saved.customPrompt || "",
+      };
       const row = document.createElement("div");
       row.className = "settings-module-row";
       const description = document.createElement("div");
@@ -412,8 +415,24 @@ export function initSettingsModal(options = {}) {
         moduleSettings[id].thinkMode = think.checked;
         scheduleSave();
       });
-      row.append(description, select, think);
-      moduleControls.set(id, { select, think });
+      const promptField = document.createElement("div");
+      promptField.className = "settings-field settings-module-prompt";
+      const promptLabel = document.createElement("label");
+      promptLabel.htmlFor = `aiModulePrompt-${id}`;
+      promptLabel.textContent = "个性化提示词（可选）";
+      const prompt = document.createElement("textarea");
+      prompt.id = promptLabel.htmlFor;
+      prompt.rows = 2;
+      prompt.value = moduleSettings[id].customPrompt;
+      prompt.placeholder = "例如：用中文回答，先给出结论，再解释关键术语。";
+      prompt.setAttribute("aria-label", `${definition.name}个性化提示词`);
+      prompt.addEventListener("input", () => {
+        moduleSettings[id].customPrompt = prompt.value;
+        scheduleSave();
+      });
+      promptField.append(promptLabel, prompt);
+      row.append(description, select, think, promptField);
+      moduleControls.set(id, { select, think, prompt });
       return row;
     });
     aiModuleRows.replaceChildren(...rows);
@@ -609,7 +628,7 @@ export function initSettingsModal(options = {}) {
 
   async function load() {
     showSaveStatus("正在加载设置…");
-    const controls = Array.from(form.querySelectorAll("input, select, button"));
+    const controls = Array.from(form.querySelectorAll("input, textarea, select, button"));
     const disabledBefore = controls.map((control) => control.disabled);
     controls.forEach((control) => { control.disabled = true; });
     try {
@@ -658,7 +677,8 @@ export function initSettingsModal(options = {}) {
       }
       if (Object.entries(payload.ai.modules).some(([id, setting]) => {
         const saved = savedAi.modules?.[id];
-        return !saved || saved.profileId !== setting.profileId || saved.thinkMode !== setting.thinkMode;
+        return !saved || saved.profileId !== setting.profileId || saved.thinkMode !== setting.thinkMode
+          || saved.customPrompt !== setting.customPrompt;
       })) throw new Error("模块配置未保存，请重启新版后端服务后重试。");
       // Update secret indicators without replacing newer edits or selection.
       for (const saved of data.settings.ai.profiles || []) {
@@ -771,7 +791,7 @@ export function initSettingsModal(options = {}) {
       else close();
     } else if (event.key === "Tab") {
       closeProfileMenu();
-      const controls = Array.from(form.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]'))
+      const controls = Array.from(form.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'))
         .filter((control) => control.tabIndex !== -1 && control.getClientRects().length);
       const first = controls[0];
       const last = controls.at(-1);

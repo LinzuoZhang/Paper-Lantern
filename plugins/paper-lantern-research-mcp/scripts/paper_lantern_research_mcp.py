@@ -8,12 +8,13 @@ import hashlib
 import os
 import sys
 import traceback
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
 
 
 SERVER_NAME = "paper-lantern-research"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.6.0"
 
 
 def find_project_root() -> Path:
@@ -35,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import server as paper_server  # noqa: E402
 from backend.mcp_markdown import MARKDOWN_RULES, validate_note_markdown  # noqa: E402
+from backend.paper_content import SOURCES, build_passages, query_terms, read_source, score_passage  # noqa: E402
 
 
 JsonObject = dict[str, Any]
@@ -95,6 +97,8 @@ def validate_value(value: Any, schema: JsonObject, path: str = "arguments") -> N
     elif isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
             raise ValueError(f"{path} requires at least {schema['minItems']} items.")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValueError(f"{path} allows at most {schema['maxItems']} items.")
         for index, item in enumerate(value):
             validate_value(item, schema.get("items", {}), f"{path}[{index}]")
     elif isinstance(value, int) and not isinstance(value, bool):
@@ -196,6 +200,204 @@ def tool_get_item(args: JsonObject) -> JsonObject:
         raise ValueError("id is required.")
     paper = paper_server.read_paper(item_id, include_extracted_text=include_text)
     return tool_text({"item": paper, "paperLink": markdown_link(format_paper_link_label(paper), item_id)})
+
+
+def select_papers(db: JsonObject, hashes: list[str] | None = None) -> list[JsonObject]:
+    """Select PDF articles only; explicit selections preserve caller order."""
+    keys = list(dict.fromkeys(value.strip() for value in hashes)) if hashes is not None else sorted(db.get("papers", {}))
+    records = []
+    for key in keys:
+        record = db.get("papers", {}).get(key)
+        if not record or record.get("itemType", "paper") != "paper":
+            if hashes is not None:
+                raise FileNotFoundError(f"Article not found: {key}")
+            continue
+        records.append(record)
+    return records
+
+
+def article_metadata(record: JsonObject, db: JsonObject) -> tuple[JsonObject, JsonObject]:
+    directory = paper_server.paper_dir_from_record(record)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Article directory not found: {record['id']}")
+    metadata = paper_server.read_json(directory / "metadata.json", {})
+    return {**item_summary(record, db), "hash": record["id"],
+            "title": metadata.get("title") or record.get("title") or record["id"]}, metadata
+
+
+def article_summary(metadata: JsonObject) -> JsonObject:
+    basic = metadata.get("basicInfo") if isinstance(metadata.get("basicInfo"), dict) else {}
+    abstract = str(metadata.get("abstract") or basic.get("abstract") or "").strip()
+    overview = metadata.get("threeLineSummary")
+    overview = overview if isinstance(overview, dict) else {}
+    return {"abstract": abstract, "threeLineSummary": overview,
+            "hasSummary": bool(abstract or any(str(value or "").strip() for value in overview.values()))}
+
+
+@paper_server.library_locked
+def tool_list_papers(args: JsonObject) -> JsonObject:
+    db = read_db()
+    papers = [article_metadata(record, db)[0] for record in select_papers(db, args.get("hashes"))]
+    return tool_text({"total": len(papers), "hashes": [paper["hash"] for paper in papers], "papers": papers})
+
+
+@paper_server.library_locked
+def tool_list_paper_summaries(args: JsonObject) -> JsonObject:
+    db = read_db()
+    papers = []
+    for record in select_papers(db, args.get("hashes")):
+        paper, metadata = article_metadata(record, db)
+        papers.append({**paper, **article_summary(metadata)})
+    return tool_text({"total": len(papers), "hashes": [paper["hash"] for paper in papers], "papers": papers})
+
+
+@paper_server.library_locked
+def tool_get_paper_summary(args: JsonObject) -> JsonObject:
+    db = read_db()
+    record = select_papers(db, [args["hash"]])[0]
+    paper, metadata = article_metadata(record, db)
+    return tool_text({**paper, **article_summary(metadata)})
+
+
+@paper_server.library_locked
+def read_article_text(paper_hash: str) -> tuple[JsonObject, JsonObject, str]:
+    db = read_db()
+    record = select_papers(db, [paper_hash])[0]
+    paper, metadata = article_metadata(record, db)
+    # The full-text tool must not inherit the discussion context's truncation.
+    text = paper_server.read_discussion_paper_text(paper_server.paper_dir_from_record(record), max_chars=sys.maxsize)
+    if not text.strip():
+        raise ValueError("No extractable article text. Open the article to extract text or use a PDF with a text layer.")
+    return paper, metadata, text
+
+
+def tool_get_paper_full_text(args: JsonObject) -> JsonObject:
+    paper, _metadata, text = read_article_text(args["hash"])
+    return tool_text({**paper, "text": text, "charCount": len(text)})
+
+
+@paper_server.library_locked
+def read_article_content(paper_hash: str, sources: list[str], db: JsonObject | None = None) -> tuple[JsonObject, JsonObject, list[JsonObject]]:
+    db = read_db() if db is None else db
+    record = select_papers(db, [paper_hash])[0]
+    paper, metadata = article_metadata(record, db)
+    directory = paper_server.paper_dir_from_record(record)
+    documents, warnings = {}, []
+    for source in sources:
+        try:
+            pages, origin, notices = read_source(
+                directory, metadata, source, paper_server.EXTRACTED_TEXT_FILE, paper_server.NOTES_FILE,
+            )
+            version, passages = build_passages(record["id"], source, pages, origin)
+            documents[source] = {"sourceVersion": version, "passages": passages,
+                                 "pageCount": len(pages) if origin == "pdf" else None}
+            warnings.extend({"hash": record["id"], "source": source, "message": notice} for notice in notices)
+        except (OSError, ValueError, RuntimeError) as exc:
+            warnings.append({"hash": record["id"], "source": source, "message": str(exc)})
+    return paper, documents, warnings
+
+
+def tool_search_paper_content(args: JsonObject) -> JsonObject:
+    terms = query_terms(args["query"])
+    sources = list(dict.fromkeys(args.get("sources", SOURCES)))
+    match = args.get("match", "all")
+    filters = args.get("categoryIds", [args.get("categoryId", "")])
+    filters = list(dict.fromkeys(paper_server.UNCATEGORIZED_ID if key.strip() in {"Uncategorized", "未分类"}
+                                 else key.strip().replace("\\", "/") for key in filters if key.strip()))
+    with paper_server.LIBRARY_LOCK:
+        db = read_db()
+        records = select_papers(db, args.get("hashes"))
+        scopes = [set(paper_server.category_descendants(db, key)) if args.get("includeDescendants", True)
+                  else {key} for key in filters]
+        records = [record for record in records if not scopes or
+                   (all if args.get("categoryMatch", "any") == "all" else any)(
+                       bool(scope.intersection(record["categoryIds"])) for scope in scopes)]
+    matches, warnings, matched_papers = [], [], set()
+    for record in records:
+        try:
+            paper, documents, notices = read_article_content(record["id"], sources, db)
+        except (OSError, ValueError, RuntimeError) as exc:
+            warnings.append({"hash": record["id"], "message": str(exc)})
+            continue
+        warnings.extend(notices)
+        for document in documents.values():
+            for passage in document["passages"]:
+                found = score_passage(passage, terms, match)
+                if found is not None:
+                    matches.append({**paper, **found,
+                                    "paperLink": markdown_link(paper["title"], paper["hash"])})
+                    matched_papers.add(paper["hash"])
+    matches.sort(key=lambda item: (-len(item["matchedTerms"]), -item["score"], item["hash"],
+                                   SOURCES.index(item["source"]), item["pageNumber"] or 0, item["startChar"]))
+    offset, limit = args.get("offset", 0), args.get("limit", 20)
+    end = offset + limit
+    return tool_text({"query": args["query"].strip(), "terms": terms, "match": match, "sources": sources,
+                      "categoryIds": filters, "categoryMatch": args.get("categoryMatch", "any"),
+                      "includeDescendants": args.get("includeDescendants", True),
+                      "searchedPaperCount": len(records), "matchedPaperCount": len(matched_papers),
+                      "totalMatches": len(matches), "offset": offset,
+                      "nextOffset": end if end < len(matches) else None,
+                      "matches": matches[offset:end], "warnings": warnings})
+
+
+def tool_get_paper_passages(args: JsonObject) -> JsonObject:
+    source = args.get("source", "full_text")
+    if "passageIds" in args and "pageNumbers" in args:
+        raise ValueError("Use passageIds or pageNumbers, not both.")
+    if "pageNumbers" in args and source != "full_text":
+        raise ValueError("pageNumbers is only supported for full_text.")
+    paper, documents, warnings = read_article_content(args["hash"], [source])
+    if source not in documents:
+        raise ValueError(warnings[0]["message"])
+    document = documents[source]
+    if "sourceVersion" in args and args["sourceVersion"].strip() != document["sourceVersion"]:
+        raise ValueError("Content source changed; search or list passages again for the current sourceVersion.")
+    passages = document["passages"]
+    if "passageIds" in args:
+        lookup = {item["passageId"]: item for item in passages}
+        ids = list(dict.fromkeys(value.strip() for value in args["passageIds"]))
+        if any(key not in lookup for key in ids):
+            raise ValueError("Unknown or stale passage ID for this article/source; search or list passages again.")
+        passages = [lookup[key] for key in ids]
+    elif "pageNumbers" in args:
+        if document["pageCount"] is None:
+            raise ValueError("Page numbers are unavailable in the flat text cache; provide a readable PDF and PyMuPDF.")
+        numbers = set(args["pageNumbers"])
+        if max(numbers) > document["pageCount"]:
+            raise ValueError(f"pageNumbers exceeds the PDF page count ({document['pageCount']}).")
+        passages = [item for item in passages if item["pageNumber"] in numbers]
+    offset, limit = args.get("offset", 0), args.get("limit", 10)
+    end = offset + limit
+    return tool_text({**paper, "paperLink": markdown_link(paper["title"], paper["hash"]),
+                      "source": source, "sourceVersion": document["sourceVersion"],
+                      "pageCount": document["pageCount"], "sourcePassageCount": len(document["passages"]),
+                      "totalPassages": len(passages), "offset": offset,
+                      "nextOffset": end if end < len(passages) else None,
+                      "passages": passages[offset:end], "warnings": warnings})
+
+
+def tool_ask_paper(args: JsonObject) -> JsonObject:
+    paper, metadata, text = read_article_text(args["hash"])
+    if len(text.strip()) < 80:
+        raise ValueError("Please provide at least 80 characters of article text.")
+    api_key, model, url, _think_mode = paper_server.get_ai_config("discuss")
+    if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
+        raise ValueError("Missing AI API key. Open Settings and save your API key.")
+    context = text[:paper_server.MAX_PAPER_CHARS]
+    # No paper_id: this is a single-article question, without library-wide research.
+    # The model call runs after releasing the library lock and writes no discussion.
+    answer = paper_server.discuss_paper(
+        api_key, model, url, context, args["question"].strip(),
+        summary={"title": paper["title"], **article_summary(metadata),
+                 "basicInfo": metadata.get("basicInfo", {}),
+                 "methodOverview": metadata.get("methodOverview", ""),
+                 "methodSections": metadata.get("methodSections", []),
+                 "methodConclusion": metadata.get("methodConclusion", "")},
+        history=args.get("history", []), stream=False,
+    )
+    return tool_text({"hash": paper["hash"], "id": paper["id"], "title": paper["title"],
+                      "answer": answer, "contextCharCount": len(context),
+                      "contextTruncated": len(text) > len(context)})
 
 
 def tool_auto_highlight_paper(args: JsonObject) -> JsonObject:
@@ -327,19 +529,132 @@ def tool_create_category(args: JsonObject) -> JsonObject:
 
 
 @paper_server.library_locked
-def tool_update_paper(args: JsonObject) -> JsonObject:
-    validate_value(args, TOOLS["update_paper"][1])
-    paper_id = str(args.get("id", "")).strip()
-    if not paper_id:
-        raise ValueError("id is required.")
+def tool_rename_category(args: JsonObject) -> JsonObject:
+    old_id = args["id"].strip()
+    descendants = paper_server.category_descendants(read_db(), old_id)
+    new_id = paper_server.rename_category(old_id, args["name"].strip())
+    return category_change_result(old_id, new_id, descendants)
+
+
+@paper_server.library_locked
+def tool_move_category(args: JsonObject) -> JsonObject:
     db = read_db()
-    record = db.get("papers", {}).get(paper_id)
-    if not record:
+    item_id = args["id"].strip()
+    parent_id = args.get("parentId", "").strip()
+    before_id = args.get("beforeId", "").strip()
+    after_id = args.get("afterId", "").strip()
+    if before_id and after_id:
+        raise ValueError("Supply only one of beforeId and afterId.")
+    sibling_id = before_id or after_id
+    if sibling_id:
+        sibling = db["categories"].get(sibling_id)
+        if not sibling:
+            raise FileNotFoundError("Target sibling category not found.")
+        if sibling_id == item_id:
+            raise ValueError("A category cannot be positioned relative to itself.")
+        effective_parent = sibling.get("parentId", "")
+        if "parentId" in args and parent_id != effective_parent:
+            raise ValueError("parentId must match the target sibling's parent.")
+        parent_id = effective_parent
+    if parent_id == item_id or parent_id.startswith(item_id + "/"):
+        raise ValueError("Cannot move a category inside itself.")
+    descendants = paper_server.category_descendants(db, item_id)
+    new_id = paper_server.move_category(item_id, parent_id, before_id, after_id)
+    return category_change_result(item_id, new_id, descendants)
+
+
+def category_change_result(old_id: str, new_id: str, descendants: list[str]) -> JsonObject:
+    sync = paper_server.maybe_auto_sync_library()
+    return tool_text({"categoryId": new_id, "idMap": {key: new_id + key[len(old_id):] for key in descendants},
+                      "tree": paper_server.read_library_tree(), "sync": sync})
+
+
+@paper_server.library_locked
+def tool_delete_category(args: JsonObject) -> JsonObject:
+    db = read_db()
+    item_id = args["id"].strip()
+    category = db["categories"].get(item_id)
+    if not category:
+        raise FileNotFoundError("Category not found.")
+    if category.get("locked"):
+        raise PermissionError("This category cannot be deleted.")
+    deleted_ids = paper_server.category_descendants(db, item_id)
+    scope = set(deleted_ids)
+    affected = []
+    for record in db["papers"].values():
+        if scope.intersection(record["categoryIds"]):
+            remaining = [key for key in record["categoryIds"] if key not in scope] or [paper_server.UNCATEGORIZED_ID]
+            affected.append({"id": record["id"], "beforeCategoryIds": record["categoryIds"], "afterCategoryIds": remaining})
+    dry_run = args.get("dryRun", False)
+    if not dry_run:
+        paper_server.delete_category(item_id)
+    sync = paper_server.maybe_auto_sync_library() if not dry_run else None
+    result = {"dryRun": dry_run, "deletedCategoryIds": deleted_ids,
+              "affectedItems": affected, "affectedCount": len(affected), "sync": sync}
+    if not dry_run:
+        result["tree"] = paper_server.read_library_tree()
+    return tool_text(result)
+
+
+def tool_list_flags(args: JsonObject) -> JsonObject:
+    return tool_text({"flags": paper_server.library_flag_definitions()})
+
+
+def tool_create_flag(args: JsonObject) -> JsonObject:
+    with paper_server.FLAGS_LOCK:
+        flag = paper_server.create_library_flag(args["name"])
+        return tool_text({"flag": flag, "flags": paper_server.library_flag_definitions()})
+
+
+def tool_update_flag(args: JsonObject) -> JsonObject:
+    with paper_server.FLAGS_LOCK:
+        flag = paper_server.update_library_flag_appearance(args["id"].strip(), {key: args[key] for key in ("color", "icon") if key in args})
+        return tool_text({"flag": flag, "flags": paper_server.library_flag_definitions()})
+
+
+@paper_server.library_locked
+def tool_batch_update_flags(args: JsonObject) -> JsonObject:
+    with paper_server.FLAGS_LOCK:
+        ids = paper_server.normalize_paper_ids(args["ids"])
+        db = read_db()
+        for item_id in ids:
+            record = db["papers"].get(item_id)
+            if not record or not paper_server.paper_dir_from_record(record).is_dir():
+                raise FileNotFoundError(f"Item not found: {item_id}")
+        selected = paper_server.normalize_paper_flag_ids(args["flags"])
+        operation = args["operation"]
+        previews = []
+        for item_id in ids:
+            directory = paper_server.paper_dir_from_record(db["papers"][item_id])
+            metadata = paper_server.read_json(directory / "metadata.json", {})
+            current = paper_server.paper_local_state(item_id, metadata)["flags"]
+            updated = list(dict.fromkeys(current + selected)) if operation == "add" else [key for key in current if key not in selected]
+            updated = (["read"] if "read" in updated else []) + (["todo"] if "todo" in updated else []) + [key for key in updated if key not in {"read", "todo"}]
+            previews.append({"id": item_id, "beforeFlags": current, "afterFlags": updated})
+        dry_run = args.get("dryRun", False)
+        papers = [] if dry_run else paper_server.update_papers_flags(ids, selected, operation, compact=True)
+        return tool_text({"dryRun": dry_run, "count": len(ids), "changes": previews, "papers": papers, "sync": None})
+
+
+def prepare_item_update(args: JsonObject, db: JsonObject) -> JsonObject:
+    """Validate and prepare in memory; no notes migration or other file writes."""
+    validate_value(args, TOOLS["update_paper"][1])
+    paper_id = args["id"].strip()
+    original = db.get("papers", {}).get(paper_id)
+    if not original:
         raise FileNotFoundError("Paper not found.")
+    record = deepcopy(original)
+    paper_dir = paper_server.paper_dir_from_record(record)
+    if not paper_dir.is_dir():
+        raise FileNotFoundError(f"Item directory not found: {paper_id}")
+    metadata = paper_server.read_json(paper_dir / "metadata.json", paper_server.default_metadata(record.get("title", paper_id), record.get("categoryId", paper_server.UNCATEGORIZED_ID)))
     if "notes" in args:
         validate_note_markdown(args["notes"], db, paper_server.MAX_NOTES_CHARS)
+    local_updates = {key: args[key] for key in ("read", "todo") if key in args}
+    if "flags" in args:
+        selected = paper_server.normalize_paper_flag_ids(args["flags"])
+        local_updates["flags"] = (["read"] if "read" in selected else []) + (["todo"] if "todo" in selected else []) + [key for key in selected if key not in {"read", "todo"}]
     category_changed = any(key in args for key in ("categoryIds", "categoryId", "addCategoryIds", "removeCategoryIds"))
-    # Validate every referenced category before changing any files or relationships.
     ids = record["categoryIds"]
     if "categoryIds" in args:
         ids = paper_server.resolve_category_ids(db, args["categoryIds"])
@@ -350,8 +665,6 @@ def tool_update_paper(args: JsonObject) -> JsonObject:
     if category_changed:
         desired = ((set(ids) | set(additions)) - set(removals)) - {paper_server.UNCATEGORIZED_ID}
         paper_server.set_record_categories(record, sorted(desired), paper_server.utc_now())
-    paper_dir = paper_server.paper_dir_from_record(record)
-    metadata = paper_server.read_json(paper_dir / "metadata.json", paper_server.default_metadata(record.get("title", paper_id), record.get("categoryId", paper_server.UNCATEGORIZED_ID)))
     if isinstance(args.get("title"), str) and args["title"].strip():
         title = args["title"].strip()
         metadata["title"] = title
@@ -365,22 +678,110 @@ def tool_update_paper(args: JsonObject) -> JsonObject:
     if isinstance(args.get("basicInfo"), dict):
         metadata["basicInfo"] = paper_server.normalize_basic_info(args["basicInfo"])
     if isinstance(args.get("notes"), str):
-        paper_server.write_paper_notes(paper_dir, args["notes"])
         metadata.pop("notes", None)
-    if isinstance(args.get("read"), bool) or isinstance(args.get("todo"), bool):
-        updates = {}
-        if isinstance(args.get("read"), bool):
-            updates["read"] = args["read"]
-        if isinstance(args.get("todo"), bool):
-            updates["todo"] = args["todo"]
-        paper_server.update_paper_local_state(paper_id, updates)
     paper_server.copy_category_fields(metadata, record)
-    paper_server.write_json(paper_dir / "metadata.json", metadata)
-    paper_server.save_library_db(db)
     sync_changed = category_changed or any(key in args for key in ("title", "doi", "basicInfo", "notes"))
-    sync = paper_server.maybe_auto_sync_library() if sync_changed else None
+    return {"args": args, "record": record, "metadata": metadata, "directory": paper_dir,
+            "localUpdates": local_updates, "syncChanged": sync_changed}
+
+
+def apply_item_update(plan: JsonObject, db: JsonObject) -> None:
+    args, record, directory = plan["args"], plan["record"], plan["directory"]
+    if "notes" in args:
+        paper_server.write_paper_notes(directory, args["notes"])
+    if plan["syncChanged"]:
+        paper_server.write_json(directory / "metadata.json", plan["metadata"])
+        db["papers"][record["id"]] = record
+        paper_server.save_library_db(db)
+    if plan["localUpdates"]:
+        paper_server.update_paper_local_state(record["id"], plan["localUpdates"])
+
+
+@paper_server.library_locked
+def tool_update_paper(args: JsonObject) -> JsonObject:
+    with paper_server.FLAGS_LOCK:
+        db = read_db()
+        plan = prepare_item_update(args, db)
+        apply_item_update(plan, db)
+    sync = paper_server.maybe_auto_sync_library() if plan["syncChanged"] else None
+    paper_id = args["id"].strip()
     paper = paper_server.read_paper(paper_id)
     return tool_text({"paper": paper, "paperLink": markdown_link(format_paper_link_label(paper), paper_id), "sync": sync})
+
+
+@paper_server.library_locked
+def tool_batch_update_items(args: JsonObject) -> JsonObject:
+    with paper_server.FLAGS_LOCK:
+        db = read_db()
+        ids = [item["id"].strip() for item in args["items"]]
+        if any(len(item) == 1 for item in args["items"]):
+            raise ValueError("Each batch item must specify at least one update field besides id.")
+        if len(set(ids)) != len(ids):
+            raise ValueError("Each item ID may occur only once in a batch.")
+        snapshots = []
+        for item_id in ids:
+            record = db["papers"].get(item_id)
+            if not record:
+                raise FileNotFoundError(f"Item not found: {item_id}")
+            directory = paper_server.paper_dir_from_record(record)
+            metadata = paper_server.read_json(directory / "metadata.json", {})
+            notes_path = directory / paper_server.NOTES_FILE
+            notes = paper_server.read_text_file(notes_path) if notes_path.exists() else str(metadata.get("notes", ""))
+            snapshots.append({"record": record, "metadata": metadata, "notes": notes,
+                              "localState": paper_server.paper_local_state(item_id, metadata)})
+        revision = hashlib.sha256(json.dumps({"items": snapshots, "categories": db["categories"],
+                                              "flags": paper_server.library_flag_definitions()},
+                                             ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        if "expectedRevision" in args and args["expectedRevision"] != revision:
+            raise ValueError("Revision conflict: selected items, categories or flags changed; preview the batch again.")
+        plans = [prepare_item_update(item, db) for item in args["items"]]
+        changes = []
+        for plan, snapshot in zip(plans, snapshots):
+            before = {"title": snapshot["metadata"].get("title") or snapshot["record"].get("title", ""),
+                      "categoryIds": snapshot["record"]["categoryIds"], "doi": snapshot["metadata"].get("doi", ""),
+                      "basicInfo": snapshot["metadata"].get("basicInfo", {}), "notes": snapshot["notes"],
+                      **snapshot["localState"]}
+            after = {**before, **{key: plan["metadata"].get(key, "") for key in ("title", "doi", "basicInfo") if key in plan["args"]},
+                     "categoryIds": plan["record"]["categoryIds"], **plan["localUpdates"]}
+            if "notes" in plan["args"]:
+                after["notes"] = plan["args"]["notes"]
+            if "flags" in plan["localUpdates"]:
+                after.update(read="read" in after["flags"], todo="todo" in after["flags"])
+            else:
+                after["flags"] = (["read"] if after["read"] else []) + (["todo"] if after["todo"] else []) + [key for key in before["flags"] if key not in {"read", "todo"}]
+            keys = [key for key in before if before[key] != after.get(key)]
+            changes.append({"id": plan["record"]["id"], "before": {key: before[key] for key in keys},
+                            "after": {key: after[key] for key in keys}})
+        dry_run = args.get("dryRun", False)
+        results = []
+        failed = False
+        sync_needed = False
+        if not dry_run:
+            for plan in plans:
+                item_id = plan["record"]["id"]
+                if failed:
+                    results.append({"id": item_id, "status": "skipped"})
+                    continue
+                sync_needed = sync_needed or plan["syncChanged"]
+                try:
+                    apply_item_update(plan, db)
+                    results.append({"id": item_id, "status": "updated"})
+                except OSError as exc:
+                    failed = True
+                    results.append({"id": item_id, "status": "failed", "error": str(exc), "possiblePartialWrite": True})
+    sync, sync_error = None, ""
+    if sync_needed:
+        try:
+            sync = paper_server.maybe_auto_sync_library()
+        except Exception as exc:
+            sync_error = str(exc)
+    payload = {"dryRun": dry_run, "revision": revision, "count": len(plans), "changes": changes,
+               "results": results, "updatedCount": sum(item["status"] == "updated" for item in results), "sync": sync}
+    if sync_error:
+        payload["syncError"] = sync_error
+    result = tool_text(payload)
+    result["isError"] = failed or bool(sync_error)
+    return result
 
 
 def tool_set_item_categories(args: JsonObject) -> JsonObject:
@@ -469,7 +870,133 @@ MEMBERSHIP_SCHEMA: JsonObject = {
 }
 
 
+ARTICLE_HASH_SCHEMA: JsonObject = {"type": "string", "minLength": 1, "description": "Article hash, identical to its library ID (not a PDF content checksum)."}
+ARTICLE_LIST_SCHEMA: JsonObject = {
+    "type": "object",
+    "properties": {"hashes": {"type": "array", "items": ARTICLE_HASH_SCHEMA,
+                               "description": "Omit to return every article, without a result limit. [] returns none. Duplicate hashes are ignored; unknown hashes and note IDs are errors."}},
+    "additionalProperties": False,
+}
+ARTICLE_SCHEMA: JsonObject = {"type": "object", "properties": {"hash": ARTICLE_HASH_SCHEMA},
+                            "required": ["hash"], "additionalProperties": False}
+CONTENT_SOURCE_SCHEMA: JsonObject = {"type": "string", "enum": list(SOURCES)}
+CONTENT_OFFSET_SCHEMA: JsonObject = {"type": "integer", "minimum": 0, "default": 0}
+CONTENT_LIMIT_SCHEMA: JsonObject = {"type": "integer", "minimum": 1, "maximum": 50}
+ITEM_UPDATE_SCHEMA: JsonObject = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "categoryId": LEGACY_CATEGORY_SCHEMA,
+        "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Replace all memberships with existing categories; [] clears memberships."},
+        "addCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Add existing categories while keeping other memberships."},
+        "removeCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Remove exact memberships; removal wins over additions."},
+        "doi": {"type": "string"},
+        "basicInfo": {"type": "object"},
+        "notes": {"type": "string", "description": MARKDOWN_RULES},
+        "read": {"type": "boolean"},
+        "todo": {"type": "boolean"},
+        "flags": {"type": "array", "items": {"type": "string", "minLength": 1}, "maxItems": 102,
+                  "description": "Replace all selected flag IDs, including read/todo. [] clears them. When present, flags takes precedence over read/todo booleans."},
+    },
+    "required": ["id"], "additionalProperties": False,
+}
+ID_SCHEMA: JsonObject = {"type": "string", "minLength": 1}
+DRY_RUN_SCHEMA: JsonObject = {"type": "boolean", "default": False, "description": "Preview changes without applying them or triggering sync."}
+
+
 TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
+    "list_papers": (
+        "Return all article hashes and metadata, or only the supplied hashes in request order. Excludes standalone notes and archived items. No pagination or implicit result limit.",
+        ARTICLE_LIST_SCHEMA,
+        tool_list_papers,
+    ),
+    "list_paper_summaries": (
+        "Return every article's hash, title, stored abstract and threeLineSummary; optionally select hashes. Missing summaries have hasSummary=false. Does not call AI or generate summaries.",
+        ARTICLE_LIST_SCHEMA,
+        tool_list_paper_summaries,
+    ),
+    "get_paper_summary": (
+        "Read one article's stored abstract and threeLineSummary by hash. Missing summaries have hasSummary=false; does not call AI.",
+        ARTICLE_SCHEMA,
+        tool_get_paper_summary,
+    ),
+    "get_paper_full_text": (
+        "Read the complete article text by hash, without truncation. Uses cached extracted text, falling back to PDF extraction via optional PyMuPDF. Scanned PDFs require OCR/text extraction first. Does not call AI or write files.",
+        ARTICLE_SCHEMA,
+        tool_get_paper_full_text,
+    ),
+    "search_paper_content": (
+        "Search stored abstract, three-line summary, paper notes and full text of active PDF articles. "
+        "Literal NFKC/case-insensitive whitespace-separated terms (match=all by default), not semantic search. "
+        "Returns ranked passages (at most 1200 characters each) with hash, source, passageId, sourceVersion, "
+        "pageNumber (null for flat caches), exact character offsets and paperLink. Prefer PDF page text via optional "
+        "PyMuPDF, falling back to the text cache. Unreadable sources are reported in warnings, not silently omitted. "
+        "Optional hashes and category filters intersect; [] hashes selects none. Paginate with offset/nextOffset. "
+        "Does not call AI, write an index, migrate notes, or change library data.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1, "description": "1–32 whitespace-separated terms, at most 2000 characters; Chinese terms use literal substring matching."},
+                "hashes": ARTICLE_LIST_SCHEMA["properties"]["hashes"],
+                "sources": {"type": "array", "items": CONTENT_SOURCE_SCHEMA, "minItems": 1, "maxItems": 4,
+                            "description": "Default: abstract, summary, notes, full_text. Notes means notes attached to PDF articles, not standalone notes."},
+                "match": {"type": "string", "enum": ["all", "any"], "default": "all"},
+                "categoryId": LEGACY_CATEGORY_SCHEMA,
+                "categoryIds": CATEGORY_IDS_SCHEMA,
+                "categoryMatch": {"type": "string", "enum": ["any", "all"], "default": "any"},
+                "includeDescendants": {"type": "boolean", "default": True},
+                "offset": CONTENT_OFFSET_SCHEMA,
+                "limit": {**CONTENT_LIMIT_SCHEMA, "default": 20},
+            },
+            "required": ["query"], "additionalProperties": False,
+        },
+        tool_search_paper_content,
+    ),
+    "get_paper_passages": (
+        "Read bounded passages of an active PDF article by hash. source defaults to full_text; also supports "
+        "abstract, summary and attached notes. Select passageIds from search_paper_content (same source required), "
+        "or one-based pageNumbers (full_text only), or omit both to paginate the source. "
+        "PDF page text is preferred; a flat text cache has pageNumber=null and cannot satisfy pageNumbers. "
+        "Offsets are zero-based, end-exclusive Python character positions within the page or source as offsetScope indicates. "
+        "Overlapping passages contain at most 1200 characters. IDs bind the article and exact source version; "
+        "stale/unknown IDs are errors. Pass sourceVersion when paginating to detect source changes. "
+        "Empty sources and blank pages return an empty list. Does not call AI or write files.",
+        {
+            "type": "object",
+            "properties": {
+                "hash": ARTICLE_HASH_SCHEMA,
+                "source": {**CONTENT_SOURCE_SCHEMA, "default": "full_text"},
+                "passageIds": {"type": "array", "items": {"type": "string", "minLength": 1},
+                               "minItems": 1, "maxItems": 50},
+                "pageNumbers": {"type": "array", "items": {"type": "integer", "minimum": 1},
+                                "minItems": 1, "maxItems": 100},
+                "sourceVersion": {"type": "string", "minLength": 1},
+                "offset": CONTENT_OFFSET_SCHEMA,
+                "limit": {**CONTENT_LIMIT_SCHEMA, "default": 10},
+            },
+            "required": ["hash"], "additionalProperties": False,
+        },
+        tool_get_paper_passages,
+    ),
+    "ask_paper": (
+        "Ask about one article by hash using Paper Lantern's configured discuss AI module and its article text/summary. Optional history supports follow-up questions. Returns answer and contextTruncated (context limited to MAX_PAPER_CHARS). Does not save discussion or consult other articles; no HTTP server required.",
+        {
+            "type": "object",
+            "properties": {
+                "hash": ARTICLE_HASH_SCHEMA,
+                "question": {"type": "string", "minLength": 1},
+                "history": {"type": "array", "items": {
+                    "type": "object", "properties": {
+                        "role": {"type": "string", "enum": ["user", "assistant"]},
+                        "content": {"type": "string", "minLength": 1},
+                    }, "required": ["role", "content"], "additionalProperties": False,
+                }},
+            },
+            "required": ["hash", "question"], "additionalProperties": False,
+        },
+        tool_ask_paper,
+    ),
     "library_overview": (
         "Return categories, unique item counts (direct and including descendants), and recent items with all category IDs and names.",
         {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}, "additionalProperties": False},
@@ -628,26 +1155,65 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
         tool_create_category,
     ),
     "update_paper": (
-        "Update a paper or note and its category memberships. Apply categoryIds (replacement), then addCategoryIds, then removeCategoryIds. An empty categoryIds array clears all memberships. Read/todo markers are local-only.",
+        "Update a paper or note and its category memberships. Apply categoryIds (replacement), then addCategoryIds, then removeCategoryIds. An empty categoryIds array clears all memberships. Flags and read/todo markers are local-only; flags replaces all flags and overrides read/todo when supplied.",
+        ITEM_UPDATE_SCHEMA,
+        tool_update_paper,
+    ),
+    "batch_update_items": (
+        "Update up to 1000 distinct papers/notes with per-item metadata, notes, categories and flags. All inputs are validated before any update. Category arrays reference existing categories. dryRun returns before/after changes and a revision; pass it as expectedRevision when applying to reject stale previews. Sync runs at most once; local-state-only batches do not sync. On an I/O failure, stop and return updated/failed/skipped results with isError=true; earlier updates remain saved.",
         {
             "type": "object",
             "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "title": {"type": "string"},
-                "categoryId": LEGACY_CATEGORY_SCHEMA,
-                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Replace all memberships with these existing categories; [] clears memberships and shows the item in Uncategorized."},
-                "addCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Add existing categories while keeping other memberships. [] makes no change."},
-                "removeCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Remove these exact memberships while retaining all others. [] makes no change; removal wins if also listed in addCategoryIds."},
-                "doi": {"type": "string"},
-                "basicInfo": {"type": "object"},
-                "notes": {"type": "string", "description": MARKDOWN_RULES},
-                "read": {"type": "boolean"},
-                "todo": {"type": "boolean"},
+                "items": {"type": "array", "minItems": 1, "maxItems": 1000, "items": {
+                    **ITEM_UPDATE_SCHEMA,
+                    "properties": {key: value for key, value in ITEM_UPDATE_SCHEMA["properties"].items() if key != "categoryId"},
+                }},
+                "dryRun": DRY_RUN_SCHEMA,
+                "expectedRevision": {"type": "string", "minLength": 1},
             },
-            "required": ["id"],
+            "required": ["items"],
             "additionalProperties": False,
         },
-        tool_update_paper,
+        tool_batch_update_items,
+    ),
+    "rename_category": (
+        "Rename a category and remap all descendant category IDs and article/note memberships. Returns categoryId and idMap; article IDs stay unchanged. Locked categories cannot be renamed.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "name": ID_SCHEMA}, "required": ["id", "name"], "additionalProperties": False},
+        tool_rename_category,
+    ),
+    "move_category": (
+        "Move a category subtree or reorder siblings. parentId='' means root. Supply at most one of beforeId/afterId; its parent determines the destination and must match parentId if supplied. Returns new categoryId and idMap. Cycles and locked categories are rejected.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "parentId": {"type": "string"}, "beforeId": ID_SCHEMA, "afterId": ID_SCHEMA}, "required": ["id"], "additionalProperties": False},
+        tool_move_category,
+    ),
+    "delete_category": (
+        "Delete a category and its descendants, removing only those memberships and preserving every article/note and other memberships. Items with no remaining membership become Uncategorized. dryRun previews affectedItems and deletedCategoryIds. Locked categories cannot be deleted.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "dryRun": DRY_RUN_SCHEMA}, "required": ["id"], "additionalProperties": False},
+        tool_delete_category,
+    ),
+    "list_flags": (
+        "List built-in and custom local-only flag definitions, including IDs, names, colors and icons. These flags are separate from paper metadata tags and are not cloud-synced.",
+        {"type": "object", "properties": {}, "additionalProperties": False},
+        tool_list_flags,
+    ),
+    "create_flag": (
+        "Create a local custom flag with a 1-24 character name (maximum 100 custom flags). Names are reused case-insensitively, including built-in names. Does not assign it to articles or trigger sync.",
+        {"type": "object", "properties": {"name": ID_SCHEMA}, "required": ["name"], "additionalProperties": False},
+        tool_create_flag,
+    ),
+    "update_flag": (
+        "Set color and/or icon for an existing built-in or custom flag, preserving assignments. Supply at least one of color/icon. Local-only; no sync.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "color": {"type": "string", "description": "#RRGGBB color."}, "icon": {"type": "string", "enum": list(paper_server.PAPER_FLAG_ICONS)}}, "required": ["id"], "additionalProperties": False},
+        tool_update_flag,
+    ),
+    "batch_update_flags": (
+        "Add or remove flag IDs on up to 1000 papers/notes, preserving other flags and recent-view state. Duplicate item/flag IDs are ignored. Validate all IDs before saving. Supports dryRun; local-only and never triggers sync. Use update_paper.flags or batch_update_items for complete replacement/clearing.",
+        {"type": "object", "properties": {
+            "ids": {"type": "array", "items": ID_SCHEMA, "minItems": 1, "maxItems": 1000},
+            "flags": {"type": "array", "items": ID_SCHEMA, "minItems": 1, "maxItems": 102},
+            "operation": {"type": "string", "enum": ["add", "remove"]}, "dryRun": DRY_RUN_SCHEMA,
+        }, "required": ["ids", "flags", "operation"], "additionalProperties": False},
+        tool_batch_update_flags,
     ),
     "set_item_categories": (
         "Replace every category membership of a paper or note. categoryIds=[] clears memberships and places it in Uncategorized. Returns the updated paper with categoryIds/categoryNames.",
@@ -715,7 +1281,7 @@ def list_tools() -> list[JsonObject]:
     return [
         {
             "name": name,
-            "description": description + (" " + MARKDOWN_RULES if name in {"create_note", "write_note", "update_paper"} else ""),
+            "description": description + (" " + MARKDOWN_RULES if name in {"create_note", "write_note", "update_paper", "batch_update_items"} else ""),
             "inputSchema": schema,
         }
         for name, (description, schema, _handler) in TOOLS.items()

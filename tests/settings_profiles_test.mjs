@@ -229,7 +229,7 @@ function setup(intercept = () => null) {
   fixture.select('b');
   await fixture.autosave();
   assert.deepEqual(fixture.requests.at(-1).payload.ai.modules, {
-    summary: {profileId:'b', thinkMode:true}, translate: {profileId:'a', thinkMode:true},
+    summary: {profileId:'b', thinkMode:true, customPrompt:''}, translate: {profileId:'a', thinkMode:true, customPrompt:''},
   });
   await fixture.api.load();
   assert.equal(el.aiProfileSelect.value, 'b');
@@ -240,6 +240,58 @@ function setup(intercept = () => null) {
   await fixture.autosave();
   assert.equal(fixture.requests.at(-1).payload.ai.modules.summary.profileId, '');
   assert.equal(fixture.requests.at(-1).payload.ai.modules.summary.thinkMode, true);
+}
+
+// Each prompt autosaves independently, survives API changes/reload/deletion,
+// and can be cleared to restore the default behavior.
+{
+  const fixture = setup();
+  await flush();
+  const rows = fixture.elements.aiModuleRows;
+  const prompt = index => rows.children[index].children[3].children[1];
+  const summaryPrompt = '先给出结论。\n保留公式 $x^2$ 和 {字段}。';
+  prompt(0).value = summaryPrompt;
+  prompt(0).fire('input');
+  prompt(1).value = '保留英文术语';
+  prompt(1).fire('input');
+  fixture.select('b');
+  await fixture.autosave();
+  assert.equal(fixture.requests.at(-1).payload.ai.modules.summary.customPrompt, summaryPrompt);
+  assert.equal(fixture.requests.at(-1).payload.ai.modules.translate.customPrompt, '保留英文术语');
+  await fixture.api.load();
+  assert.equal(prompt(0).value, summaryPrompt);
+  assert.equal(prompt(1).value, '保留英文术语');
+  fixture.elements.aiProfileDeleteButton.fire('click');
+  await fixture.autosave();
+  assert.equal(fixture.requests.at(-1).payload.ai.modules.summary.profileId, '');
+  assert.equal(fixture.requests.at(-1).payload.ai.modules.summary.customPrompt, summaryPrompt);
+  prompt(0).value = '';
+  prompt(0).fire('input');
+  await fixture.autosave();
+  await fixture.api.load();
+  assert.equal(prompt(0).value, '');
+  assert.equal(prompt(1).value, '保留英文术语');
+}
+
+// A backend that ignores custom prompts must not falsely report success.
+{
+  const fixture = setup((url, payload) => {
+    if (url !== '/api/settings') return null;
+    const ai = structuredClone(payload.ai);
+    for (const setting of Object.values(ai.modules)) delete setting.customPrompt;
+    return response({settings:{ai,sync:{}},sync:{}});
+  });
+  await flush();
+  const prompt = fixture.elements.aiModuleRows.children[0].children[3].children[1];
+  prompt.value = '保留此未保存提示词';
+  prompt.fire('input');
+  const previousError = console.error;
+  try {
+    console.error = () => {};
+    await fixture.autosave();
+  } finally { console.error = previousError; }
+  assert.match(fixture.elements.settingsSaveStatus.textContent, /重启/);
+  assert.equal(prompt.value, '保留此未保存提示词');
 }
 
 // An old server must not falsely report success or clear an unsaved key when

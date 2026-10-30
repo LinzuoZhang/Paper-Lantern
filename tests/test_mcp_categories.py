@@ -195,6 +195,8 @@ class MCPStdioTests(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_library", "arguments": {"categoryIds": "bad"}}},
             {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "search_library", "arguments": {"categoryIds": [], "categoryMatch": "all"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_papers", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "list_paper_summaries", "arguments": {}}},
         ]
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(
@@ -205,13 +207,20 @@ class MCPStdioTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         responses = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual([response["id"] for response in responses], [1, 2, 3, 4])
-        self.assertEqual(responses[0]["result"]["serverInfo"]["version"], "0.3.0")
+        self.assertEqual([response["id"] for response in responses], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(responses[0]["result"]["serverInfo"]["version"], "0.6.0")
+        for name in ("list_papers", "list_paper_summaries", "get_paper_summary", "get_paper_full_text", "ask_paper",
+                     "search_paper_content", "get_paper_passages"):
+            self.assertIn(name, {tool["name"] for tool in responses[1]["result"]["tools"]})
         self.assertIn("auto_highlight_paper", {tool["name"] for tool in responses[1]["result"]["tools"]})
         self.assertIn("remove_item_categories", {tool["name"] for tool in responses[1]["result"]["tools"]})
         self.assertTrue(responses[2]["result"]["isError"])
         search = json.loads(responses[3]["result"]["content"][0]["text"])
         self.assertEqual(search["totalMatches"], 0)
+        for response in responses[4:]:
+            self.assertFalse(response["result"]["isError"])
+            result = json.loads(response["result"]["content"][0]["text"])
+            self.assertEqual(result, {"total": 0, "hashes": [], "papers": []})
 
 
 if __name__ == "__main__":
