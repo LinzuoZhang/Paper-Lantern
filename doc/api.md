@@ -286,6 +286,8 @@ MCP 工具名称、参数与调用示例见 [Research MCP 文档](../plugins/pap
 
 新网页任务由通用 Agent 选择查询、原文调研或操作规划工具，内部设置 `agentVersion: general-v1`，不接受客户端指定该字段。写工具不会直接暴露给模型执行；计划生成后任务进入 `awaiting_approval`，可继续追问调整方案，新轮次会撤销旧的待确认计划。旧研究任务和独立 CLI 保持原行为。
 
+通用 Agent 会保留已读对象、摘要状态及查询分页进度，对同一轮的重复只读请求复用缓存。接近预算上限或重复收集而不再取得新资料时转入计划整理，预留最多 4 次模型调用，不再查询新资料；原返回结果仍可分页回看。旧版预算耗尽检查点可一次性迁移到这一整理阶段。进度事件 `tool_cache_hit`、`planning_finalization_started`、`planning_recovered` 分别表示复用结果、开始整理及旧任务恢复；`model_started.contextChars` 记录本次模型请求大小。
+
 | 接口 | 返回与行为 |
 | --- | --- |
 | `GET /api/reading-agent/jobs` | `{jobs, libraryKey}`，当前库未删除的对话摘要，按更新时间降序，不含完整结果 |

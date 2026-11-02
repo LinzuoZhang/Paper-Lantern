@@ -2771,7 +2771,7 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             job_id = payload.get("jobId")
             job = store.get(job_id, LIBRARY_DIR)
             if "/plan/" in path:
-                from backend.reading_agent.plans import PlanStore, preview_plan, approve_plan, retry_plan, EXECUTION_LOCK
+                from backend.reading_agent.plans import PlanStore, PlanValidationError, preview_plan, approve_plan, retry_plan, EXECUTION_LOCK
                 from backend.reading_agent.service import resume_after_plan
                 plans = PlanStore(store)
                 api = sys.modules[__name__]
@@ -2779,12 +2779,23 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 if not isinstance(plan_id, str) or not re.fullmatch(r"[a-f0-9]{32}", plan_id):
                     raise ValueError("计划 ID 无效。")
                 if path.endswith("/preview"):
-                    plan = preview_plan(api, plans, plan_id, job_id)
+                    try:
+                        plan = preview_plan(api, plans, plan_id, job_id)
+                    except PlanValidationError as error:
+                        plan = error.plan
                 elif path.endswith("/approve"):
-                    plan = approve_plan(api, plans, plan_id, job_id, payload.get("digest"))
+                    try:
+                        plan = approve_plan(api, plans, plan_id, job_id, payload.get("digest"))
+                    except JobConflict:
+                        plan = plans.get(plan_id, job_id, LIBRARY_DIR)
+                        if plan["state"] != "stale" or payload.get("digest") != plan["digest"]:
+                            raise
                     resume_after_plan(store, job_id, LIBRARY_DIR, plan)
                 elif path.endswith("/retry"):
-                    plan = retry_plan(api, plans, plan_id, job_id)
+                    try:
+                        plan = retry_plan(api, plans, plan_id, job_id)
+                    except PlanValidationError as error:
+                        plan = error.plan
                     fresh = store.get(job_id, LIBRARY_DIR)
                     result = fresh["result"] or {}
                     result.update(planId=plan["id"], kind="plan", awaitingApproval=True,
@@ -2800,6 +2811,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                         plan["state"] = "cancelled"; plans.save(plan)
                         if store.get(job_id, LIBRARY_DIR)["request"].get("turnId", job_id) == plan["turnId"]:
                             store.cancel(job_id, LIBRARY_DIR)
+                if not path.endswith("/cancel") and plan["state"] in {"failed", "stale"}:
+                    resume_after_plan(store, job_id, LIBRARY_DIR, plan)
                 self._send_json(200, {"plan": plan, "job": store.public(store.get(job_id, LIBRARY_DIR)), "tree": read_library_tree()})
                 return
             if path.endswith("/delete"):

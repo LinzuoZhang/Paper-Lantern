@@ -62,8 +62,6 @@ class ConfiguredModel:
             reply["reasoning_content"] = message["reasoning_content"]
         calls = message.get("tool_calls")
         if calls:
-            if not tools or not isinstance(calls, list) or len(calls) > 4:
-                raise AgentError("模型须每轮最多调用 4 个工具，并遵守最终汇总阶段的工具限制。")
             ids = set()
             for call in calls:
                 function = call.get("function") if isinstance(call, dict) else None

@@ -476,6 +476,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     if (event.agent?.type === "checkpoint_resumed") showStatus("已恢复上次查阅进度，正在继续…");
     if (["finalization_started", "finalization_recovered"].includes(event.agent?.type)) showStatus(event.agent.reason === "context_budget"
       ? "资料较多，正在聚焦已读原文、核对引文并整理回答…" : "正在整理已读证据、核验引文并生成报告…");
+    if (event.agent?.type === "plan_repair_started") showStatus(event.agent.summary);
     if (event.report) { lastReport = event.report; renderReport(lastReport); status.hidden = true; }
   }
   form.addEventListener("submit", async event => {
@@ -791,6 +792,15 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     const heading = document.createElement("h3"); heading.textContent = `操作计划 · V${plan.version} · ${states[plan.state] || plan.state}`;
     const summary = document.createElement("p"); summary.textContent = plan.proposal.summary;
     planHost.append(heading, summary);
+    if (plan.failure?.error) {
+      const error = document.createElement("p");
+      error.textContent = `${plan.failure.stage === "preview" ? "预览校验失败" : "计划遇到问题"}：${plan.failure.error}`;
+      planHost.append(error);
+      if (activeStatuses.has(job?.status)) {
+        const repairing = document.createElement("p"); repairing.textContent = "助手正在根据失败原因修正方案，修正后将重新等待确认。";
+        planHost.append(repairing);
+      }
+    }
     if (plan.syncError) { const sync = document.createElement("p"); sync.textContent = `文献库已更新，同步未完成：${plan.syncError}`; planHost.append(sync); }
     for (const operation of plan.preview || []) {
       const details = document.createElement("details");
@@ -809,7 +819,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     }
     const buttons = document.createElement("div"); buttons.className = "research-plan-buttons";
     function button(text, action) {
-      const control = document.createElement("button"); control.type = "button"; control.textContent = text; control.disabled = planBusy;
+      const control = document.createElement("button"); control.type = "button"; control.textContent = text; control.disabled = planBusy || activeStatuses.has(job?.status);
       control.addEventListener("click", action); buttons.append(control);
     }
     if (plan.state === "awaiting_approval") {
@@ -834,6 +844,10 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       const data = await request("/plan/preview", { jobId: value.id, planId: id });
       if (version !== planVersion || job?.id !== value.id) return;
       currentPlan = data.plan; renderPlan();
+      if (activeStatuses.has(data.job.status) && !activeStatuses.has(job.status)) {
+        planKey = `${value.id}:${id}:${data.job.status}`;
+        await selectJob(data.job, cursor);
+      }
     } catch (error) {
       if (version !== planVersion) return;
       planHost.textContent = `计划尚未执行，预览失败：${error.message} 可继续追问调整计划。`;

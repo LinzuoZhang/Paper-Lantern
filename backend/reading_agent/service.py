@@ -55,7 +55,7 @@ def create_job(payload, library_dir, base_dir=None):
 
 
 def resume_after_plan(store, job_id, library_dir, plan):
-    """Resume only the graph's approval interrupt; execution remains on the server."""
+    """Resume approval results or plan failures; writes remain on the server."""
     with store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL", (job_id,)).fetchone()
@@ -71,9 +71,13 @@ def resume_after_plan(store, job_id, library_dir, plan):
             except sqlite3.IntegrityError:
                 # The operation receipts remain visible and do not need another execution.
                 result = {"kind": "library", "planId": plan["id"], "report": "# 操作结果\n\n" + plan["proposal"]["summary"], "execution": plan["results"]}
-                db.execute("UPDATE jobs SET status='completed',result=?,updated_at=? WHERE id=?", (json.dumps(result, ensure_ascii=False), time.time(), job_id))
+                failed = plan["state"] in {"failed", "stale"}
+                db.execute("UPDATE jobs SET status=?,result=?,error=?,updated_at=? WHERE id=?",
+                           ("interrupted" if failed else "completed", json.dumps(result, ensure_ascii=False),
+                            "已有其他任务运行，自动修复暂未启动；可从检查点继续。" if failed else "", time.time(), job_id))
                 return
-            store._event(db, job_id, {"jobStatus": "queued", "planExecuted": plan["id"]})
+            store._event(db, job_id, {"jobStatus": "queued", "planExecuted": plan["id"],
+                                     "planRepair": plan["state"] in {"failed", "stale"}})
         else:
             return
     launch(store, store.get(job_id, library_dir))

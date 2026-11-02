@@ -275,8 +275,12 @@ class ReadingAgent:
                 raise ValueError("尚未通过工具取得论文正文，请调用 get_paper_passages 读取 full_text。")
             if not report:
                 raise ValueError("最终报告为空。")
-            validate_note_markdown(report, {"papers": {key: {} for key in read_ids}}, 40_000)
-            if not re.search(r"(?<!!)\[(?:\\.|[^\]\\])+\]\(hash:[^\s)]+\)", _without_code(report)):
+            # Catalog references may describe candidates whose originals have
+            # not been read. Existence and source support are separate checks:
+            # keep known candidate links valid without treating them as evidence.
+            validate_note_markdown(report, {"papers": {key: {} for key in self.allowed | read_ids}}, 40_000)
+            linked_ids = re.findall(r"(?<!!)\[(?:\\.|[^\]\\])+\]\(hash:([^\s)]+)\)", _without_code(report))
+            if not read_ids.intersection(linked_ids):
                 raise ValueError("报告必须用 [标题](hash:文章ID) 引用已读取正文的文献。")
             verification = audit_report(report, state.get("claims", {}), self.options.strict_evidence)
         except ValueError as exc:

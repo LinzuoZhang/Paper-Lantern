@@ -20,6 +20,14 @@ from .store import JobConflict
 EXECUTION_LOCK = threading.RLock()
 
 
+class PlanValidationError(ValueError):
+    """A persisted preview failure that can be returned to the planning agent."""
+
+    def __init__(self, plan):
+        self.plan = plan
+        super().__init__(plan["failure"]["error"])
+
+
 def encode(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
@@ -356,8 +364,14 @@ def preview_plan(api, plans, plan_id, job_id):
         module = mcp_module(); module.paper_server = api
         outputs, preview = {}, []
         for operation in data["proposal"]["operations"]:
-            args = resolve(operation["arguments"], outputs)
-            output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
+            try:
+                args = resolve(operation["arguments"], outputs)
+                output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
+            except (ValueError, TypeError, OSError) as error:
+                data.update(state="failed", failure={"stage": "preview", "operationId": operation["id"],
+                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": False})
+                plans.save(data)
+                raise PlanValidationError(data) from error
             outputs[operation["id"]] = output
             preview.append(deepcopy({"id": operation["id"], "tool": operation["tool"], "label": WRITE_CAPABILITIES[operation["tool"]],
                             "reason": operation.get("reason", ""), "arguments": args, "changes": changes}))
@@ -433,7 +447,9 @@ def approve_plan(api, plans, plan_id, job_id, expected_digest):
             raise JobConflict("该计划不再属于当前待确认的任务。")
         _state, revision = snapshot(api)
         if revision != data["revision"]:
-            data["state"] = "stale"; plans.save(data)
+            data.update(state="stale", failure={"stage": "revision", "error": "文献库已变化，原计划已失效；请核对当前状态并重新生成计划。",
+                                               "possiblePartialWrite": False})
+            plans.save(data)
             raise JobConflict("文献库已变化，原计划已失效；请重新生成计划并确认。")
         data["state"] = "executing"; plans.save(data)
         module = mcp_module(); module.paper_server = api
@@ -451,7 +467,9 @@ def approve_plan(api, plans, plan_id, job_id, expected_digest):
                 plans.save(data)
             except Exception as error:
                 receipt.update(status="failed", error=str(error), possiblePartialWrite=True)
-                data["state"] = "failed"; plans.save(data)
+                data.update(state="failed", failure={"stage": "execution", "operationId": operation["id"],
+                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": True})
+                plans.save(data)
                 break
         else:
             data["state"] = "completed"; plans.save(data)

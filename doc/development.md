@@ -25,6 +25,7 @@ python server.py
 | `backend/reading_agent/capabilities.py` | Agent 开放的查询与写入能力目录，复用现有 MCP 参数定义 |
 | `backend/reading_agent/plans.py` | 不可变计划版本、内存模拟、库版本校验、逐步执行回执与重试预览 |
 | `backend/reading_agent/library_agent.py` | 通用工具选择与 LangGraph 确认中断，科学调研交给原文核验流程 |
+| `backend/reading_agent/library_context.py` | 通用任务的对象与分页记忆、摘要状态、只读缓存、工具视图和结果分页回看 |
 | `backend/content_index.py` | 库外 SQLite FTS5 trigram 增量片段索引，中文短词和兼容环境回退 LIKE |
 | `assets/js/components/discussion_history.js` | 阅读界面 discussion 与库内 Agent 共用的历史列表、搜索弹层、行内重命名、时间显示、删除确认和标题生成 |
 | `assets/js/components/discussion_composer.js` | 阅读界面与 Agent 共用的 Enter/IME 发送、原位停止、模块模型选择与保存状态；附库内论文选择弹层 |
