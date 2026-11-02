@@ -209,6 +209,18 @@ class AIProfileTests(unittest.TestCase):
                 save_config(self.base, {"ai": {"modules": modules}})
             self.assertEqual(config_path(self.base).read_bytes(), original)
 
+    def test_reading_agent_follows_active_profile_and_can_choose_its_own(self):
+        self.save_profiles()
+        with patch.object(server, "BASE_DIR", self.base):
+            self.assertEqual(server.get_ai_config("readingAgent")[:2], ("reading-secret", "fast"))
+            save_config(self.base, {"ai": {"modules": {"readingAgent": {
+                "profileId": "research", "thinkMode": True, "customPrompt": "区分原文与推断。",
+            }}}})
+            self.assertEqual(server.get_ai_config("readingAgent"), ("research-secret", "deep", "https://research.test/v1/chat/completions", True))
+            self.assertEqual(server.get_module_custom_prompt("readingAgent"), "区分原文与推断。")
+        self.assertEqual(load_config(self.base)["ai"]["activeProfileId"], "reading")
+        self.assertIn("readingAgent", {item["id"] for item in public_config(load_config(self.base))["ai"]["moduleDefinitions"]})
+
     def test_http_save_get_and_server_restart_retain_profiles_modules_and_keys(self):
         class QuietHandler(server.PaperReaderHandler):
             def log_message(self, *args):

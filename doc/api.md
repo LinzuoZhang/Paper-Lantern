@@ -252,7 +252,7 @@ AI 设置示例：
 
 读取模型列表使用同样的 `id`、`baseUrl`、`apiKey` 补全规则，向兼容 OpenAI 的 `/models` 接口发送 GET；完整 `/chat/completions` 地址也能转换为对应的 `/models` 地址。模型 ID 去重后排序返回。密钥留空复用同 ID 的已存密钥，新 ID 不继承默认密钥；无密钥的本地接口也可读取。接口未实现模型列表时仍可手动配置模型 ID。
 
-`ai.modules` 支持部分更新，各模块包含 `profileId`（空字符串表示跟随 `activeProfileId`）和独立的 `thinkMode`。模块 ID 为 `overview`、`summary`、`keywords`、`translate`、`explain`、`discuss`、`research`、`discussionTitle` 和 `autoHighlight`。GET 另返回 `ai.moduleDefinitions`，包含模块 ID、名称和说明。普通请求、流式请求和 MCP 自动高亮均使用对应模块设置。旧版 profile 上的 `thinkMode` 仅用于兼容和初始化模块默认值；模块设置优先生效。
+`ai.modules` 支持部分更新，各模块包含 `profileId`（空字符串表示跟随 `activeProfileId`）和独立的 `thinkMode`。模块 ID 为 `overview`、`summary`、`keywords`、`translate`、`explain`、`discuss`、`research`、`readingAgent`、`discussionTitle` 和 `autoHighlight`。GET 另返回 `ai.moduleDefinitions`，包含模块 ID、名称和说明。普通请求、流式请求和 MCP 自动高亮均使用对应模块设置；可选的[阅读机器人](reading-agent.md)使用 `readingAgent` 配置。旧版 profile 上的 `thinkMode` 仅用于兼容和初始化模块默认值；模块设置优先生效。
 
 各模块还包含 `customPrompt` 字符串，默认 `""`。保存时省略该字段会保留已有提示词，传空字符串会清除；非字符串返回 400。提示词作为模块系统指令的补充，应用于后续普通和流式请求，保留默认任务及输出格式要求，不随接口切换或删除而清除。例如仅更新翻译提示词可提交 `{"ai":{"modules":{"translate":{"customPrompt":"保留专业术语的英文。"}}}}`。已有分析不会自动重新生成；关键词模块有非空提示词时跳过通用解释缓存，避免复用或覆盖不同要求的结果。
 
@@ -277,3 +277,45 @@ AI 设置示例：
 引用查询默认可能访问 Crossref；`localOnly: true` 根据当前元数据生成引用结果。候选格式由查询响应提供，可直接选择候选提交给应用接口。
 
 MCP 工具名称、参数与调用示例见 [Research MCP 文档](../plugins/paper-lantern-research-mcp/README.md)，不应直接作为 HTTP 路径调用。
+
+## 文献库阅读助手
+
+`POST /api/reading-agent/jobs` 接收 `{task, hashes?, categoryIds?, requestId?}`，返回 HTTP 202 `{job}`。`task` 为 1–8000 字符；文章及分类数组分别最多 200 项，重复 ID 去重，显式空 `hashes` 被拒绝。文章与分类条件取交集，分类包含子分类。文献库路径由服务端确定，不接受客户端提供的路径或模型密钥。`requestId` 是可选的 32 位小写十六进制串，同一 ID 和参数重复提交返回同一任务；不同参数复用 ID 或创建第二个活动任务返回 409。
+
+追问向同一接口提交 `{jobId, task, requestId, hashes?, categoryIds?}`。`jobId` 为已有对话，`requestId` 必须是新生成的 32 位小写十六进制串；当前轮须已结束。追问保留对话 ID、标题及此前全部问答，`attempt` 递增，开始新的检索预算和检查点；不传范围时沿用上一轮，显式提供范围则替换。相同请求重试不会增加轮次或再次启动运行器。完整 `job` 含此前各轮的 `conversation`、当前 `turnId` 和事件起点 `eventAfter`；事件连接使用 `after >= eventAfter`，避免重放前面轮次的进度。
+
+新网页任务由通用 Agent 选择查询、原文调研或操作规划工具，内部设置 `agentVersion: general-v1`，不接受客户端指定该字段。写工具不会直接暴露给模型执行；计划生成后任务进入 `awaiting_approval`，可继续追问调整方案，新轮次会撤销旧的待确认计划。旧研究任务和独立 CLI 保持原行为。
+
+| 接口 | 返回与行为 |
+| --- | --- |
+| `GET /api/reading-agent/jobs` | `{jobs, libraryKey}`，当前库未删除的对话摘要，按更新时间降序，不含完整结果 |
+| `GET /api/reading-agent/jobs/status?jobId=...` | `{job}`，含完整报告及证据 |
+| `GET /api/reading-agent/jobs/events?jobId=...&after=0` | SSE，先发当前 `{job}`，随后重放 `seq > after` 的事件，再发送新事件；终态发完整 `{job}` 和 `[DONE]` |
+| `POST /api/reading-agent/jobs/cancel` | `{jobId}` → `{job}`，请求停止并保留检查点 |
+| `POST /api/reading-agent/jobs/resume` | `{jobId}` → `{job}`，只允许 failed/cancelled/interrupted，attempt 递增并继续原预算；已取消的待确认计划返回 409，须追问生成新计划 |
+| `POST /api/reading-agent/jobs/save` | `{jobId, turnId?, title?, categoryIds?}` → `{job, note, tree, sync}`，默认保存当前轮，指定 turnId 可保存之前的回答；按轮次幂等，不覆盖其他轮的笔记；标题 1–200 字符，分类最多 20 个且须已存在 |
+| `POST /api/reading-agent/jobs/rename` | `{jobId, title}` → `{job}`，手动重命名对话，标题 1–120 字符，不改变 task |
+| `POST /api/reading-agent/jobs/title` | `{jobId, title, expectedRevision}` → `{job}`，仅在仍为临时标题且版本匹配时应用自动标题，否则返回当前标题 |
+| `POST /api/reading-agent/jobs/delete` | `{jobId}` → `{deleted, jobs}`，标记删除；运行中任务同时停止，已保存笔记保留，后续 status/events/resume 访问返回 404 |
+| `POST /api/reading-agent/jobs/plan/preview` | `{jobId, planId}` → `{plan, job, tree}`，内存模拟全部操作，生成不可变预览及 `digest`，不修改文献库 |
+| `POST /api/reading-agent/jobs/plan/approve` | `{jobId, planId, digest}` → `{plan, job, tree}`，匹配预览、当前轮次及库版本后执行，恢复后台任务展示回执；已完成计划重复提交不重做 |
+| `POST /api/reading-agent/jobs/plan/cancel` | `{jobId, planId}` → `{plan, job, tree}`，取消待确认计划及对应等待任务 |
+| `POST /api/reading-agent/jobs/plan/retry` | `{jobId, planId}` → `{plan, job, tree}`，从 failed/stale/executing 生成新版本，只预览剩余步骤，必须再次确认 |
+
+任务含 `id/task/scope/status/attempt/createdAt/updatedAt/error/noteId/result`；时间为 Unix 秒。状态为 queued、running、cancelling、completed、failed、cancelled、interrupted、awaiting_approval。等待确认会结束本次 SSE，不占活动运行名额，确认后可重连。`result.kind` 为 research、library 或 plan；调研结果含 `report/claims/evidence/verification/readPaperIds` 和调用计数，计划含 `planId`，操作结果含 `execution` 回执。每条 claim 包含 `claimId/statement/kind/supports`，支持证据包含原样引文、文章和片段 ID、sourceVersion、页码、字符位置。核验只建立来源可追溯性，不证明结论语义正确。
+
+`plan` 含 `id/jobId/turnId/version/state/proposal/preview/revision/digest/results`；状态为 draft、awaiting_approval、executing、completed、failed、stale、cancelled、superseded。`proposal` 为 `{summary, operations:[{id, tool, arguments, reason?}]}`，每份最多 100 步、200,000 字符。参数中的 `{"ref":"earlierOp.categoryId"}` 可引用前一步返回值（亦支持 flagId、noteId），禁止前向引用。预览由服务端验证受控写能力和 MCP 参数，返回每步 `changes` 的修改前/后内容。确认请求不能携带新操作，错误摘要或库版本变化返回 409；库版本变化时计划标为 stale。计划 ID 仅在绑定对话及文献库内有效。
+
+执行回执逐步持久化，首个失败停止后续步骤，可能已写入的失败步骤记录 `possiblePartialWrite`，不做全计划回滚。retry 跳过已完成步骤，将其引用解析为真实 ID，生成新 ID 和版本并重新校验当前库；不自动执行。同步错误保存为 `plan.syncError`，不把已完成操作改为待重试。计划、通用检查点、研究检查点分别保存，刷新与进程重启不绕过确认。
+
+对话另含 `title/titleSource/titleRevision`。`titleSource` 为 provisional、generated 或 manual；`titleRevision` 每次有效重命名递增。自动生成使用已有 `/api/discussion-title`，再以版本条件写入，防止覆盖用户编辑。旧数据库自动增加标题和删除标记字段，原 task、结果、笔记关联与检查点保持兼容。删除标记不作为物理清除研究资料的接口。
+
+检索预算结束或证据工作集接近上下文预算后，进入证据整理阶段，最多额外请求模型 6 次，`record_claim` 和本地回看工具 `get_read_evidence` 合计最多调用 12 次，不再开放新增检索。`modelCalls/toolCalls` 是两个阶段的合计，`finalizationCalls/finalizationToolCalls` 单列整理阶段用量。完整原文保留在检查点，模型仅接收有大小限制的相关片段、结论及索引；本地回看只访问当前任务已读原文，不新增文献。两个阶段的预算都随检查点恢复；旧版卡在校验节点或证据上下文超限的任务可在来源复核后继续。进度事件 `finalization_started` 的 `reason: "context_budget"` 表示因资料预算转入整理；`context_compacted` 含可见/归档片段数，`model_started` 含请求 `contextChars` 和本地字符预算 `contextBudget`。
+
+`jobs/save` 仅将报告正文写入笔记，不附加证据与原文、引文片段或核验信息；报告中的证据编号统一转换为 `[C1](hash:文章ID)` 等内部链接，链接文字保留证据编号，后台证据和来源校验仍保留。未指定 `title` 时，从报告 Markdown 标题提取笔记标题，无标题则使用对话标题或该轮任务。打开报告笔记也调用此接口校验后再导航：已有笔记返回当前内容，缺失（含归档或物理目录丢失）则校验报告来源后新建笔记并更新该轮 `noteId`。重建不恢复或覆盖回收站的旧笔记，重复请求返回同一份重建结果；重新创建后才触发自动同步。
+
+SSE 每条为 `data: <JSON>`。持久化事件含单调递增 `seq`，进度含 `{agent:{type,...}}` 或 `{jobStatus}`；`{heartbeat:true}` 不含游标。客户端以最后收到的 seq 重连，不能把 seq 当事件数量。断开 SSE 不取消任务，取消必须显式 POST。单库一次一个活动任务；进程失联约 30 秒转为 interrupted，可从 LangGraph SQLite 检查点恢复。API 隔离当前库，其他库的 ID 返回 404。无效参数 400，状态冲突 409。
+
+任务状态与索引存于项目 `.cache/reading-agent/<库路径摘要>/`，不写入或同步到文献库。首次保存前重新校验源文件摘要，源文献变化会拒绝保存；重复保存保留已有笔记编辑。
+
+旧接口 `POST /api/reading-agent/run` 保留兼容，接收 `{task, hashes?, categoryIds?}`，返回连接绑定的 SSE（`status/agent/heartbeat/report/error`，最后 `[DONE]`）；断开会结束其运行器，没有任务历史或检查点。新前端使用 jobs 接口。

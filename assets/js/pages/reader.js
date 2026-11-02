@@ -101,6 +101,7 @@ let pdfLinkJumpHighlightIgnoreScrollUntil = 0;
 
 let lastExtractedText = "";
 let currentPdfTask = null;
+let currentPdfReady = null;
 let currentPdfDocument = null;
 let pdfPageMetrics = [];
 let pdfRenderedPages = new Map();
@@ -364,6 +365,13 @@ async function openReaderFromUrl() {
     return;
   }
   await openLibraryPaper(paperId);
+  const requestedPage = Number(params.get("page"));
+  if (Number.isInteger(requestedPage) && requestedPage >= 1 && currentPaper?.id === paperId) {
+    await currentPdfReady;
+    if (currentPdfDocument && currentPaper?.id === paperId) {
+      await jumpToPdfOutlinePageAsync(Math.min(requestedPage, currentPdfDocument.numPages));
+    }
+  }
 }
 
 async function openLibraryPaper(paperId) {
@@ -972,7 +980,7 @@ async function saveCurrentPaper(extra = {}) {
 }
 
 function showPdf(file, displayTitle = "") {
-  renderPdf(file).catch((error) => {
+  currentPdfReady = renderPdf(file).catch((error) => {
     console.error(error);
     showPdfLoadError(error.message || "PDF 渲染失败。");
     setStatus(error.message || "Failed to render PDF.", true);

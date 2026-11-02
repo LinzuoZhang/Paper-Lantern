@@ -1,0 +1,7 @@
+# Optional reading-agent runtime; the main web app runs without these packages.
+# Use stable Python 3.11 or 3.12 (the repository's Python 3.11 alpha is unsupported).
+langgraph==1.0.5
+mcp==1.22.0
+langgraph-checkpoint-sqlite==3.0.0
+aiosqlite==0.21.0
+pymupdf==1.26.5

@@ -7,6 +7,10 @@ It operates on the same library directory as `server.py`:
 - default: `literature_library/`
 - override: `PAPER_LIBRARY_DIR`
 
+The optional [reading agent](../../doc/reading-agent.md) connects through the official MCP SDK. It sets `PAPER_LANTERN_MCP_READ_ONLY=1`: only `library_overview`, `search_library`, `list_papers`, `list_paper_summaries`, `get_paper_summary`, `get_paper_full_text`, `search_paper_content`, `get_paper_passages`, `get_item`, `list_flags`, and `agent_capabilities` are exposed. The read-only `get_item` reads existing files without note migration. Other calls are rejected, including helpers that invoke AI. The existing v2 manifest is read without reconciliation or saving; legacy/missing manifests return errors instead of being migrated or initialized. Normal MCP connections retain their existing behavior.
+
+`agent_capabilities` returns the reviewed general Agent capability catalog with read/write effects and approval requirements. Optional `names` (1–6 tool names) includes their existing MCP parameter schemas. Discovering a write schema does not make that tool callable on a read-only connection. Web Agent writes are submitted as concrete plans, simulated by the HTTP service, and executed there only after user approval; this does not change normal MCP clients' write access.
+
 ## Tools
 
 - `list_papers`: list every article hash and its metadata, or select articles by `hashes`.
@@ -17,7 +21,7 @@ It operates on the same library directory as `server.py`:
 - `get_paper_passages`: read bounded passages by article hash, passage IDs or PDF page numbers.
 - `ask_paper`: ask a question about one article by `hash`, using Paper Lantern's configured discussion AI.
 - `library_overview`: list categories, unique direct/subtree item counts, and recent items with all category IDs and names.
-- `search_library`: search papers or notes by title, ID, or category name/ID; filter by multiple categories.
+- `search_library`: search papers or notes by title, ID, or category name/ID; filter by multiple categories. Use `offset` (default 0) and `limit` (default 30, maximum 200) for pagination; results include `totalMatches` and `nextOffset` (null on the final page).
 - `get_item`: read one paper or standalone note.
 - `auto_highlight_paper`: use the configured LLM to select important original text and save purple PDF highlights; supports a preview with `save: false`.
 - `start_import`: start an idempotent asynchronous PDF/arXiv import.
@@ -116,7 +120,7 @@ It operates on the same library directory as `server.py`:
 
 ## 正文检索与原文片段 (v0.6.0)
 
-这两个工具只读取当前库内未归档的 PDF 文章（不检索独立笔记），不调用 AI、不写索引或缓存、不迁移旧笔记，也不触发同步，无需启动 HTTP 服务。
+这两个工具只读取当前库内未归档的 PDF 文章（不检索独立笔记），不调用 AI、不修改文献库、不迁移旧笔记，也不触发同步，无需启动 HTTP 服务。搜索会在项目 `.cache/reading-agent/<库路径摘要>/content.sqlite3` 写入库外增量索引；片段读取不写缓存。
 
 ### `search_paper_content`
 
@@ -131,7 +135,7 @@ It operates on the same library directory as `server.py`:
 
 返回 `{query, terms, match, sources, categoryIds, categoryMatch, includeDescendants, searchedPaperCount, matchedPaperCount, totalMatches, offset, nextOffset, matches, warnings}`。`totalMatches` 是分页前匹配片段数量，同一篇文章可贡献多个片段；`matchedPaperCount` 是匹配文章去重数。`searchedPaperCount` 是选定并尝试检索的文章数（包含读取失败的文章），需结合 `warnings` 判断资料覆盖情况。
 
-`matches` 每项包含文章 `hash/id/title/categoryIds/categoryNames`、`paperLink`，以及下文的片段字段、`matchedTerms` 和 `score`。先按匹配词数降序，再按各词出现次数之和降序（每词计分上限 10），最后按文章 ID、来源顺序和原文位置稳定排序。当前按请求扫描文件，未建立持久索引；分页会重新检索，库有变更时排序和数量可能变化。
+`matches` 每项包含文章 `hash/id/title/categoryIds/categoryNames`、`paperLink`，以及下文的片段字段、`matchedTerms` 和 `score`。先按匹配词数降序，再按各词出现次数之和降序（每词计分上限 10），最后按文章 ID、来源顺序和原文位置稳定排序。SQLite FTS5 trigram 索引支持中英文字面子串；1–2 字查询使用转义 LIKE，不支持 trigram 的环境整体回退 LIKE。按文件大小、修改时间、元数据和提取引擎更新变化的来源，复用未变来源；下一次搜索清理已删除或归档文章。首次检索可能耗时，分页时库变化仍可能改变排序和数量。返回值新增 `searchEngine`（`sqlite-fts5-trigram` 或 `sqlite-like`，短词查询仍可能使用 LIKE）和 `refreshedSources`（本次重建来源数）。
 
 ### `get_paper_passages`
 

@@ -21,6 +21,10 @@ python server.py
 | `backend/llm_diagnostics.py` | AI 请求耗时记录 |
 | `backend/auto_highlight.py` | 自动高亮的输入校验、分批 LLM 原文筛选与唯一引文校验 |
 | `backend/pdf_highlights.py` | MCP 通过 PyMuPDF 将引文转换为阅读器使用的相对坐标 |
+| `backend/reading_agent/` | LangGraph 阅读机器人：只读 MCP、持久化任务、检查点续跑、原文证据核验与隔离演示 |
+| `backend/content_index.py` | 库外 SQLite FTS5 trigram 增量片段索引，中文短词和兼容环境回退 LIKE |
+| `assets/js/components/discussion_history.js` | 阅读界面 discussion 与库内 Agent 共用的历史列表、搜索弹层、行内重命名、时间显示、删除确认和标题生成 |
+| `assets/js/components/discussion_composer.js` | 阅读界面与 Agent 共用的 Enter/IME 发送、原位停止、模块模型选择与保存状态；附库内论文选择弹层 |
 | `assets/js/pages/app.js` | 文献库页面入口 |
 | `assets/js/pages/reader.js` | PDF 阅读页面入口 |
 | `assets/js/pages/note.js` | 独立笔记页面入口 |
@@ -79,5 +83,7 @@ python -m unittest discover -s tests -p "test_mcp_auto_highlight_native.py"
 ```
 
 ## 本地数据
+
+阅读机器人 的依赖安装、命令行运行与集成测试见[阅读机器人说明](reading-agent.md)。主网页服务仍无需安装 Agent 的可选依赖。
 
 `.env/`、`.cache/`、`literature_library/`、`dist/` 和 `build/` 是被 Git 忽略的本地配置、缓存、文献或构建输出，不属于源码整理范围。默认数据路径以及 `PAPER_LIBRARY_DIR` 的覆盖方式保持不变。

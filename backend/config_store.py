@@ -19,6 +19,7 @@ AI_MODULES = (
     ("explain", "划词解释", "结合全文解释选中的术语或段落"),
     ("discuss", "AI 讨论", "论文与笔记的讨论、追问及最终回答"),
     ("research", "论文查阅", "讨论中独立查阅其他论文正文"),
+    ("readingAgent", "阅读机器人", "文献库研究任务的工具调用、查阅与汇总"),
     ("discussionTitle", "讨论标题", "自动生成讨论线程标题"),
     ("autoHighlight", "自动高亮", "筛选重要原文，包含 Research MCP 自动高亮"),
 )

@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="./assets/css/workspace.css" />
     <link rel="stylesheet" href="./assets/css/note.css" />
     <link rel="stylesheet" href="./assets/css/library.css" />
+    <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="./vendor/markdown-it-texmath/css/texmath.min.css" />
+    <link rel="stylesheet" href="./assets/css/research_assistant.css" />
   </head>
   <body class="workspace-page library-page">
     <main id="libraryView" class="library-view" aria-label="Literature library">
@@ -155,6 +158,67 @@
         <textarea id="libCitationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
       </div>
     </div>
+    <button id="researchLauncher" class="research-launcher" type="button" aria-label="打开阅读助手" aria-controls="researchPanel" aria-expanded="false" title="阅读助手 · 拖动可移动">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM7 7h10M7 11h6"/></svg>
+      <span class="research-launcher-dot" aria-hidden="true" hidden></span>
+    </button>
+    <section id="researchPanel" class="research-panel" role="dialog" aria-modal="false" aria-labelledby="researchTitle" hidden>
+      <div id="researchResize" class="research-resize" role="separator" tabindex="0" aria-label="调整阅读助手宽度" aria-orientation="vertical" aria-valuemin="360" aria-valuemax="600" aria-valuenow="420" title="拖动调整宽度，方向键微调"></div>
+      <header class="research-panel-header">
+        <div class="research-heading"><h2 id="researchTitle">阅读助手</h2><span id="researchScope" class="research-scope">文献库</span></div>
+        <div class="research-header-actions">
+          <button id="researchHistoryButton" class="research-icon-button" type="button" title="历史会话" aria-label="历史会话" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9M3 4v5h5M12 7v5l3 2"/></svg></button>
+          <button id="researchNew" class="research-icon-button" type="button" title="新建会话" aria-label="新建会话"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button id="researchDock" class="research-icon-button" type="button" title="切换为浮窗" aria-label="切换为浮窗"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18m-5-12-3 3 3 3"/></svg></button>
+          <button id="researchClose" class="research-icon-button" type="button" aria-label="收起阅读助手" title="收起阅读助手"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+      </header>
+      <div id="researchConversationHeader" class="discussion-thread-header research-conversation-header" hidden>
+        <button id="researchBack" class="research-icon-button" type="button" title="返回对话列表" aria-label="返回对话列表"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="discussion-thread-title-group"><div id="researchThreadTitle" class="discussion-thread-title">新对话</div><button id="researchTitleEdit" class="research-icon-button discussion-title-edit" type="button" title="重命名对话" aria-label="重命名对话" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button></div>
+      </div>
+      <div class="research-content-wrap">
+      <div id="researchContent" class="research-content" tabindex="0" aria-label="阅读助手内容">
+        <div id="researchWelcome" class="research-welcome"><h3>查阅文献，也整理文献库</h3><p>围绕问题查原文、比较方法；分类、标记与笔记修改先列计划，确认后执行。</p>
+          <div class="research-suggestions"><button type="button" data-research-prompt="梳理这个研究方向的主要技术路线、代表方法和未解决问题。">梳理研究脉络 <span>↗</span></button><button type="button" data-research-prompt="比较相关文献的方法、实验设置和结论局限，整理成对照表。">比较方法与实验 <span>↗</span></button><button type="button" data-research-prompt="请根据我的研究想法，在当前文献库中寻找相关工作，并说明可借鉴之处：">寻找相关文献 <span>↗</span></button><button type="button" data-research-prompt="查看全库未分类文献，结合标题摘要建议分类，先列出创建分类和归类的具体计划，等我确认后执行。">规划文献整理 <span>↗</span></button></div>
+        </div>
+        <h3 class="research-history-heading">最近会话</h3>
+        <div id="researchThreadList" class="discussion-thread-list" aria-label="研究对话列表"></div>
+        <div id="researchMessages" class="research-messages" aria-label="之前的问答" hidden></div>
+        <div id="researchQuestion" class="research-question" hidden></div>
+        <div id="researchAnswer" class="research-answer" hidden>
+          <article id="researchReport" class="research-report" aria-label="研究报告" hidden></article>
+          <div id="researchResultActions" class="research-result-actions" role="group" aria-label="报告操作" hidden>
+            <button id="researchCopy" class="research-icon-button" type="button" title="复制报告" aria-label="复制报告" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button>
+            <button id="researchSave" class="research-icon-button" type="button" title="保存为笔记" aria-label="保存为笔记" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M7 3v6h9V3M7 21v-8h10v8"/></svg></button>
+            <a id="researchNote" class="research-icon-button" title="打开笔记" aria-label="打开笔记" hidden target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M14 3h7v7M10 14 21 3"/></svg></a>
+          </div>
+        </div>
+        <section id="researchPlan" class="research-plan" aria-label="待确认的文献库操作" hidden></section>
+        <button id="researchResume" class="research-resume" type="button" hidden>从检查点继续</button>
+      </div>
+      <button id="researchScrollBottom" class="research-scroll-bottom" type="button" title="回到底部" aria-label="回到底部" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m7-7-7 7-7-7"/></svg><span>回到底部</span></button>
+      </div>
+      <p id="researchStatus" class="research-status" role="status" aria-live="polite" hidden></p>
+      <form id="researchForm" class="discussion-form research-form">
+        <div class="discussion-composer">
+          <div id="researchPapers" class="discussion-papers" aria-label="已加入的论文" hidden></div>
+          <textarea id="researchTask" rows="1" maxlength="8000" placeholder="输入研究问题或文献库整理任务…" aria-label="研究问题或整理任务" aria-describedby="researchComposeHelp"></textarea>
+          <div class="discussion-compose-actions">
+            <button id="researchAddPaper" class="add-discussion-paper-button" type="button" aria-label="加入论文" title="加入论文"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+            <div class="discussion-send-controls">
+              <select id="researchModelSelect" class="discussion-model-select" aria-label="阅读助手模型" aria-describedby="researchModelStatus" title="选择阅读助手模型" disabled><option value="">选择模型</option></select>
+              <button id="researchSubmit" class="send-discussion-button" type="submit" aria-label="发送" title="发送"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg></button>
+            </div>
+          </div>
+          <p id="researchModelStatus" class="discussion-model-status" role="status" aria-live="polite" hidden></p>
+        </div>
+        <span id="researchComposeHelp" class="research-sr-only">Enter 发送，Shift+Enter 换行；研究中点击发送位置的停止按钮可停止任务。</span>
+      </form>
+    </section>
+    <script src="./vendor/markdown-it/markdown-it.min.js"></script>
+    <script src="./vendor/katex/katex.min.js"></script>
+    <script src="./vendor/markdown-it-texmath/texmath.min.js"></script>
     <script src="./assets/js/pages/app.js" type="module"></script>
   </body>
 </html>

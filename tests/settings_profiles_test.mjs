@@ -13,6 +13,7 @@ class Element {
   addEventListener(name, callback) { this.handlers[name] = callback; }
   dispatchEvent(event) { this.handlers[event.type]?.(event); return true; }
   setAttribute(name, value) { this.attributes[name] = value; }
+  getAttribute(name) { return this.attributes[name]; }
   contains(element) { return element === this || this.children.includes(element); }
   replaceChildren(...children) { this.children = children; }
   append(...children) { this.children.push(...children); }
@@ -220,10 +221,10 @@ function setup(intercept = () => null) {
   const { elements: el } = fixture;
   const [summary, translate] = el.aiModuleRows.children;
   assert.equal(el.aiThinkModeInput, undefined);
-  assert.equal(summary.children[1].value, 'b');
+  assert.equal(summary.children[1].children[0].value, 'b');
   assert.equal(summary.children[2].checked, true);
-  translate.children[1].value = 'a';
-  translate.children[1].fire('change');
+  translate.children[1].children[0].value = 'a';
+  translate.children[1].children[0].fire('change');
   translate.children[2].checked = true;
   translate.children[2].fire('change');
   fixture.select('b');
@@ -233,7 +234,7 @@ function setup(intercept = () => null) {
   });
   await fixture.api.load();
   assert.equal(el.aiProfileSelect.value, 'b');
-  assert.equal(el.aiModuleRows.children[1].children[1].value, 'a');
+  assert.equal(el.aiModuleRows.children[1].children[1].children[0].value, 'a');
   assert.equal(el.aiModuleRows.children[1].children[2].checked, true);
   window.confirm = () => true;
   el.aiProfileDeleteButton.fire('click');
@@ -248,7 +249,7 @@ function setup(intercept = () => null) {
   const fixture = setup();
   await flush();
   const rows = fixture.elements.aiModuleRows;
-  const prompt = index => rows.children[index].children[3].children[1];
+  const prompt = index => rows.children[index].children[3].children[0].children[1];
   const summaryPrompt = '先给出结论。\n保留公式 $x^2$ 和 {字段}。';
   prompt(0).value = summaryPrompt;
   prompt(0).fire('input');
@@ -273,6 +274,116 @@ function setup(intercept = () => null) {
   assert.equal(prompt(1).value, '保留英文术语');
 }
 
+// Disclosure is presentation-only: drafts survive folding and reloads start
+// collapsed while still revealing that the module has a saved customization.
+{
+  const fixture = setup();
+  await flush();
+  const row = () => fixture.elements.aiModuleRows.children[0];
+  const disclosure = () => row().children[0].children[2];
+  const toggle = () => disclosure().children[0];
+  const marker = () => disclosure().children[1];
+  const panel = () => row().children[3];
+  const prompt = () => panel().children[0].children[1];
+  assert.equal(panel().inert, true);
+  assert.equal(toggle().getAttribute('aria-expanded'), 'false');
+  assert.equal(marker().hidden, true);
+  toggle().fire('click');
+  assert.equal(panel().inert, false);
+  assert.equal(toggle().getAttribute('aria-expanded'), 'true');
+  await fixture.autosave();
+  assert.equal(fixture.requests.length, 0, 'opening a prompt must not save settings');
+  prompt().value = '保留公式与原始术语';
+  prompt().fire('input');
+  toggle().fire('click');
+  assert.equal(panel().inert, true);
+  assert.equal(prompt().value, '保留公式与原始术语');
+  assert.equal(marker().hidden, false);
+  await fixture.autosave();
+  await fixture.api.load();
+  assert.equal(toggle().getAttribute('aria-expanded'), 'false');
+  assert.equal(marker().hidden, false);
+  assert.equal(prompt().value, '保留公式与原始术语');
+  prompt().value = '   ';
+  prompt().fire('input');
+  assert.equal(marker().hidden, true);
+}
+
+// Inert prompt editors still have layout rects during the closing transition;
+// they must not become the final stop in the modal's keyboard focus loop.
+{
+  const fixture = setup();
+  await flush();
+  const form = fixture.elements.cloudConfigForm;
+  const first = fixture.elements.cloudConfigCloseButton;
+  const last = fixture.elements.aiModuleRows.children.at(-1).children[0].children[2].children[0];
+  const collapsedPrompt = fixture.elements.aiModuleRows.children.at(-1).children[3].children[0].children[1];
+  let focusedFirst = false;
+  let prevented = false;
+  first.focus = () => { focusedFirst = true; };
+  for (const control of [first, last, collapsedPrompt]) {
+    control.tabIndex = 0;
+    control.getClientRects = () => [{}];
+    control.closest = () => control === collapsedPrompt ? {} : null;
+  }
+  form.controls = [first, last, collapsedPrompt];
+  document.activeElement = last;
+  form.handlers.keydown({key:'Tab', preventDefault() { prevented = true; }});
+  assert.equal(prevented, true);
+  assert.equal(focusedFirst, true);
+}
+
+// The short inherited display must preserve the empty configuration ID and
+// expose the actual default in its tooltip when the global profile changes.
+{
+  const fixture = setup();
+  await flush();
+  const wrapper = fixture.elements.aiModuleRows.children[1].children[1];
+  const [select, label] = wrapper.children;
+  assert.equal(select.value, '');
+  assert.equal(label.textContent, '默认配置');
+  assert.equal(label.hidden, false);
+  assert.equal(select.children[0].textContent, '跟随默认（使用全局 AI 配置）');
+  assert.match(select.title, /阅读/);
+  fixture.select('b');
+  assert.match(select.title, /研究/);
+  select.value = 'a';
+  select.fire('change');
+  assert.equal(label.hidden, true);
+  assert.equal(select.title, '阅读');
+  await fixture.autosave();
+  assert.equal(fixture.requests.at(-1).payload.ai.modules.translate.profileId, 'a');
+}
+
+// Failed saves keep the draft and expose a retry using the same endpoint;
+// only a successful retry may display the transient saved confirmation.
+{
+  let fail = true;
+  const fixture = setup(url => url === '/api/settings' && fail
+    ? { ...response({ error: '连接已断开' }), ok: false } : null);
+  await flush();
+  fixture.edit('aiModelInput', 'keep-draft');
+  const previousError = console.error;
+  try {
+    console.error = () => {};
+    await fixture.autosave();
+  } finally { console.error = previousError; }
+  const el = fixture.elements;
+  assert.match(el.settingsSaveStatus.textContent, /^保存失败：/);
+  assert.equal(el.settingsSaveRetry.hidden, false);
+  assert.equal(el.aiModelInput.value, 'keep-draft');
+  await fixture.autosave();
+  assert.match(el.settingsSaveStatus.textContent, /^保存失败：/);
+  fail = false;
+  el.settingsSaveRetry.fire('click');
+  assert.equal(el.settingsSaveRetry.hidden, true);
+  await flush();
+  assert.equal(el.settingsSaveStatus.textContent, '已保存');
+  assert.equal(fixture.requests.at(-1).payload.ai.profiles[0].model, 'keep-draft');
+  await fixture.autosave();
+  assert.equal(el.settingsSaveStatus.textContent, '更改会自动保存');
+}
+
 // A backend that ignores custom prompts must not falsely report success.
 {
   const fixture = setup((url, payload) => {
@@ -282,7 +393,7 @@ function setup(intercept = () => null) {
     return response({settings:{ai,sync:{}},sync:{}});
   });
   await flush();
-  const prompt = fixture.elements.aiModuleRows.children[0].children[3].children[1];
+  const prompt = fixture.elements.aiModuleRows.children[0].children[3].children[0].children[1];
   prompt.value = '保留此未保存提示词';
   prompt.fire('input');
   const previousError = console.error;

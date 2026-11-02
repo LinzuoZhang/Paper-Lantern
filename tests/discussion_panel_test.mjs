@@ -31,7 +31,11 @@ class Element {
 
 globalThis.document = { createElement: () => new Element() };
 globalThis.window = { requestAnimationFrame: callback => callback() };
-const source = await readFile(new URL('../assets/js/components/discussion_panel.js', import.meta.url), 'utf8');
+let source = await readFile(new URL('../assets/js/components/discussion_panel.js', import.meta.url), 'utf8');
+const sharedHistory = await readFile(new URL('../assets/js/components/discussion_history.js', import.meta.url), 'utf8');
+source = source.replace('./discussion_history.js', `data:text/javascript;base64,${Buffer.from(sharedHistory).toString('base64')}`);
+const sharedComposer = await readFile(new URL('../assets/js/components/discussion_composer.js', import.meta.url), 'utf8');
+source = source.replace('./discussion_composer.js', `data:text/javascript;base64,${Buffer.from(sharedComposer).toString('base64')}`);
 const { initDiscussionPanel } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 // The composer selector changes only the discussion profile. Sending waits
