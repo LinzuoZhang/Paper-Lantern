@@ -37,9 +37,19 @@ if str(PROJECT_ROOT) not in sys.path:
 import server as paper_server  # noqa: E402
 from backend.mcp_markdown import MARKDOWN_RULES, validate_note_markdown  # noqa: E402
 from backend.paper_content import SOURCES, build_passages, query_terms, read_source, score_passage  # noqa: E402
+from backend.content_index import ContentIndex, library_cache_dir  # noqa: E402
 
 
 JsonObject = dict[str, Any]
+READ_ONLY_TOOLS = frozenset({
+    "library_overview", "search_library", "list_papers", "list_paper_summaries",
+    "get_paper_summary", "get_paper_full_text", "search_paper_content", "get_paper_passages",
+    "agent_capabilities", "get_item", "list_flags",
+})
+
+
+def read_only_mode() -> bool:
+    return os.environ.get("PAPER_LANTERN_MCP_READ_ONLY") == "1"
 
 
 def json_response(message_id: Any, result: Any = None, error: JsonObject | None = None) -> JsonObject:
@@ -68,6 +78,17 @@ def tool_error(message: str) -> JsonObject:
 
 
 def read_db() -> JsonObject:
+    if read_only_mode():
+        # load_library_db reconciles and saves even when called by a read tool.
+        # Agent subprocesses must never perform that write beside the HTTP app.
+        db = json.loads(paper_server.DB_FILE.read_text(encoding="utf-8"))
+        if not isinstance(db, dict) or not isinstance(db.get("papers"), dict) or not isinstance(db.get("categories"), dict):
+            raise ValueError("Invalid library manifest.")
+        if db.get("version", 1) < 2:
+            raise ValueError("Open this library in Paper Lantern to migrate it before read-only MCP access.")
+        paper_server.ensure_uncategorized(db)
+        paper_server.normalize_manifest_categories(db)
+        return db
     return paper_server.load_library_db()
 
 
@@ -190,7 +211,10 @@ def tool_search_library(args: JsonObject) -> JsonObject:
             continue
         matches.append(summary)
     matches.sort(key=lambda item: item.get("uploadedAt", ""), reverse=True)
-    return tool_text({"query": query, "categoryIds": filters, "categoryMatch": match, "includeDescendants": include_descendants, "totalMatches": len(matches), "matches": matches[:limit]})
+    offset = args.get("offset", 0)
+    return tool_text({"query": query, "categoryIds": filters, "categoryMatch": match, "includeDescendants": include_descendants,
+                      "totalMatches": len(matches), "nextOffset": offset + limit if offset + limit < len(matches) else None,
+                      "matches": matches[offset:offset + limit]})
 
 
 def tool_get_item(args: JsonObject) -> JsonObject:
@@ -198,7 +222,23 @@ def tool_get_item(args: JsonObject) -> JsonObject:
     include_text = bool(args.get("includeExtractedText", False))
     if not item_id:
         raise ValueError("id is required.")
-    paper = paper_server.read_paper(item_id, include_extracted_text=include_text)
+    if read_only_mode():
+        db = read_db()
+        record = db["papers"].get(item_id)
+        if not record:
+            raise FileNotFoundError("Item not found.")
+        directory = paper_server.paper_dir_from_record(record)
+        metadata = paper_server.read_json(directory / "metadata.json", {})
+        paper = {**item_summary(record, db), "basicInfo": metadata.get("basicInfo", {}),
+                 "doi": metadata.get("doi", ""), "notes": paper_server.read_text_file(directory / paper_server.NOTES_FILE)
+                 if (directory / paper_server.NOTES_FILE).exists() else str(metadata.get("notes", "")),
+                 **paper_server.paper_local_state(item_id, metadata)}
+        if include_text:
+            paper["extractedText"] = paper_server.read_text_file(directory / paper_server.EXTRACTED_TEXT_FILE)[:24000]
+    else:
+        paper = paper_server.read_paper(item_id, include_extracted_text=include_text)
+    if not paper:
+        raise FileNotFoundError("Item not found.")
     return tool_text({"item": paper, "paperLink": markdown_link(format_paper_link_label(paper), item_id)})
 
 
@@ -312,21 +352,16 @@ def tool_search_paper_content(args: JsonObject) -> JsonObject:
         records = [record for record in records if not scopes or
                    (all if args.get("categoryMatch", "any") == "all" else any)(
                        bool(scope.intersection(record["categoryIds"])) for scope in scopes)]
-    matches, warnings, matched_papers = [], [], set()
-    for record in records:
-        try:
-            paper, documents, notices = read_article_content(record["id"], sources, db)
-        except (OSError, ValueError, RuntimeError) as exc:
-            warnings.append({"hash": record["id"], "message": str(exc)})
-            continue
-        warnings.extend(notices)
-        for document in documents.values():
-            for passage in document["passages"]:
-                found = score_passage(passage, terms, match)
-                if found is not None:
-                    matches.append({**paper, **found,
-                                    "paperLink": markdown_link(paper["title"], paper["hash"])})
-                    matched_papers.add(paper["hash"])
+    index_path = library_cache_dir(paper_server.LIBRARY_DIR, paper_server.BASE_DIR) / "content.sqlite3"
+    with ContentIndex(index_path) as index:
+        index.prune({record["id"] for record in db["papers"].values() if record.get("itemType", "paper") == "paper"})
+        warnings, refreshed = index.refresh(records, sources, paper_server.paper_dir_from_record,
+                                            lambda key, selected: read_article_content(key, selected, db))
+        matches = index.search([record["id"] for record in records], sources, terms, match)
+        engine = "sqlite-fts5-trigram" if index.fts else "sqlite-like"
+    for item in matches:
+        item["paperLink"] = markdown_link(item["title"], item["hash"])
+    matched_papers = {item["hash"] for item in matches}
     matches.sort(key=lambda item: (-len(item["matchedTerms"]), -item["score"], item["hash"],
                                    SOURCES.index(item["source"]), item["pageNumber"] or 0, item["startChar"]))
     offset, limit = args.get("offset", 0), args.get("limit", 20)
@@ -337,7 +372,8 @@ def tool_search_paper_content(args: JsonObject) -> JsonObject:
                       "searchedPaperCount": len(records), "matchedPaperCount": len(matched_papers),
                       "totalMatches": len(matches), "offset": offset,
                       "nextOffset": end if end < len(matches) else None,
-                      "matches": matches[offset:end], "warnings": warnings})
+                      "matches": matches[offset:end], "warnings": warnings,
+                      "searchEngine": engine, "refreshedSources": refreshed})
 
 
 def tool_get_paper_passages(args: JsonObject) -> JsonObject:
@@ -906,6 +942,11 @@ DRY_RUN_SCHEMA: JsonObject = {"type": "boolean", "default": False, "description"
 
 
 TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
+    "agent_capabilities": (
+        "Discover library agent capabilities. Without names returns a compact catalog; with up to 6 names returns schemas. Write capabilities describe proposals only and cannot be executed by this read-only connection.",
+        {"type": "object", "properties": {"names": {"type": "array", "maxItems": 6, "items": {"type": "string"}}}, "additionalProperties": False},
+        lambda args: tool_text({"tools": __import__("backend.reading_agent.capabilities", fromlist=["tool_catalog"]).tool_catalog(TOOLS, args.get("names", []))}),
+    ),
     "list_papers": (
         "Return all article hashes and metadata, or only the supplied hashes in request order. Excludes standalone notes and archived items. No pagination or implicit result limit.",
         ARTICLE_LIST_SCHEMA,
@@ -933,7 +974,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
         "pageNumber (null for flat caches), exact character offsets and paperLink. Prefer PDF page text via optional "
         "PyMuPDF, falling back to the text cache. Unreadable sources are reported in warnings, not silently omitted. "
         "Optional hashes and category filters intersect; [] hashes selects none. Paginate with offset/nextOffset. "
-        "Does not call AI, write an index, migrate notes, or change library data.",
+        "Uses an incremental SQLite full-text index outside the library; does not call AI, migrate notes, or change library data.",
         {
             "type": "object",
             "properties": {
@@ -1008,6 +1049,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
+                "offset": {"type": "integer", "minimum": 0},
                 "categoryId": LEGACY_CATEGORY_SCHEMA,
                 "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Filter categories. An empty array applies no category filter and overrides categoryId."},
                 "categoryMatch": {"type": "string", "enum": ["any", "all"], "default": "any", "description": "Match any requested category or every requested category."},
@@ -1285,6 +1327,7 @@ def list_tools() -> list[JsonObject]:
             "inputSchema": schema,
         }
         for name, (description, schema, _handler) in TOOLS.items()
+        if not read_only_mode() or name in READ_ONLY_TOOLS
     ]
 
 
@@ -1312,6 +1355,8 @@ def handle_request(message: JsonObject) -> JsonObject | None:
         tool = TOOLS.get(name)
         if not tool:
             return json_response(message_id, error={"code": -32602, "message": f"Unknown tool: {name}"})
+        if read_only_mode() and name not in READ_ONLY_TOOLS:
+            return json_response(message_id, tool_error(f"Tool disabled in read-only mode: {name}"))
         try:
             validate_value(arguments, tool[1])
             return json_response(message_id, tool[2](arguments))

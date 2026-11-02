@@ -1922,24 +1922,33 @@ def add_paper_to_db(title, category, pdf_file, metadata_updates=None):
 
 
 @library_locked
-def add_note_to_db(title, category):
+def add_note_to_db(title, category, *, request_id=None, content=""):
     db = load_library_db()
     ids = resolve_category_ids(db, category, create=True)
     category_id = ids[0]
     clean_title = clean_folder_name(title) or "新建笔记"
-    note_id = make_paper_id(f"note-{clean_title}-{category_id}-{utc_now()}")
+    note_title = title.strip() if request_id else clean_title
+    note_id = hashlib.sha256(("research-report:" + request_id).encode()).hexdigest()[:32] if request_id else make_paper_id(f"note-{clean_title}-{category_id}-{utc_now()}")
     note_dir = NOTE_STORAGE_DIR / note_id
-    while note_dir.exists() or note_id in db["papers"]:
+    if request_id and (note_id in db["papers"] or note_dir.exists()):
+        metadata = read_json(note_dir / "metadata.json", {})
+        if metadata.get("researchJobId") != request_id:
+            raise ValueError("报告笔记标识冲突。")
+        if note_id in db["papers"]:
+            return read_paper(note_id, db)
+    while not request_id and (note_dir.exists() or note_id in db["papers"]):
         note_id = make_paper_id(f"{note_id}-retry")
         note_dir = NOTE_STORAGE_DIR / note_id
     note_dir.mkdir(parents=True, exist_ok=True)
-    metadata = default_metadata(clean_title, category_id)
+    metadata = default_metadata(note_title, category_id)
     metadata["itemType"] = "note"
+    if request_id:
+        metadata["researchJobId"] = request_id
     write_json(note_dir / "metadata.json", metadata)
-    write_paper_notes(note_dir, "")
+    write_paper_notes(note_dir, content)
     db["papers"][note_id] = {
         "id": note_id,
-        "title": clean_title,
+        "title": note_title,
         "categoryId": category_id,
         "folder": f"notes/{note_id}",
         "uploadedAt": metadata["uploadedAt"],
@@ -2252,6 +2261,22 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         request_path = urlparse(self.path).path
+        if request_path in {"/api/reading-agent/jobs", "/api/reading-agent/jobs/cancel", "/api/reading-agent/jobs/resume", "/api/reading-agent/jobs/save", "/api/reading-agent/jobs/rename", "/api/reading-agent/jobs/title", "/api/reading-agent/jobs/delete",
+                            "/api/reading-agent/jobs/plan/preview", "/api/reading-agent/jobs/plan/approve", "/api/reading-agent/jobs/plan/cancel", "/api/reading-agent/jobs/plan/retry"}:
+            self._handle_agent_post(request_path)
+            return
+        if request_path == "/api/reading-agent/run":
+            from backend.reading_agent.web_bridge import run_events, validate_request
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 100_000:
+                    raise ValueError("研究请求过大或为空。")
+                payload = validate_request(json.loads(self.rfile.read(length).decode("utf-8")))
+            except (ValueError, UnicodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            self._send_discussion_stream(run_events(payload, LIBRARY_DIR))
+            return
         if request_path == "/api/link-preview":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2534,6 +2559,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         request_path = urlparse(self.path).path
+        if request_path in {"/api/reading-agent/jobs", "/api/reading-agent/jobs/status", "/api/reading-agent/jobs/events"}:
+            self._handle_agent_get(request_path)
+            return
         if request_path == "/api/health":
             self._send_json(200, {"ok": True, "app": "Paper Lantern", "root": str(LIBRARY_DIR)})
             return
@@ -2695,6 +2723,169 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _handle_agent_get(self, path):
+        import sqlite3
+        from backend.reading_agent.service import job_events, store_for
+        try:
+            store = store_for(LIBRARY_DIR, BASE_DIR)
+            if path == "/api/reading-agent/jobs":
+                self._send_json(200, {"jobs": store.list(LIBRARY_DIR), "libraryKey": store.path.parent.name})
+                return
+            job_id = parse_query_value(self.path, "jobId")
+            job = store.get(job_id, LIBRARY_DIR)
+            if path.endswith("/events"):
+                after = int(parse_query_value(self.path, "after") or 0)
+                if after < 0:
+                    raise ValueError("事件游标无效。")
+                self._send_discussion_stream(job_events(store, job_id, LIBRARY_DIR, after))
+            else:
+                self._send_json(200, {"job": store.public(job)})
+        except FileNotFoundError as exc:
+            self._send_json(404, {"error": str(exc)})
+        except (ValueError, OSError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except sqlite3.Error:
+            self._send_json(503, {"error": "研究任务数据库暂不可用，请稍后重试并检查本机缓存目录。"})
+
+    def _handle_agent_post(self, path):
+        import sqlite3
+        from backend.reading_agent.service import create_job, launch, store_for
+        from backend.reading_agent.store import JobConflict
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 100_000:
+                raise ValueError("研究请求过大或为空。")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("研究请求格式无效。")
+            if path == "/api/reading-agent/jobs":
+                self._send_json(202, {"job": create_job(payload, LIBRARY_DIR, BASE_DIR)})
+                return
+            allowed = ({"jobId", "planId", "digest"} if "/plan/" in path else
+                       {"jobId", "turnId", "title", "categoryIds"} if path.endswith("/save") else
+                       {"jobId", "title", "expectedRevision"} if path.endswith("/title") else
+                       {"jobId", "title"} if path.endswith("/rename") else {"jobId"})
+            if set(payload) - allowed:
+                raise ValueError("研究请求包含未知参数。")
+            store = store_for(LIBRARY_DIR, BASE_DIR)
+            job_id = payload.get("jobId")
+            job = store.get(job_id, LIBRARY_DIR)
+            if "/plan/" in path:
+                from backend.reading_agent.plans import PlanStore, preview_plan, approve_plan, retry_plan, EXECUTION_LOCK
+                from backend.reading_agent.service import resume_after_plan
+                plans = PlanStore(store)
+                api = sys.modules[__name__]
+                plan_id = payload.get("planId")
+                if not isinstance(plan_id, str) or not re.fullmatch(r"[a-f0-9]{32}", plan_id):
+                    raise ValueError("计划 ID 无效。")
+                if path.endswith("/preview"):
+                    plan = preview_plan(api, plans, plan_id, job_id)
+                elif path.endswith("/approve"):
+                    plan = approve_plan(api, plans, plan_id, job_id, payload.get("digest"))
+                    resume_after_plan(store, job_id, LIBRARY_DIR, plan)
+                elif path.endswith("/retry"):
+                    plan = retry_plan(api, plans, plan_id, job_id)
+                    fresh = store.get(job_id, LIBRARY_DIR)
+                    result = fresh["result"] or {}
+                    result.update(planId=plan["id"], kind="plan", awaitingApproval=True,
+                                  report="# 待确认的操作计划\n\n" + plan["proposal"]["summary"])
+                    with store.connect() as connection:
+                        connection.execute("UPDATE jobs SET status='awaiting_approval',result=? WHERE id=?",
+                                           (json.dumps(result, ensure_ascii=False), job_id))
+                else:
+                    with EXECUTION_LOCK:
+                        plan = plans.get(plan_id, job_id, LIBRARY_DIR)
+                        if plan["state"] not in {"draft", "awaiting_approval", "stale"}:
+                            raise ValueError("该计划不可取消。")
+                        plan["state"] = "cancelled"; plans.save(plan)
+                        if store.get(job_id, LIBRARY_DIR)["request"].get("turnId", job_id) == plan["turnId"]:
+                            store.cancel(job_id, LIBRARY_DIR)
+                self._send_json(200, {"plan": plan, "job": store.public(store.get(job_id, LIBRARY_DIR)), "tree": read_library_tree()})
+                return
+            if path.endswith("/delete"):
+                store.delete(job_id, LIBRARY_DIR)
+                from backend.reading_agent.plans import PlanStore
+                PlanStore(store).invalidate(job_id)
+                self._send_json(200, {"deleted": job_id, "jobs": store.list(LIBRARY_DIR)})
+                return
+            if path.endswith("/rename") or path.endswith("/title"):
+                job = store.rename(job_id, LIBRARY_DIR, payload.get("title"), generated=path.endswith("/title"),
+                                   expected_revision=payload.get("expectedRevision"))
+            elif path.endswith("/cancel"):
+                job = store.cancel(job_id, LIBRARY_DIR)
+                from backend.reading_agent.plans import PlanStore
+                PlanStore(store).invalidate(job_id)
+            elif path.endswith("/resume"):
+                if job["status"] == "cancelled" and (job.get("result") or {}).get("kind") == "plan":
+                    raise JobConflict("计划已取消，请继续追问生成新计划并重新确认。")
+                job = store.resume(job_id, LIBRARY_DIR)
+                launch(store, job)
+            else:
+                note, created = self._save_agent_report(store, job, payload)
+                sync = maybe_auto_sync_library() if created else None
+                self._send_json(200, {"job": store.public(store.get(job_id, LIBRARY_DIR)), "note": note,
+                                      "tree": read_library_tree(), "sync": sync})
+                return
+            self._send_json(200, {"job": store.public(job)})
+        except JobConflict as exc:
+            self._send_json(409, {"error": str(exc)})
+        except FileNotFoundError as exc:
+            self._send_json(404, {"error": str(exc)})
+        except (ValueError, UnicodeError, OSError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except sqlite3.Error:
+            self._send_json(503, {"error": "研究任务数据库暂不可用，请稍后重试并检查本机缓存目录。"})
+
+    def _save_agent_report(self, store, job, payload):
+        from backend.reading_agent.evidence import report_title, report_with_paper_links, source_signatures
+        from backend.mcp_markdown import validate_note_markdown
+        target_id = payload.get("turnId", job["request"].get("turnId", job["id"]))
+        store.valid_id(target_id)
+        with store.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            fresh = connection.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
+            if fresh is None or fresh["deleted_at"] is not None:
+                raise FileNotFoundError("研究对话不存在。")
+            current = store._decode(fresh)
+            archived = next((turn for turn in current["conversation"] if turn["turnId"] == target_id), None)
+            if archived is not None:
+                target = {"status": archived["status"], "result": archived["result"], "note_id": archived["noteId"],
+                          "request": {"task": archived["task"], **archived.get("scope", {})}}
+            elif target_id == current["request"].get("turnId", current["id"]):
+                target = current
+            else:
+                raise ValueError("当前回答已变化，请刷新后重新保存。")
+            if target["status"] != "completed" or not target["result"]:
+                raise ValueError("只有已完成的研究报告可以保存为笔记。")
+            with LIBRARY_LOCK:
+                db = load_library_db()
+                if target["note_id"]:
+                    existing = read_paper(target["note_id"], db)
+                    if existing and existing.get("itemType") == "note":
+                        return existing, False
+                result = target["result"]
+                evidence = {item["passageId"]: item for item in result.get("evidence", [])}
+                if evidence and source_signatures(LIBRARY_DIR, evidence) != result.get("verification", {}).get("sourceSignatures"):
+                    raise ValueError("原文已变化，不能把过期报告作为已核验笔记保存；请新建研究任务。")
+                content = report_with_paper_links(result, db["papers"])["report"]
+                validate_note_markdown(content, db, MAX_NOTES_CHARS)
+                categories = payload.get("categoryIds", [key for key in target["request"].get("categoryIds", []) if key in db["categories"]])
+                if not isinstance(categories, list) or len(categories) > 20 or any(not isinstance(key, str) or key not in db["categories"] for key in categories):
+                    raise ValueError("请选择已有分类。")
+                title = payload.get("title", report_title(result["report"], current.get("title") or target["request"]["task"]))
+                if not isinstance(title, str) or not 1 <= len(title.strip()) <= 200:
+                    raise ValueError("报告标题须为 1–200 字符。")
+                request_id = f"{target_id}:replacement:{target['note_id']}" if target["note_id"] else target_id
+                note = add_note_to_db(title.strip(), categories, request_id=request_id, content=content)
+                update_paper_sync_hash(paper_dir_from_id(note["id"]))
+                if archived is not None:
+                    archived["noteId"] = note["id"]
+                    connection.execute("UPDATE jobs SET conversation=?,updated_at=? WHERE id=?",
+                                       (json.dumps(current["conversation"], ensure_ascii=False), __import__("time").time(), job["id"]))
+                else:
+                    connection.execute("UPDATE jobs SET note_id=?,updated_at=? WHERE id=?", (note["id"], __import__("time").time(), job["id"]))
+                return note, True
+
     def _send_discussion_stream(self, chunks, first_chunk=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -2712,14 +2903,14 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                 self.wfile.flush()
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             return
         except Exception as exc:
             try:
                 data = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except ConnectionError:
                 pass
         finally:
             close = getattr(chunks, "close", None)

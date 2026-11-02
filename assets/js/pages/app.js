@@ -1,4 +1,5 @@
 import { initSettingsModal } from "../components/settings_modal.js";
+import { initResearchAssistant } from "../components/research_assistant.js";
 import { initPaperFlags, applyPaperFlagUpdates } from "../components/paper_flags.js";
 import { initPaperFlagFilter } from "../components/paper_flag_filter.js";
 import { getCategoryIds, getCategoryLabels, collectUniquePapers, categorySearchText, showCategoryManager } from "../components/category_manager.js";
@@ -138,6 +139,23 @@ const paperFlagFilter = initPaperFlagFilter({
   onChange: () => {
     clearPaperSelection();
     renderLibrary({ preserveFlagFilter: true });
+  },
+});
+
+const researchAssistant = initResearchAssistant({
+  apiFetch, readJsonResponse,
+  getPapers: () => collectPapers(libraryTree).filter(paper => paper.itemType !== "note"),
+  onNoteSaved: data => { if (data.tree) { libraryTree = data.tree; renderLibrary(); } reportSyncResult(data.sync); },
+  getScope: () => {
+    const papers = collectPapers(libraryTree).filter(paper => paper.itemType !== "note");
+    if (selectedPaperIds.size) {
+      const hashes = papers.filter(paper => selectedPaperIds.has(paper.id)).map(paper => paper.id);
+      return { label: `已选文献 · ${hashes.length} 篇论文`, hashes };
+    }
+    if (selectedCategoryId && ![RECENT_CATEGORY_ID, TODO_CATEGORY_ID].includes(selectedCategoryId)) {
+      return { label: `当前分类 · ${currentCategoryName.textContent || "未分类"}`, categoryIds: [selectedCategoryId] };
+    }
+    return { label: "整个文献库" };
   },
 });
 
@@ -636,6 +654,7 @@ function renderLibrary({ preserveFlagFilter = false } = {}) {
   const previewPaper = selectedCategoryId === RECENT_CATEGORY_ID ? visiblePapers[0] : sortPapers(visiblePapers)[0];
   if (previewPaper) renderPaperInfoPanel(previewPaper);
   else renderPaperInfoEmpty();
+  researchAssistant?.refreshScope();
 }
 
 function renderCategoryNode(node, depth = 0) {
@@ -1070,6 +1089,7 @@ function clearPaperSelection() {
 }
 
 function syncPaperSelectionUi() {
+  researchAssistant?.refreshScope();
   const count = selectedPaperIds.size;
   const isSelecting = count > 0;
   if (paperBulkToolbar) paperBulkToolbar.hidden = !isSelecting;
@@ -2218,6 +2238,7 @@ async function apiFetch(path, options = {}) {
       }
       lastError = new Error(`API not found at ${base || "current origin"}.`);
     } catch (error) {
+      if (error.name === "AbortError" || options.signal?.aborted || (url.startsWith("/api/reading-agent/") && options.method === "POST")) throw error;
       lastError = error;
     }
   }

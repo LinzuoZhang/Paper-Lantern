@@ -91,12 +91,11 @@ const SETTINGS_HTML = `
           <section id="settingsPageModules" class="settings-page" role="tabpanel" aria-labelledby="settingsNavModules" tabindex="0" hidden>
             <div class="settings-page-heading">
               <h3>模块配置</h3>
-              <p>为各功能选择接口配置，并独立设置 Think 模式。</p>
+              <p>为各功能指定模型接口、推理模式和个性化提示词。</p>
             </div>
-            <section class="settings-group" aria-labelledby="aiModulesTitle">
-              <h4 id="aiModulesTitle">模块调用</h4>
-              <p class="settings-hint settings-modules-hint">选择“跟随默认”时使用 AI 接口页的默认配置。Think 和个性化提示词由各模块单独控制。提示词留空使用默认规则，填写后作为补充要求应用于后续生成。</p>
-              <div class="settings-module-columns" aria-hidden="true"><span>模块</span><span>接口配置</span><span>Think</span></div>
+            <section class="settings-group" aria-label="模块调用配置">
+              <p class="settings-hint settings-modules-hint">未单独指定接口的模块将使用默认 AI 配置。</p>
+              <div class="settings-module-columns"><span>模块</span><span>接口配置</span><span class="settings-think-heading" tabindex="0" aria-describedby="settingsThinkHint">Think<span id="settingsThinkHint" class="settings-tooltip" role="tooltip">启用模型的深度推理模式，响应可能更慢；需接口支持。</span></span></div>
               <div id="aiModuleRows" class="settings-module-rows"></div>
             </section>
           </section>
@@ -163,7 +162,10 @@ const SETTINGS_HTML = `
         </div>
       </div>
       <footer class="settings-footer">
-        <p id="settingsSaveStatus" role="status" aria-live="polite">更改会自动保存</p>
+        <div class="settings-save-state">
+          <p id="settingsSaveStatus" role="status" aria-live="polite">更改会自动保存</p>
+          <button id="settingsSaveRetry" class="settings-text-button" type="button" hidden>重试</button>
+        </div>
         <span class="settings-keyboard-hint"><kbd>Esc</kbd> 关闭</span>
       </footer>
     </form>
@@ -202,6 +204,7 @@ export function initSettingsModal(options = {}) {
   const cloudPasswordInput = document.getElementById("cloudPasswordInput");
   const cloudAutoPushInput = document.getElementById("cloudAutoPushInput");
   const saveStatus = document.getElementById("settingsSaveStatus");
+  const saveRetry = document.getElementById("settingsSaveRetry");
   const syncRefreshButton = document.getElementById("settingsSyncRefreshButton");
   const syncState = document.getElementById("settingsSyncState");
   const syncTime = document.getElementById("settingsSyncTime");
@@ -217,6 +220,8 @@ export function initSettingsModal(options = {}) {
   const onSaved = typeof options.onSettingsSaved === "function" ? options.onSettingsSaved : () => {};
 
   let saveTimer = null;
+  let savedStatusTimer = null;
+  let retryAction = null;
   let profiles = [];
   let activeProfileId = "";
   let moduleSettings = {};
@@ -234,7 +239,10 @@ export function initSettingsModal(options = {}) {
     if (event.detail?.source !== "discussion" || !moduleSettings.discuss) return;
     moduleSettings.discuss.profileId = event.detail.ai.modules.discuss.profileId;
     const select = moduleControls.get("discuss")?.select;
-    if (select) select.value = moduleSettings.discuss.profileId;
+    if (select) {
+      select.value = moduleSettings.discuss.profileId;
+      updateModuleSelection("discuss");
+    }
   });
 
   function renderModelSelect() {
@@ -316,9 +324,13 @@ export function initSettingsModal(options = {}) {
     }
   }
 
-  function showSaveStatus(message, isError = false) {
+  function showSaveStatus(message, isError = false, retry = null) {
+    window.clearTimeout(savedStatusTimer);
     saveStatus.textContent = message;
+    saveStatus.title = message;
     saveStatus.classList.toggle("settings-inline-error", isError);
+    retryAction = retry;
+    saveRetry.hidden = !retry;
   }
 
   function closeProfileMenu(restoreFocus = false) {
@@ -364,7 +376,7 @@ export function initSettingsModal(options = {}) {
 
   function renderModuleOptions() {
     for (const [id, { select }] of moduleControls) {
-      const options = [{ id: "", name: `跟随默认 · ${activeProfile()?.name || activeProfile()?.model || "未命名配置"}` }, ...profiles];
+      const options = [{ id: "", name: "跟随默认（使用全局 AI 配置）" }, ...profiles];
       select.replaceChildren(...options.map((profile) => {
         const option = document.createElement("option");
         option.value = profile.id;
@@ -373,7 +385,17 @@ export function initSettingsModal(options = {}) {
       }));
       if (!profiles.some((profile) => profile.id === moduleSettings[id].profileId)) moduleSettings[id].profileId = "";
       select.value = moduleSettings[id].profileId;
+      updateModuleSelection(id);
     }
+  }
+
+  function updateModuleSelection(id) {
+    const { select, inheritedLabel } = moduleControls.get(id);
+    inheritedLabel.hidden = Boolean(select.value);
+    select.classList.toggle("is-inherited", !select.value);
+    const profile = profiles.find((profile) => profile.id === select.value) || activeProfile();
+    const name = profile?.name || profile?.model || "未命名配置";
+    select.title = select.value ? name : `跟随默认（使用全局 AI 配置）：${name}`;
   }
 
   function renderModules(ai) {
@@ -389,6 +411,7 @@ export function initSettingsModal(options = {}) {
       const row = document.createElement("div");
       row.className = "settings-module-row";
       const description = document.createElement("div");
+      description.className = "settings-module-description";
       const label = document.createElement("label");
       label.htmlFor = `aiModuleProfile-${id}`;
       label.textContent = definition.name;
@@ -398,10 +421,18 @@ export function initSettingsModal(options = {}) {
       hint.textContent = definition.description;
       description.append(label, hint);
       const select = document.createElement("select");
+      const selectWrap = document.createElement("div");
+      selectWrap.className = "settings-module-select";
+      const inheritedLabel = document.createElement("span");
+      inheritedLabel.className = "settings-inherited-label";
+      inheritedLabel.textContent = "默认配置";
+      inheritedLabel.setAttribute("aria-hidden", "true");
+      selectWrap.append(select, inheritedLabel);
       select.id = `aiModuleProfile-${id}`;
       select.setAttribute("aria-describedby", hint.id);
       select.addEventListener("change", () => {
         moduleSettings[id].profileId = select.value;
+        updateModuleSelection(id);
         scheduleSave();
       });
       const think = document.createElement("input");
@@ -411,28 +442,62 @@ export function initSettingsModal(options = {}) {
       think.checked = moduleSettings[id].thinkMode;
       think.setAttribute("role", "switch");
       think.setAttribute("aria-label", `${definition.name} Think 模式`);
+      think.setAttribute("aria-describedby", "settingsThinkHint");
       think.addEventListener("change", () => {
         moduleSettings[id].thinkMode = think.checked;
         scheduleSave();
       });
       const promptField = document.createElement("div");
-      promptField.className = "settings-field settings-module-prompt";
+      promptField.className = "settings-module-prompt";
+      promptField.id = `aiModulePromptPanel-${id}`;
+      promptField.inert = true;
+      const promptInner = document.createElement("div");
+      promptInner.className = "settings-module-prompt-inner";
       const promptLabel = document.createElement("label");
       promptLabel.htmlFor = `aiModulePrompt-${id}`;
-      promptLabel.textContent = "个性化提示词（可选）";
+      promptLabel.textContent = `${definition.name}个性化提示词`;
+      promptLabel.className = "settings-visually-hidden";
+      const promptToggle = document.createElement("button");
+      promptToggle.type = "button";
+      promptToggle.className = "settings-prompt-toggle";
+      promptToggle.textContent = "个性化提示词";
+      promptToggle.setAttribute("aria-label", `${definition.name}个性化提示词`);
+      promptToggle.setAttribute("aria-expanded", "false");
+      promptToggle.setAttribute("aria-controls", promptField.id);
+      const customMarker = document.createElement("span");
+      customMarker.className = "settings-custom-marker";
+      customMarker.textContent = "已自定义";
+      customMarker.hidden = !moduleSettings[id].customPrompt.trim();
+      const disclosure = document.createElement("div");
+      disclosure.className = "settings-prompt-disclosure";
+      disclosure.append(promptToggle, customMarker);
+      description.append(disclosure);
+      promptToggle.addEventListener("click", () => {
+        const expanded = promptToggle.getAttribute("aria-expanded") !== "true";
+        promptToggle.setAttribute("aria-expanded", String(expanded));
+        promptField.inert = !expanded;
+        promptField.classList.toggle("is-expanded", expanded);
+      });
       const prompt = document.createElement("textarea");
       prompt.id = promptLabel.htmlFor;
-      prompt.rows = 2;
+      prompt.rows = 4;
       prompt.value = moduleSettings[id].customPrompt;
       prompt.placeholder = "例如：用中文回答，先给出结论，再解释关键术语。";
       prompt.setAttribute("aria-label", `${definition.name}个性化提示词`);
+      const promptHint = document.createElement("p");
+      promptHint.id = `aiModulePromptHint-${id}`;
+      promptHint.className = "settings-hint";
+      promptHint.textContent = "留空时使用模块默认提示词。";
+      prompt.setAttribute("aria-describedby", promptHint.id);
       prompt.addEventListener("input", () => {
         moduleSettings[id].customPrompt = prompt.value;
+        customMarker.hidden = !prompt.value.trim();
         scheduleSave();
       });
-      promptField.append(promptLabel, prompt);
-      row.append(description, select, think, promptField);
-      moduleControls.set(id, { select, think, prompt });
+      promptInner.append(promptLabel, prompt, promptHint);
+      promptField.append(promptInner);
+      row.append(description, selectWrap, think, promptField);
+      moduleControls.set(id, { select, inheritedLabel, think, prompt });
       return row;
     });
     aiModuleRows.replaceChildren(...rows);
@@ -460,7 +525,7 @@ export function initSettingsModal(options = {}) {
     testRevision += 1;
     setTestBusy(false);
     setTestState("idle");
-    showSaveStatus("等待自动保存…");
+    showSaveStatus("更改会自动保存");
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => save(), 600);
   }
@@ -640,7 +705,7 @@ export function initSettingsModal(options = {}) {
     } catch (error) {
       console.error(error);
       setStatus(error.message || "加载设置失败。", true);
-      showSaveStatus(error.message || "加载设置失败。", true);
+      showSaveStatus(`加载失败：${error.message || "无法读取设置"}`, true, load);
     } finally {
       controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
       aiProfileDeleteButton.disabled = profiles.length <= 1;
@@ -703,12 +768,15 @@ export function initSettingsModal(options = {}) {
       renderSyncStatus(data.sync);
       if (savedRevision === revision) {
         setStatus("设置已自动保存");
-        showSaveStatus("所有更改已保存");
+        showSaveStatus("已保存");
+        savedStatusTimer = window.setTimeout(() => {
+          if (savedRevision === revision) showSaveStatus("更改会自动保存");
+        }, 1800);
       }
     } catch (error) {
       console.error(error);
       setStatus(error.message || "设置保存失败。", true);
-      if (savedRevision === revision) showSaveStatus(error.message || "设置保存失败。", true);
+      if (savedRevision === revision) showSaveStatus(`保存失败：${error.message || "请重试"}`, true, save);
     } finally {
       setBusy(false);
     }
@@ -779,6 +847,13 @@ export function initSettingsModal(options = {}) {
   }
 
   closeButton?.addEventListener("click", close);
+  saveRetry.addEventListener("click", () => {
+    const retry = retryAction;
+    if (!retry) return;
+    window.clearTimeout(saveTimer);
+    showSaveStatus(retry === load ? "正在加载设置…" : "正在保存…");
+    retry();
+  });
   overlay?.addEventListener("pointerdown", (event) => {
     if (!aiProfileMenuWrap.contains(event.target)) closeProfileMenu();
     if (event.target === overlay) close();
@@ -792,7 +867,7 @@ export function initSettingsModal(options = {}) {
     } else if (event.key === "Tab") {
       closeProfileMenu();
       const controls = Array.from(form.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'))
-        .filter((control) => control.tabIndex !== -1 && control.getClientRects().length);
+        .filter((control) => control.tabIndex !== -1 && !control.closest("[inert]") && control.getClientRects().length);
       const first = controls[0];
       const last = controls.at(-1);
       if (event.shiftKey && (document.activeElement === first || document.activeElement === form)) {
