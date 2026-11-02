@@ -21,7 +21,10 @@ python server.py
 | `backend/llm_diagnostics.py` | AI 请求耗时记录 |
 | `backend/auto_highlight.py` | 自动高亮的输入校验、分批 LLM 原文筛选与唯一引文校验 |
 | `backend/pdf_highlights.py` | MCP 通过 PyMuPDF 将引文转换为阅读器使用的相对坐标 |
-| `backend/reading_agent/` | LangGraph 阅读机器人：只读 MCP、持久化任务、检查点续跑、原文证据核验与隔离演示 |
+| `backend/reading_agent/` | LangGraph 通用阅读 Agent：能力发现、只读 MCP、计划预览与确认执行、持久化任务、检查点恢复、原文证据核验与隔离演示 |
+| `backend/reading_agent/capabilities.py` | Agent 开放的查询与写入能力目录，复用现有 MCP 参数定义 |
+| `backend/reading_agent/plans.py` | 不可变计划版本、内存模拟、库版本校验、逐步执行回执与重试预览 |
+| `backend/reading_agent/library_agent.py` | 通用工具选择与 LangGraph 确认中断，科学调研交给原文核验流程 |
 | `backend/content_index.py` | 库外 SQLite FTS5 trigram 增量片段索引，中文短词和兼容环境回退 LIKE |
 | `assets/js/components/discussion_history.js` | 阅读界面 discussion 与库内 Agent 共用的历史列表、搜索弹层、行内重命名、时间显示、删除确认和标题生成 |
 | `assets/js/components/discussion_composer.js` | 阅读界面与 Agent 共用的 Enter/IME 发送、原位停止、模块模型选择与保存状态；附库内论文选择弹层 |
@@ -32,6 +35,7 @@ python server.py
 | `assets/js/lib/` | 最近阅读记录等共享工具 |
 | `assets/js/lib/auto_highlight.js` | 阅读器自动高亮的原文标准化与文本层 Range 定位 |
 | `prompts/ai/` | AI 提示词模板 |
+| `prompts/agent/` | 通用 Agent 与阅读研究流程的提示词 |
 | `extension/` | 浏览器扩展，独立加载 |
 | `plugins/` | MCP 插件，通过根目录的 `server` 模块复用文献库能力 |
 
@@ -84,6 +88,6 @@ python -m unittest discover -s tests -p "test_mcp_auto_highlight_native.py"
 
 ## 本地数据
 
-阅读机器人 的依赖安装、命令行运行与集成测试见[阅读机器人说明](reading-agent.md)。主网页服务仍无需安装 Agent 的可选依赖。
+阅读 Agent 的依赖安装、界面截图、命令行运行与集成测试见[阅读 Agent 说明](reading-agent.md)。主网页服务仍无需安装 Agent 的可选依赖。
 
 `.env/`、`.cache/`、`literature_library/`、`dist/` 和 `build/` 是被 Git 忽略的本地配置、缓存、文献或构建输出，不属于源码整理范围。默认数据路径以及 `PAPER_LIBRARY_DIR` 的覆盖方式保持不变。
