@@ -222,7 +222,7 @@ class DurableWorkerTests(unittest.TestCase):
                        "from backend.reading_agent import model\nOriginal=model.ConfiguredModel\n"
                        "class OfflineModel(Original):\n"
                        f" def __init__(self): super().__init__(connection=('offline','offline',{fixture.url!r},False),custom_prompt='')\n"
-                       " async def complete(self,messages,tools):\n  await asyncio.sleep(.5)\n  return await super().complete(messages,tools)\n"
+                       " async def stream_complete(self,messages,tools,on_delta):\n  await asyncio.sleep(.5)\n  return await super().stream_complete(messages,tools,on_delta)\n"
                        "model.ConfiguredModel=OfflineModel\n"
                        f"runpy.run_path({str(project / 'scripts/run_reading_agent.py')!r},run_name='__main__')\n")
             (scripts / "run_reading_agent.py").write_text(wrapper, encoding="utf-8")

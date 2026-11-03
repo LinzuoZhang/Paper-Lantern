@@ -306,6 +306,8 @@ MCP 工具名称、参数与调用示例见 [Research MCP 文档](../plugins/pap
 
 任务含 `id/task/scope/status/attempt/createdAt/updatedAt/error/noteId/result`；时间为 Unix 秒。状态为 queued、running、cancelling、completed、failed、cancelled、interrupted、awaiting_approval。等待确认会结束本次 SSE，不占活动运行名额，确认后可重连。`result.kind` 为 research、library 或 plan；调研结果含 `report/claims/evidence/verification/readPaperIds` 和调用计数，计划含 `planId`，操作结果含 `execution` 回执。每条 claim 包含 `claimId/statement/kind/supports`，支持证据包含原样引文、文章和片段 ID、sourceVersion、页码、字符位置。核验只建立来源可追溯性，不证明结论语义正确。
 
+报告增量通过 `{seq, agent:{type:"report_started", streamId, claims}}` 开始，随后发送同一 `streamId` 的 `report_delta` 事件，`delta` 为追加的文本。`report_reset` 清除当前草稿：含 streamId 时仅清除对应版本，不含时清除当前版本。草稿不是已完成报告，最终仍以终态 `job.result.report` 为准；reasoning_content 和工具参数不作为报告增量发送。刷新后没有本地草稿时应从本轮 `eventAfter` 重放事件，已有草稿的连接重连使用最后收到的 seq，并忽略重复 seq。
+
 `plan` 含 `id/jobId/turnId/version/state/proposal/preview/revision/digest/results`；状态为 draft、awaiting_approval、executing、completed、failed、stale、cancelled、superseded。`proposal` 为 `{summary, operations:[{id, tool, arguments, reason?}]}`，每份最多 100 步、200,000 字符。参数中的 `{"ref":"earlierOp.categoryId"}` 可引用前一步返回值（亦支持 flagId、noteId），禁止前向引用。预览由服务端验证受控写能力和 MCP 参数，返回每步 `changes` 的修改前/后内容。确认请求不能携带新操作，错误摘要或库版本变化返回 409；库版本变化时计划标为 stale。计划 ID 仅在绑定对话及文献库内有效。
 
 执行回执逐步持久化，首个失败停止后续步骤，可能已写入的失败步骤记录 `possiblePartialWrite`，不做全计划回滚。retry 跳过已完成步骤，将其引用解析为真实 ID，生成新 ID 和版本并重新校验当前库；不自动执行。同步错误保存为 `plan.syncError`，不把已完成操作改为待重试。计划、通用检查点、研究检查点分别保存，刷新与进程重启不绕过确认。

@@ -12,6 +12,7 @@ from .mcp_client import MODEL_TOOLS, PROJECT_ROOT, ResearchMCPClient
 from .state import AgentError, AgentOptions, ResearchState
 from .evidence import CLAIM_TOOL, audit_report, register_claim, report_with_paper_links, source_signatures
 from .context import READ_EVIDENCE_TOOL, bounded_context, json_size, passage_view, recall_evidence
+from .model import stream_model_reply
 
 
 FINALIZATION_CALLS = 6
@@ -198,7 +199,8 @@ class ReadingAgent:
             raise AgentError("研究问题和工具定义超过上下文预算，请缩短问题。完整证据和检查点已保留。")
         self.emit("model_started", call=state["model_calls"] + 1, finalOnly=force_final, finalizing=finalizing,
                   contextChars=json_size({"messages": outgoing, "tools": tools}), contextBudget=self.options.max_context_chars, **progress)
-        reply = await self.model.complete(outgoing, tools)
+        reply = await stream_model_reply(self.model, outgoing, tools, self.emit, self.check_guard,
+                                         state.get("claims", {}).values())
         self.check_guard()
         reasoning = reply.pop("reasoning_content", None)
         if reasoning and reply.get("tool_calls"):
@@ -284,6 +286,7 @@ class ReadingAgent:
                 raise ValueError("报告必须用 [标题](hash:文章ID) 引用已读取正文的文献。")
             verification = audit_report(report, state.get("claims", {}), self.options.strict_evidence)
         except ValueError as exc:
+            self.emit("report_reset")
             finalizing = state.get("finalizing", False) or (self.options.strict_evidence and bool(read_ids))
             exhausted = state.get("finalization_calls", 0) >= FINALIZATION_CALLS if finalizing else state["repairs"] >= 1
             if exhausted:

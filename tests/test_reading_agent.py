@@ -162,6 +162,8 @@ class ReadingAgentIntegrationTests(unittest.TestCase):
             self.assertIn("search_paper_content", names)
             self.assertEqual(names.count("get_paper_passages"), 4)
             self.assertEqual(fixture.requests[1]["messages"][-1]["role"], "tool")
+            self.assertTrue(all(request["stream"] for request in fixture.requests))
+            self.assertGreater(len([event for event in result["events"] if event["type"] == "report_delta"]), 1)
 
     def test_mcp_server_itself_rejects_write_calls(self):
         from backend.reading_agent.mcp_client import ResearchMCPClient

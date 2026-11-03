@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import server
 from backend.reading_agent.context import json_size
-from backend.reading_agent.library_agent import LibraryState, PLANNING_VERSION
+from backend.reading_agent.library_agent import LibraryState, PLANNING_VERSION, proposal_definition
+from backend.reading_agent.capabilities import mcp_module
 from backend.reading_agent.library_context import cached_read, observation_view, result_page, task_memory
 from backend.reading_agent.mcp_client import ResearchMCPClient
 from backend.reading_agent.plans import PlanStore, preview_plan
@@ -26,6 +27,30 @@ def reply(calls, key):
 
 
 class LibraryContextTests(unittest.TestCase):
+    def test_proposal_exposes_required_item_ids_and_object_reference_schema(self):
+        module = mcp_module()
+        schemas = [{"name": name, "parameters": module.TOOLS[name][1]}
+                   for name in ("create_category", "add_item_categories", "batch_update_items")]
+        before = deepcopy(schemas)
+        definition = proposal_definition(schemas)
+        variants = definition["function"]["parameters"]["properties"]["operations"]["items"]["anyOf"]
+        assign = next(item for item in variants if item["properties"]["tool"]["enum"] == ["add_item_categories"])
+        arguments = assign["properties"]["arguments"]
+        with self.assertRaisesRegex(ValueError, "arguments.id is required"):
+            module.validate_value({"categoryIds": ["Topic"]}, arguments)
+        refs = arguments["properties"]["categoryIds"]["items"]["anyOf"]
+        self.assertTrue(any(schema.get("required") == ["ref"] for schema in refs))
+        batch = next(item for item in variants if item["properties"]["tool"]["enum"] == ["batch_update_items"])
+        self.assertNotIn("dryRun", batch["properties"]["arguments"]["properties"])
+        self.assertIn("id", batch["properties"]["arguments"]["properties"]["items"]["items"]["required"])
+        self.assertEqual(schemas, before)
+
+    def test_reference_strings_are_not_interpolated_inside_note_content(self):
+        from backend.reading_agent.plans import resolve
+        content = "An example: {ref:topic.categoryId}"
+        self.assertEqual(resolve(content, {"topic": {"categoryId": "Topic"}}), content)
+        self.assertEqual(resolve('{"ref":"topic.categoryId"}', {}), '{"ref":"topic.categoryId"}')
+
     def test_memory_keeps_all_pages_and_summary_status_without_large_metadata(self):
         items = [{"id": f"paper-{i}", "title": f"Paper {i}", "categoryIds": ["uncategorized"],
                   "categoryNames": ["unused " * 200]} for i in range(70)]

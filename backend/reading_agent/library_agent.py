@@ -1,6 +1,7 @@
 """General tool-routing graph; writes stop at a persistent approval interrupt."""
 
 import asyncio
+from copy import deepcopy
 from contextlib import AsyncExitStack
 from dataclasses import replace
 import json
@@ -13,11 +14,12 @@ from .library_context import brief, cached_read, observation_view, read_argument
 from .mcp_client import PROJECT_ROOT, ResearchMCPClient
 from .plans import PlanStore
 from .state import AgentError
+from .model import stream_model_reply
 
 
 DISCOVER = {"type": "function", "function": {"name": "discover_tools", "description": "Load schemas for up to 6 capabilities from the catalog. Read tools become callable; write schemas are only for constructing a proposal.",
     "parameters": {"type": "object", "properties": {"names": {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "string"}}}, "required": ["names"], "additionalProperties": False}}}
-PROPOSE = {"type": "function", "function": {"name": "propose_library_plan", "description": "Submit a complete concrete write plan for user review. Does not modify the library. Use earlier operation outputs through {ref:'operationId.categoryId/flagId/noteId'}. After this call wait for approval. Call alone.",
+PROPOSE = {"type": "function", "function": {"name": "propose_library_plan", "description": 'Submit a complete concrete write plan for user review. Does not modify the library. For a new category use categoryIds: [{"ref":"earlierOperationId.categoryId"}], an object, not a string. Membership updates also require arguments.id (the paper/note ID). After this call wait for approval. Call alone.',
     "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "operations": {"type": "array", "minItems": 1, "maxItems": 100,
         "items": {"type": "object", "properties": {"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}, "reason": {"type": "string"}},
                   "required": ["id", "tool", "arguments"], "additionalProperties": False}}}, "required": ["summary", "operations"], "additionalProperties": False}}}
@@ -36,6 +38,44 @@ FINAL_ROUNDS = 4
 MAX_PLAN_REPAIRS = 3
 REPAIR_ROUNDS = 6
 REPAIR_TOOLS = 20
+
+
+def proposal_definition(write_schemas):
+    """Expose discovered write argument requirements in the proposal itself."""
+    definition = deepcopy(PROPOSE)
+    operation = definition["function"]["parameters"]["properties"]["operations"]["items"]
+    operation["properties"]["tool"]["enum"] = list(WRITE_CAPABILITIES)
+
+    def with_references(schema):
+        schema = deepcopy(schema)
+        if schema.get("type") == "string":
+            return {"anyOf": [schema, {"type": "object", "properties": {"ref": {"type": "string",
+                    "description": "Earlier operation output, e.g. create_topic.categoryId"}},
+                    "required": ["ref"], "additionalProperties": False}]}
+        if "properties" in schema:
+            schema["properties"] = {key: with_references(value) for key, value in schema["properties"].items()
+                                    if key not in {"dryRun", "expectedRevision", "categoryId"}}
+        if "items" in schema:
+            schema["items"] = with_references(schema["items"])
+        return schema
+
+    choices, discovered = [], set()
+    for tool in write_schemas:
+        if tool["name"] not in WRITE_CAPABILITIES:
+            continue
+        variant = deepcopy(operation)
+        variant["properties"]["tool"]["enum"] = [tool["name"]]
+        variant["properties"]["arguments"] = with_references(tool["parameters"])
+        choices.append(variant)
+        discovered.add(tool["name"])
+    if choices:
+        remaining = [name for name in WRITE_CAPABILITIES if name not in discovered]
+        if remaining:
+            fallback = deepcopy(operation)
+            fallback["properties"]["tool"]["enum"] = remaining
+            choices.append(fallback)
+        definition["function"]["parameters"]["properties"]["operations"]["items"] = {"anyOf": choices}
+    return definition
 
 
 class LibraryState(TypedDict, total=False):
@@ -106,7 +146,7 @@ class LibraryAgent:
                 context["observations"].pop(0)
                 break
         messages = [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]
-        tools = [DISCOVER, PROPOSE, READ_PLAN, READ_RESULTS]
+        tools = [DISCOVER, proposal_definition(memory["writeSchemas"]), READ_PLAN, READ_RESULTS]
         if not finalizing:
             tools += [RESEARCH] + [read_definition(self.client.tools[name]) for name in state["selected"] if name in self.client.tools]
         if json_size({"messages": messages, "tools": tools}) > self.options.max_context_chars - 6000:
@@ -114,7 +154,7 @@ class LibraryAgent:
         self.emit("model_started", call=state["rounds"] + 1, contextChars=json_size({"messages": messages, "tools": tools}),
                   summary=("正在核对失败原因和当前文献库状态，修正操作计划。" if state.get("plan_failure") else
                            "正在根据已读取的文献与分类信息整理计划。" if finalizing else "正在理解任务、选择工具并检查文献库资料。"))
-        reply = await self.model.complete(messages, tools)
+        reply = await stream_model_reply(self.model, messages, tools, self.emit, self.check)
         reply.pop("reasoning_content", None)
         if reply.get("content") and reply.get("tool_calls"):
             self.emit("analysis_progress", summary=" ".join(reply["content"].split())[:180])
@@ -231,10 +271,10 @@ class LibraryAgent:
                       summary="计划遇到问题，正在核对失败原因并修正方案；修正后将重新请你确认。")
             return {"plan_id": "", "output": {}, "research_task": "", "facts": facts, "finalizing": False,
                     "plan_repairs": repairs, "plan_failure": feedback}
-        completed = sum(item["status"] == "completed" for item in plan["results"])
-        lines = ["# 文献库操作结果", "", plan["proposal"]["summary"], "", f"完成 {completed} / {len(plan['proposal']['operations'])} 项操作。"]
+        lines = []
         for item in plan["results"]:
-            lines.append(f"- {item['id']}：{'完成' if item['status'] == 'completed' else '失败 · ' + item.get('error', '')}")
+            label = WRITE_CAPABILITIES.get(item["tool"], item["id"])
+            lines.append(f"- {label}：{'完成' if item['status'] == 'completed' else '失败 · ' + item.get('error', '')}")
         if plan["state"] != "completed":
             lines += ["", "自动修复已达到 3 次上限，未执行新的未确认操作。", plan.get("failure", {}).get("error", "请核对失败步骤后继续追问。")]
         return {"output": {"kind": "library", "report": "\n".join(lines), "planId": plan["id"], "execution": plan["results"]}}

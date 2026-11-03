@@ -1,21 +1,11 @@
 import { createDiscussionHistory, generateDiscussionTitle, makeDiscussionTitle, showDiscussionConfirm } from "./discussion_history.js";
 import { initDiscussionComposer, createDiscussionPaperPicker } from "./discussion_composer.js";
+import { createExecutionView, executionModel } from "./agent_execution_view.js";
 
 const POSITION_KEY = "paperLanternResearchPosition";
 const LAYOUT_KEY = "paperLanternResearchLayout";
 const SIZE = 38;
 const MARGIN = 16;
-
-function planValue(value) {
-  if (value == null) return "无";
-  if (Array.isArray(value)) return value.length ? value.map(planValue).join("、") : "无";
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value !== "object") return String(value) || "无";
-  if ("parentId" in value && "name" in value) return `分类：${value.id || value.name}${value.order == null ? "" : `\n排序：${value.order}`}`;
-  const labels = { title: "标题", categoryIds: "分类", doi: "DOI", basicInfo: "文献信息", notes: "笔记内容", flags: "标记", name: "名称", color: "颜色", icon: "图标", id: "编号" };
-  return Object.entries(value).filter(([key]) => !["builtin", "locked", "updatedAt"].includes(key) && (key !== "id" || !("title" in value || "name" in value)))
-    .map(([key, item]) => typeof item === "object" && item?.parentId != null ? planValue(item) : `${labels[key] || key}：${planValue(item)}`).join("\n") || "无";
-}
 
 export function clampPanelWidth(width) {
   return Math.round(Math.min(600, Math.max(360, Number(width) || 420)));
@@ -102,6 +92,12 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   const save = find("researchSave");
   const note = find("researchNote");
   const planHost = find("researchPlan");
+  const planSummary = find("researchPlanSummary");
+  const planView = planHost ? createExecutionView(planHost, { onCopyError: () => showStatus("复制失败，可选中原始记录复制。", true) }) : null;
+  const historicalPlans = new Map();
+  const historicalViews = new Map();
+  const toolHost = find("researchTools");
+  const toolRecords = new Map();
   let planKey = "", planVersion = 0, currentPlan = null, planBusy = false;
   let point;
   let saved = false;
@@ -109,6 +105,8 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   let suppressClick = false;
   let controller = null;
   let lastReport = "";
+  let reportStream = "";
+  let streamingReport = false;
   let markdown = null;
   let job = null;
   let libraryKey = "";
@@ -443,9 +441,9 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     if (target !== report) return;
     report.hidden = false;
     if (answer) answer.hidden = false;
-    if (actions) actions.hidden = false;
+    if (actions) actions.hidden = streamingReport;
     welcome.hidden = true;
-    copy.hidden = false;
+    copy.hidden = streamingReport;
     scheduleFollow();
   }
   content.addEventListener("click", async event => {
@@ -460,10 +458,43 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   });
   const tools = { list_papers: "整理文献目录", list_paper_summaries: "筛选文献摘要", library_overview: "确认研究范围",
     get_paper_summary: "查阅摘要", search_paper_content: "搜索相关内容", get_paper_passages: "阅读原文片段", get_read_evidence: "回看已读原文" };
+  function toolKey(turnId = job?.turnId || job?.id) { return `${job?.id}:${turnId}`; }
+  function renderToolRecord(record, state = job?.status) {
+    const active = activeStatuses.has(state);
+    const results = record.results.map(receipt => !active && receipt.status === "running" ? { ...receipt, status: "unknown" } : receipt);
+    record.view.update({ id: record.id, kind: "tools", state: active ? "running" : "finished",
+      proposal: { summary: "工具调用记录", operations: record.operations }, results });
+  }
+  function receiveToolEvent(event) {
+    if (!toolHost || !job || !["tool_started", "tool_finished", "tool_cache_hit"].includes(event.agent?.type)) return;
+    const data = event.agent, key = toolKey();
+    let record = toolRecords.get(key);
+    if (!record) {
+      const element = document.createElement("section"); element.className = "research-plan";
+      element.setAttribute("aria-label", "工具调用记录");
+      record = { id: key, element, view: createExecutionView(element), operations: [], results: [] };
+      toolRecords.set(key, record);
+    }
+    if (data.type === "tool_started") {
+      // Some legacy streams have starts only. A later start is not a success receipt.
+      for (const receipt of record.results) if (receipt.status === "running") receipt.status = "unknown";
+      const id = String(event.seq || `tool-${record.operations.length}`);
+      record.operations.push({ id, tool: data.name, event: data });
+      record.results.push({ id, tool: data.name, status: "running" });
+    } else {
+      const receipt = record.results.findLast(item => item.tool === data.name && ["running", "unknown"].includes(item.status));
+      if (receipt) Object.assign(receipt, { status: data.type === "tool_cache_hit" || data.ok === true ? "completed" : data.ok === false ? "failed" : "unknown", event: data, elapsedMs: data.elapsedMs });
+    }
+    renderToolRecord(record);
+    toolHost.hidden = false;
+    if (toolHost.children[0] !== record.element) toolHost.replaceChildren(record.element);
+  }
   function receive(event) {
     if (event.error) throw new Error(event.error);
+    if (event.seq && event.seq <= cursor) return;
     if (event.seq) { cursor = event.seq; remember(); }
     if (event.job) applyJob(event.job);
+    receiveToolEvent(event);
     if (event.status) showStatus(event.status);
     if (event.agent?.type === "tool_started") showStatus(`${tools[event.agent.name] || "查阅文献"}…${progressSummary ? `\n${progressSummary}` : ""}`);
     if (["model_started", "analysis_progress"].includes(event.agent?.type)) {
@@ -477,7 +508,28 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     if (["finalization_started", "finalization_recovered"].includes(event.agent?.type)) showStatus(event.agent.reason === "context_budget"
       ? "资料较多，正在聚焦已读原文、核对引文并整理回答…" : "正在整理已读证据、核验引文并生成报告…");
     if (event.agent?.type === "plan_repair_started") showStatus(event.agent.summary);
-    if (event.report) { lastReport = event.report; renderReport(lastReport); status.hidden = true; }
+    if (event.agent?.type === "report_started") {
+      reportStream = event.agent.streamId;
+      streamingReport = true;
+      lastReport = ""; lastClaims = event.agent.claims || [];
+      report.hidden = copy.hidden = true;
+      if (answer) { answer.hidden = true; answer.setAttribute("aria-busy", "true"); }
+      if (actions) actions.hidden = true;
+      showStatus("正在生成报告…");
+    }
+    if (event.agent?.type === "report_delta" && event.agent.streamId === reportStream) {
+      lastReport += event.agent.delta || "";
+      renderReport(lastReport);
+    }
+    if (event.agent?.type === "report_reset" && (!event.agent.streamId || event.agent.streamId === reportStream)) {
+      reportStream = ""; streamingReport = false; lastReport = ""; lastClaims = [];
+      report.hidden = copy.hidden = true;
+      if (answer) { answer.hidden = true; answer.setAttribute("aria-busy", "false"); }
+      if (actions) actions.hidden = true;
+      showStatus("正在核对资料并继续整理…");
+    }
+    if (event.agent?.type === "report_retry") showStatus("正在核对引文并重新生成报告…");
+    if (event.report) { streamingReport = false; lastReport = event.report; renderReport(lastReport); status.hidden = true; }
   }
   form.addEventListener("submit", async event => {
     event.preventDefault();
@@ -498,6 +550,15 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     setBusy(true);
     if (resume) resume.hidden = true;
     welcome.hidden = true;
+    if (threadList) threadList.hidden = true;
+    renderConversation([...(job?.conversation || []), ...(job ? [{ task: job.task, result: job.result, noteId: job.noteId, turnId: job.turnId, status: job.status }] : [])]);
+    if (question) { question.textContent = payload.task; question.hidden = false; }
+    report.hidden = copy.hidden = true;
+    if (answer) answer.hidden = true;
+    if (actions) actions.hidden = true;
+    if (planHost) planHost.hidden = true;
+    if (planSummary) planSummary.hidden = true;
+    if (toolHost) toolHost.hidden = true;
     panel.setAttribute("aria-busy", "true");
     showStatus("正在准备研究任务…");
     try {
@@ -522,7 +583,16 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       }
       if (selectedVersion === selectionVersion) {
         if (recovered) { input.value = ""; draftPapers = []; }
-        else { draftPapers = submittedPapers; showStatus(error.message, true); }
+        else {
+          draftPapers = submittedPapers;
+          if (job) { applyJob(job); renderPlan(); }
+          else {
+            renderConversation([]);
+            if (question) question.hidden = true;
+            if (threadList) threadList.hidden = false;
+          }
+          showStatus(error.message, true);
+        }
         if (!lastReport && !job?.conversation?.length) welcome.hidden = false;
       }
     } finally {
@@ -563,6 +633,24 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       const prompt = document.createElement("div"); prompt.className = "research-question";
       prompt.textContent = turn.task;
       messages.append(prompt);
+      const toolRecord = toolRecords.get(toolKey(turn.turnId));
+      if (toolRecord) { renderToolRecord(toolRecord, turn.status || "completed"); messages.append(toolRecord.element); }
+      if (turn.result?.planId) {
+        const record = historicalPlans.get(`${job?.id}:${turn.result.planId}`) || {
+          id: turn.result.planId, state: turn.status === "awaiting_approval" ? "superseded" : turn.status,
+          proposal: { summary: "历史操作计划" }, results: turn.result.execution || [], legacyResult: turn.result,
+        };
+        const key = `${job?.id}:${turn.result.planId}`;
+        let entry = historicalViews.get(key);
+        if (!entry) {
+          const element = document.createElement("section"); element.className = "research-plan";
+          element.setAttribute("aria-label", "历史执行记录");
+          entry = { element, view: createExecutionView(element) }; historicalViews.set(key, entry);
+        }
+        entry.view.update(record);
+        messages.append(entry.element);
+        continue;
+      }
       if (!turn.result?.report) continue;
       const response = document.createElement("div"); response.className = "research-answer research-previous-answer";
       const body = document.createElement("article"); body.className = "research-report";
@@ -597,25 +685,38 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   function applyJob(value) {
     if (deletedIds.has(value.id)) return;
     job = rememberJob(value);
+    if (toolHost) {
+      const record = toolRecords.get(toolKey());
+      toolHost.hidden = !record;
+      if (record) {
+        renderToolRecord(record);
+        if (toolHost.children[0] !== record.element) toolHost.replaceChildren(record.element);
+      }
+    }
     loadJobPlan(job);
     cursor = Math.max(cursor, job.eventAfter || 0);
     renderConversation(job.conversation);
     remember();
     const busy = activeStatuses.has(job.status);
+    const hasReport = Boolean(job.result?.report) && !job.result?.planId;
+    if (hasReport || !busy) {
+      streamingReport = false; reportStream = "";
+      if (answer) answer.setAttribute("aria-busy", "false");
+    }
     setBusy(busy);
     if (resume) resume.hidden = !["failed", "cancelled", "interrupted"].includes(job.status)
       || (job.status === "cancelled" && job.result?.kind === "plan");
-    if (save) { save.hidden = job.status !== "completed" || Boolean(job.noteId); save.disabled = false; }
+    if (save) { save.hidden = !hasReport || job.status !== "completed" || Boolean(job.noteId); save.disabled = false; }
     if (note) {
-      note.hidden = !job.noteId;
+      note.hidden = !hasReport || !job.noteId;
       if (job.noteId) note.href = `./note.html?id=${encodeURIComponent(job.noteId)}`;
     }
-    if (actions) actions.hidden = !job.result?.report;
-    if (job.result?.report) {
+    if (actions) actions.hidden = !hasReport;
+    if (hasReport) {
       lastClaims = job.result.claims || [];
       lastReport = job.result.report;
       renderReport(lastReport);
-    } else {
+    } else if (!streamingReport) {
       lastReport = ""; lastClaims = [];
       report.hidden = copy.hidden = true;
       if (answer) answer.hidden = true;
@@ -655,9 +756,11 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     controller?.abort();
     clearTimeout(reconnectTimer);
     controller = null;
-    cursor = Math.max(savedCursor, value.eventAfter || 0);
+    // Rebuild a partial report from this turn's persisted deltas after reload.
+    cursor = activeStatuses.has(value.status) ? value.eventAfter || 0 : Math.max(savedCursor, value.eventAfter || 0);
     progressSummary = "";
     lastReport = ""; lastClaims = [];
+    streamingReport = false; reportStream = "";
     report.hidden = copy.hidden = true;
     if (answer) answer.hidden = true;
     welcome.hidden = true;
@@ -715,8 +818,11 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       paperPicker.close(); draftPapers = [];
       generation++; controller?.abort(); controller = null; clearTimeout(reconnectTimer);
       job = null; lastReport = ""; lastClaims = []; input.value = "";
+      streamingReport = false; reportStream = "";
       planVersion++; planKey = ""; currentPlan = null;
-      if (planHost) { planHost.hidden = true; planHost.replaceChildren(); }
+      if (planHost) planHost.hidden = true;
+      if (planSummary) planSummary.hidden = true;
+      if (toolHost) toolHost.hidden = true;
       progressSummary = "";
       report.hidden = copy.hidden = true; welcome.hidden = jobs.size > 0; status.hidden = true;
       if (actions) actions.hidden = true;
@@ -785,67 +891,48 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     return data;
   }
   function renderPlan() {
-    if (!planHost || !currentPlan) return;
+    if (!planView || !currentPlan) return;
     const plan = currentPlan;
-    const states = { draft: "准备预览", awaiting_approval: "等待确认", executing: "正在执行", completed: "已执行", failed: "部分操作失败", stale: "文献库已变化", cancelled: "已取消", superseded: "已由新计划替代" };
-    planHost.hidden = false; planHost.replaceChildren();
-    const heading = document.createElement("h3"); heading.textContent = `操作计划 · V${plan.version} · ${states[plan.state] || plan.state}`;
-    const summary = document.createElement("p"); summary.textContent = plan.proposal.summary;
-    planHost.append(heading, summary);
-    if (plan.failure?.error) {
-      const error = document.createElement("p");
-      error.textContent = `${plan.failure.stage === "preview" ? "预览校验失败" : "计划遇到问题"}：${plan.failure.error}`;
-      planHost.append(error);
-      if (activeStatuses.has(job?.status)) {
-        const repairing = document.createElement("p"); repairing.textContent = "助手正在根据失败原因修正方案，修正后将重新等待确认。";
-        planHost.append(repairing);
-      }
-    }
-    if (plan.syncError) { const sync = document.createElement("p"); sync.textContent = `文献库已更新，同步未完成：${plan.syncError}`; planHost.append(sync); }
-    for (const operation of plan.preview || []) {
-      const details = document.createElement("details");
-      const label = document.createElement("summary");
-      const result = (plan.results || []).find(value => value.id === operation.id);
-      label.textContent = `${operation.label} · ${operation.changes?.length || 0} 项变更${result ? ` · ${result.status === "completed" ? "已完成" : result.status === "failed" ? "失败" : "处理中"}` : ""}`;
-      details.append(label);
-      if (operation.reason) { const reason = document.createElement("p"); reason.textContent = operation.reason; details.append(reason); }
-      for (const change of operation.changes || []) {
-        if (change.title) { const title = document.createElement("p"); title.textContent = change.title; details.append(title); }
-        const before = document.createElement("pre"); before.textContent = `修改前\n${planValue(change.before)}\n\n修改后\n${planValue(change.after)}`;
-        details.append(before);
-      }
-      if (result?.error) { const error = document.createElement("p"); error.textContent = result.error; details.append(error); }
-      planHost.append(details);
-    }
-    const buttons = document.createElement("div"); buttons.className = "research-plan-buttons";
-    function button(text, action) {
-      const control = document.createElement("button"); control.type = "button"; control.textContent = text; control.disabled = planBusy || activeStatuses.has(job?.status);
-      control.addEventListener("click", action); buttons.append(control);
-    }
+    const disabled = activeStatuses.has(job?.status);
+    const actions = [];
+    function action(label, run) { actions.push({ label, run, disabled }); }
     if (plan.state === "awaiting_approval") {
-      button(planBusy ? "正在执行…" : "确认执行", () => actOnPlan("approve"));
-      button("修改计划", () => { input.placeholder = "说明要调整的范围、分类或操作…"; input.focus(); });
-      button("取消计划", () => actOnPlan("cancel"));
+      action(planBusy ? "正在执行…" : "确认执行", () => actOnPlan("approve"));
+      action("修改计划", () => { input.placeholder = "说明要调整的范围、分类或操作…"; input.focus(); });
+      action("取消计划", () => actOnPlan("cancel"));
     } else if (["failed", "stale", "executing"].includes(plan.state)) {
-      button("重新生成预览", () => actOnPlan("retry"));
-      button("修改计划", () => input.focus());
+      action("重新生成预览", () => actOnPlan("retry"));
+      action("修改计划", () => input.focus());
     }
-    if (buttons.children.length) planHost.append(buttons);
+    const scrollTop = content.scrollTop;
+    planView.update(plan, { busy: planBusy, actions });
+    historicalPlans.set(`${job?.id}:${plan.id}`, plan);
+    if (planSummary) {
+      const model = executionModel(plan);
+      planSummary.hidden = !model.counts.success || planBusy || model.status === "running";
+      planSummary.textContent = `已完成 ${model.counts.success} 项操作${model.counts.failed ? `，${model.counts.failed} 项失败` : ""}。${model.counts.failed ? "请查看失败步骤并核对当前文献库状态。" : ""}`;
+    }
+    // Plan updates do not move the reading position, even when a failure opens details.
+    content.scrollTop = scrollTop;
+    updateScrollUi();
   }
   async function loadJobPlan(value) {
     if (!planHost) return;
     const id = value.result?.planId;
-    if (!id) { planKey = ""; planVersion++; currentPlan = null; planHost.hidden = true; return; }
-    const key = `${value.id}:${id}:${value.status}`;
+    if (!id) { planKey = ""; planVersion++; currentPlan = null; planHost.hidden = true; if (planSummary) planSummary.hidden = true; return; }
+    const key = `${value.id}:${id}:${value.status}:${JSON.stringify(value.result?.execution || [])}`;
     if (key === planKey) return;
     planKey = key; const version = ++planVersion;
-    currentPlan = null; planHost.hidden = false; planHost.textContent = "正在准备操作预览…";
+    if (currentPlan?.id !== id) planHost.textContent = "正在准备操作预览…";
+    currentPlan = null; planHost.hidden = false;
+    if (planSummary) planSummary.hidden = true;
+    if (!planHost.children.length) planHost.textContent = "正在准备操作预览…";
     try {
       const data = await request("/plan/preview", { jobId: value.id, planId: id });
       if (version !== planVersion || job?.id !== value.id) return;
       currentPlan = data.plan; renderPlan();
       if (activeStatuses.has(data.job.status) && !activeStatuses.has(job.status)) {
-        planKey = `${value.id}:${id}:${data.job.status}`;
+        planKey = `${value.id}:${id}:${data.job.status}:${JSON.stringify(data.job.result?.execution || [])}`;
         await selectJob(data.job, cursor);
       }
     } catch (error) {
@@ -865,9 +952,10 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       rememberJob(data.job); onNoteSaved(data);
       if (selectedVersion === selectionVersion && job?.id === id) {
         currentPlan = data.plan;
-        planKey = `${id}:${data.plan.id}:${data.job.status}`;
-        await selectJob(data.job, cursor);
+        planKey = `${id}:${data.plan.id}:${data.job.status}:${JSON.stringify(data.job.result?.execution || [])}`;
+        applyJob(data.job);
         renderPlan();
+        if (activeStatuses.has(data.job.status) && !controller) connect(id, generation);
       }
     } catch (error) {
       showStatus(error.message, true);

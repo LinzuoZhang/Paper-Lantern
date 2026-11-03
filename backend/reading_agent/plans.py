@@ -36,7 +36,18 @@ def digest(value):
     return hashlib.sha256(encode(value).encode("utf-8")).hexdigest()
 
 
+def reference_value(value):
+    # Older model responses encoded an entire reference as a string. Only
+    # recognize this exact form; never interpolate references inside content.
+    if isinstance(value, str):
+        match = re.fullmatch(r"\{ref:([A-Za-z0-9_-]{1,80}\.(?:categoryId|flagId|noteId))\}", value)
+        if match:
+            return {"ref": match.group(1)}
+    return value
+
+
 def resolve(value, outputs):
+    value = reference_value(value)
     if isinstance(value, dict):
         if set(value) == {"ref"}:
             if not isinstance(value["ref"], str):
@@ -166,8 +177,11 @@ def simulate(api, module, state, name, arguments, key, plan_id):
     changes, output = [], {}
 
     def valid_categories(values):
-        if not isinstance(values, list) or any(not isinstance(value, str) or value not in categories for value in values):
-            raise ValueError("分类必须已存在，或由计划中先前的操作创建；请使用 categoryIds。")
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise ValueError('categoryIds 须为分类 ID 数组；新分类请使用对象引用，例如 [{"ref":"create_topic.categoryId"}]。')
+        missing = [value for value in values if value not in categories]
+        if missing:
+            raise ValueError("分类不存在：" + encode(missing) + '。请使用已有分类的确切 ID；新分类须先 create_category，再用 {"ref":"创建操作id.categoryId"} 引用。')
         return values
 
     def update_item(item):
@@ -369,7 +383,8 @@ def preview_plan(api, plans, plan_id, job_id):
                 output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
             except (ValueError, TypeError, OSError) as error:
                 data.update(state="failed", failure={"stage": "preview", "operationId": operation["id"],
-                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": False})
+                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": False,
+                            "parameterSchema": module.TOOLS[operation["tool"]][1]})
                 plans.save(data)
                 raise PlanValidationError(data) from error
             outputs[operation["id"]] = output
@@ -490,6 +505,7 @@ def retry_plan(api, plans, plan_id, job_id):
         remaining = [deepcopy(operation) for operation in data["proposal"]["operations"] if operation["id"] not in outputs]
         for operation in remaining:
             def known_refs(value):
+                value = reference_value(value)
                 if isinstance(value, dict) and set(value) == {"ref"} and value["ref"].split(".")[0] in outputs:
                     return resolve(value, outputs)
                 if isinstance(value, dict):
