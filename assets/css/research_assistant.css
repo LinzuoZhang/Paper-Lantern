@@ -204,9 +204,8 @@ details[open] > .execution-row > .execution-chevron { transform: rotate(90deg); 
 .execution-raw { margin-top: 6px; }
 .execution-raw > .execution-row { min-height: 32px; color: var(--execution-secondary); }
 .execution-raw .execution-row-label { font-size: 12px; font-weight: 400; }
-.research-plan-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--execution-line); }
-.library-page .research-plan-buttons .execution-button { padding: 5px 9px; border: 1px solid var(--execution-line); color: var(--execution-ink); }
-.library-page .research-plan-buttons .execution-button:first-child { color: var(--execution-accent); }
+.research-plan-buttons { display: flex; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--execution-line); }
+.library-page .research-plan-buttons .execution-button { min-height: 30px; padding: 5px 12px; border: 1px solid var(--execution-line); border-radius: 6px; background: var(--execution-surface); color: var(--execution-accent); font-weight: 500; }
 .research-plan-buttons button:disabled { opacity: .5; cursor: wait; }
 .research-execution-summary { margin: 12px 0 24px; color: #24272b; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .research-plan * { transition: none !important; animation: none !important; } }

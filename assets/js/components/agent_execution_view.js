@@ -193,8 +193,8 @@ export function createExecutionView(host, { onCopyError = () => {} } = {}) {
       for (const [text, open] of [["展开全部", true], ["折叠全部", false]]) controls.append(button(text, () => {
         for (const entry of disclosures.values()) { entry.touched = true; entry.element.open = open; }
       }));
-      host.append(heading, stats, notices, controls, groupsHost, actions);
-      rawPlan = rawDetail("plan-raw", plan, "完整计划记录"); host.append(rawPlan.element);
+      host.append(heading, stats, notices, controls, groupsHost);
+      rawPlan = rawDetail("plan-raw", plan, "完整计划记录"); host.append(rawPlan.element, actions);
     }
     host.hidden = false; host.dataset.state = model.status;
     heading.replaceChildren(node("h3", "execution-title", plan.proposal?.summary || "操作计划"), badge(busy ? "running" : model.status, busy ? "已确认，等待执行回执" : model.text));

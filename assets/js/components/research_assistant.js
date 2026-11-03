@@ -897,12 +897,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     const actions = [];
     function action(label, run) { actions.push({ label, run, disabled }); }
     if (plan.state === "awaiting_approval") {
-      action(planBusy ? "正在执行…" : "确认执行", () => actOnPlan("approve"));
-      action("修改计划", () => { input.placeholder = "说明要调整的范围、分类或操作…"; input.focus(); });
-      action("取消计划", () => actOnPlan("cancel"));
-    } else if (["failed", "stale", "executing"].includes(plan.state)) {
-      action("重新生成预览", () => actOnPlan("retry"));
-      action("修改计划", () => input.focus());
+      action(planBusy ? "正在执行…" : "确认操作", () => actOnPlan("approve"));
     }
     const scrollTop = content.scrollTop;
     planView.update(plan, { busy: planBusy, actions });

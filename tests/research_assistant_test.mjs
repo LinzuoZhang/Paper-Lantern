@@ -420,8 +420,8 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   listeners.beforeunload();
 }
 
-// Plan previews never approve automatically; explicit buttons bind approval to
-// the exact immutable digest, support revision and refresh the library on apply.
+// Plan previews expose one confirmation action and bind approval to the exact
+// immutable digest. Revisions remain available through the conversation input.
 {
   const id = '4'.repeat(32), planId = '3'.repeat(32);
   let plan = { id: planId, version: 1, digest: 'reviewed-digest', state: 'awaiting_approval',
@@ -429,6 +429,7 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
     preview: [{ id: 'topic', label: '创建分类', reason: 'Relevant to the selected topic', changes: [{ before: null, after: { id: 'Topic' } }] }], results: [] };
   let current = { id, turnId: id, task: 'Organize papers', status: 'awaiting_approval', result: { kind: 'plan', planId, report: '# Proposed plan' } };
   const calls = [], updates = [];
+  let finishApproval;
   const json = data => new Response(JSON.stringify(data));
   const { elements: e, listeners } = fixture(null, async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
@@ -436,6 +437,7 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
     if (url.endsWith('/plan/preview')) return json({ plan, job: current });
     if (url.endsWith('/plan/approve')) {
       assert.deepEqual(body, { jobId: id, planId, digest: 'reviewed-digest' });
+      await new Promise(resolve => { finishApproval = resolve; });
       plan = { ...plan, state: 'completed', results: [{ id: 'topic', status: 'completed' }] };
       current = { ...current, status: 'completed', result: { ...current.result, kind: 'library', report: '# Completed' } };
       return json({ plan, job: current, tree: { folders: [] } });
@@ -454,13 +456,21 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 0);
   assert.equal(e.researchTask.disabled, false, 'Users can revise a plan with a follow-up');
   let controls = e.researchPlan.querySelector('.research-plan-buttons');
-  await controls.children[1].fire('click');
-  assert.equal(e.researchTask.focused, true);
-  assert.equal(calls.filter(call => call.body && call.url.endsWith('/plan/approve')).length, 0);
+  assert.equal(controls.children.length, 1);
+  assert.equal(controls.children[0].textContent, '确认操作');
+  const approval = controls.children[0].fire('click');
+  assert.equal(controls.children.length, 1);
+  assert.equal(controls.children[0].disabled, true);
+  assert.equal(controls.children[0].textContent, '正在执行…');
   await controls.children[0].fire('click');
+  assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 1, 'Pending approval must not post twice');
+  finishApproval();
+  await approval;
   assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 1);
   assert.equal(updates.length, 1);
   assert.equal(e.researchPlan.dataset.state, 'success');
+  assert.equal(controls.hidden, true);
+  assert.equal(controls.children.length, 0);
   assert.equal(e.researchAnswer.hidden, true);
   assert.equal(e.researchReport.hidden, true);
   assert.equal(e.researchResultActions.hidden, true);
