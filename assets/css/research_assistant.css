@@ -153,7 +153,6 @@ body.library-page.research-docked-open { display: grid; grid-template-columns: m
   border-radius: 9px; background: var(--execution-surface); color: var(--execution-ink);
   font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; box-shadow: none;
 }
-#researchTools { margin: 0; padding: 0; border: 0; background: transparent; }
 .execution-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; }
 .research-plan .execution-title { flex: 1 1 120px; min-width: 0; margin: 0; font-size: 14px; font-weight: 600; line-height: 1.55; }
 .execution-version, .execution-caption, .execution-stats, .execution-row-meta, .execution-reason, .execution-duration { color: var(--execution-secondary); font-size: 12px; }

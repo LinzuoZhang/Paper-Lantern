@@ -80,7 +80,7 @@ class ModelStreamingTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_REASONING", "".join(chunks))
         self.assertEqual(model.usage, [{"total_tokens": 30}])
 
-    def test_fragmented_tool_calls_are_reassembled_and_provisional_text_is_reset(self):
+    def test_fragmented_tool_calls_never_publish_provisional_text_as_a_report(self):
         def send(event):
             event({"content": "先查询文献。"})
             event({"reasoning_content": "PRIVATE_REASONING"})
@@ -97,9 +97,58 @@ class ModelStreamingTests(unittest.TestCase):
                 lambda kind, **fields: events.append({"type": kind, **fields})))
         self.assertEqual([call["function"]["name"] for call in reply["tool_calls"]], ["search_library", "get_item"])
         self.assertEqual(json.loads(reply["tool_calls"][0]["function"]["arguments"]), {"query": "control"})
-        self.assertEqual(events[-1]["type"], "report_reset")
+        self.assertEqual(events, [], "Tool rounds must not start, update or reset a visible report")
         self.assertNotIn("PRIVATE_REASONING", json.dumps(events))
         self.assertNotIn("search_library", json.dumps(events))
+
+    def test_tool_enabled_content_stays_hidden_until_the_reply_is_classified(self):
+        events = []
+        case = self
+
+        class Model:
+            async def stream_complete(self, messages, tools, receive):
+                receive("Intermediate explanation before a late tool call")
+                case.assertEqual(events, [], "No report text may flash before tool_calls arrive")
+                return {"content": "Intermediate explanation before a late tool call", "tool_calls": [
+                    {"id": "read", "type": "function", "function": {"name": "get_item", "arguments": "{}"}}]}
+
+        reply = asyncio.run(stream_model_reply(Model(), [], [{"type": "function"}],
+            lambda kind, **fields: events.append({"type": kind, **fields})))
+        self.assertTrue(reply["tool_calls"])
+        self.assertEqual(events, [])
+
+    def test_final_reply_with_tools_available_is_published_once_after_classification(self):
+        events = []
+        case = self
+
+        class Model:
+            async def stream_complete(self, messages, tools, receive):
+                receive("Final ")
+                receive("report")
+                case.assertEqual(events, [])
+                return {"content": "Final report", "reasoning_content": "PRIVATE_REASONING"}
+
+        asyncio.run(stream_model_reply(Model(), [], [{"type": "function"}],
+            lambda kind, **fields: events.append({"type": kind, **fields}), claims=[{"id": "C1"}]))
+        self.assertEqual(sum(event["type"] == "report_started" for event in events), 1)
+        self.assertEqual(events[0]["claims"], [{"id": "C1"}])
+        self.assertEqual("".join(event["delta"] for event in events if event["type"] == "report_delta"), "Final report")
+        self.assertNotIn("PRIVATE_REASONING", json.dumps(events))
+
+    def test_final_report_only_turn_streams_before_the_model_finishes(self):
+        events = []
+        case = self
+
+        class Model:
+            async def stream_complete(self, messages, tools, receive):
+                receive("Final ")
+                case.assertEqual([event["type"] for event in events], ["report_started", "report_delta"])
+                receive("report")
+                return {"content": "Final report"}
+
+        asyncio.run(stream_model_reply(Model(), [], [],
+            lambda kind, **fields: events.append({"type": kind, **fields})))
+        self.assertEqual("".join(event["delta"] for event in events if event["type"] == "report_delta"), "Final report")
 
     def test_truncated_stream_clears_partial_report_and_cannot_be_completed(self):
         events = []

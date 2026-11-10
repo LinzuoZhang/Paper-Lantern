@@ -12,9 +12,9 @@ from .state import AgentError
 
 
 async def stream_model_reply(model, messages, tools, emit, guard=None, claims=()):
-    """Publish content deltas without exposing reasoning or tool arguments."""
+    """Publish only report content; tool-enabled replies stay private until classified."""
     stream_id = uuid.uuid4().hex
-    started, pending, last_flush = False, [], 0.0
+    started, pending, buffered, last_flush = False, [], [], 0.0
 
     def flush():
         nonlocal last_flush
@@ -23,7 +23,7 @@ async def stream_model_reply(model, messages, tools, emit, guard=None, claims=()
             pending.clear()
             last_flush = monotonic()
 
-    def receive(text):
+    def publish(text):
         nonlocal started
         if guard:
             guard()
@@ -33,6 +33,17 @@ async def stream_model_reply(model, messages, tools, emit, guard=None, claims=()
         pending.append(text)
         if monotonic() - last_flush >= .05 or sum(map(len, pending)) >= 256:
             flush()
+
+    def receive(text):
+        # A provider may send content before announcing tool_calls. Until the
+        # reply is complete, a tool-enabled turn cannot be identified as a report.
+        # Do not show provisional analysis and then retract it from the answer.
+        if tools:
+            if guard:
+                guard()
+            buffered.append(text)
+        else:
+            publish(text)
 
     try:
         if hasattr(model, "stream_complete"):
@@ -44,7 +55,9 @@ async def stream_model_reply(model, messages, tools, emit, guard=None, claims=()
                 emit("report_reset", streamId=stream_id)
         else:
             if not started and reply.get("content"):
-                receive(reply["content"])
+                chunks = buffered if "".join(buffered) == reply["content"] else [reply["content"]]
+                for text in chunks:
+                    publish(text)
             flush()
         return reply
     except BaseException:

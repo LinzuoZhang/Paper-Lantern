@@ -96,8 +96,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   const planView = planHost ? createExecutionView(planHost, { onCopyError: () => showStatus("复制失败，可选中原始记录复制。", true) }) : null;
   const historicalPlans = new Map();
   const historicalViews = new Map();
-  const toolHost = find("researchTools");
-  const toolRecords = new Map();
   let planKey = "", planVersion = 0, currentPlan = null, planBusy = false;
   let point;
   let saved = false;
@@ -458,43 +456,11 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   });
   const tools = { list_papers: "整理文献目录", list_paper_summaries: "筛选文献摘要", library_overview: "确认研究范围",
     get_paper_summary: "查阅摘要", search_paper_content: "搜索相关内容", get_paper_passages: "阅读原文片段", get_read_evidence: "回看已读原文" };
-  function toolKey(turnId = job?.turnId || job?.id) { return `${job?.id}:${turnId}`; }
-  function renderToolRecord(record, state = job?.status) {
-    const active = activeStatuses.has(state);
-    const results = record.results.map(receipt => !active && receipt.status === "running" ? { ...receipt, status: "unknown" } : receipt);
-    record.view.update({ id: record.id, kind: "tools", state: active ? "running" : "finished",
-      proposal: { summary: "工具调用记录", operations: record.operations }, results });
-  }
-  function receiveToolEvent(event) {
-    if (!toolHost || !job || !["tool_started", "tool_finished", "tool_cache_hit"].includes(event.agent?.type)) return;
-    const data = event.agent, key = toolKey();
-    let record = toolRecords.get(key);
-    if (!record) {
-      const element = document.createElement("section"); element.className = "research-plan";
-      element.setAttribute("aria-label", "工具调用记录");
-      record = { id: key, element, view: createExecutionView(element), operations: [], results: [] };
-      toolRecords.set(key, record);
-    }
-    if (data.type === "tool_started") {
-      // Some legacy streams have starts only. A later start is not a success receipt.
-      for (const receipt of record.results) if (receipt.status === "running") receipt.status = "unknown";
-      const id = String(event.seq || `tool-${record.operations.length}`);
-      record.operations.push({ id, tool: data.name, event: data });
-      record.results.push({ id, tool: data.name, status: "running" });
-    } else {
-      const receipt = record.results.findLast(item => item.tool === data.name && ["running", "unknown"].includes(item.status));
-      if (receipt) Object.assign(receipt, { status: data.type === "tool_cache_hit" || data.ok === true ? "completed" : data.ok === false ? "failed" : "unknown", event: data, elapsedMs: data.elapsedMs });
-    }
-    renderToolRecord(record);
-    toolHost.hidden = false;
-    if (toolHost.children[0] !== record.element) toolHost.replaceChildren(record.element);
-  }
   function receive(event) {
     if (event.error) throw new Error(event.error);
     if (event.seq && event.seq <= cursor) return;
     if (event.seq) { cursor = event.seq; remember(); }
     if (event.job) applyJob(event.job);
-    receiveToolEvent(event);
     if (event.status) showStatus(event.status);
     if (event.agent?.type === "tool_started") showStatus(`${tools[event.agent.name] || "查阅文献"}…${progressSummary ? `\n${progressSummary}` : ""}`);
     if (["model_started", "analysis_progress"].includes(event.agent?.type)) {
@@ -558,7 +524,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     if (actions) actions.hidden = true;
     if (planHost) planHost.hidden = true;
     if (planSummary) planSummary.hidden = true;
-    if (toolHost) toolHost.hidden = true;
     panel.setAttribute("aria-busy", "true");
     showStatus("正在准备研究任务…");
     try {
@@ -633,8 +598,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       const prompt = document.createElement("div"); prompt.className = "research-question";
       prompt.textContent = turn.task;
       messages.append(prompt);
-      const toolRecord = toolRecords.get(toolKey(turn.turnId));
-      if (toolRecord) { renderToolRecord(toolRecord, turn.status || "completed"); messages.append(toolRecord.element); }
       if (turn.result?.planId) {
         const record = historicalPlans.get(`${job?.id}:${turn.result.planId}`) || {
           id: turn.result.planId, state: turn.status === "awaiting_approval" ? "superseded" : turn.status,
@@ -685,14 +648,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   function applyJob(value) {
     if (deletedIds.has(value.id)) return;
     job = rememberJob(value);
-    if (toolHost) {
-      const record = toolRecords.get(toolKey());
-      toolHost.hidden = !record;
-      if (record) {
-        renderToolRecord(record);
-        if (toolHost.children[0] !== record.element) toolHost.replaceChildren(record.element);
-      }
-    }
     loadJobPlan(job);
     cursor = Math.max(cursor, job.eventAfter || 0);
     renderConversation(job.conversation);
@@ -822,7 +777,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       planVersion++; planKey = ""; currentPlan = null;
       if (planHost) planHost.hidden = true;
       if (planSummary) planSummary.hidden = true;
-      if (toolHost) toolHost.hidden = true;
       progressSummary = "";
       report.hidden = copy.hidden = true; welcome.hidden = jobs.size > 0; status.hidden = true;
       if (actions) actions.hidden = true;
