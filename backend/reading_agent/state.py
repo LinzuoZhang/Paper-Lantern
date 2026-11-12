@@ -55,6 +55,7 @@ class ResearchState(TypedDict, total=False):
     claims: dict[str, dict]
     verification: dict
     catalog: list[dict]
+    catalog_errors: list[dict]
     scope_count: int
     allowed_ids: list[str]
     finalizing: bool

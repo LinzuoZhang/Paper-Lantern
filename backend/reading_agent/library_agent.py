@@ -13,7 +13,8 @@ from .graph import ReadingAgent
 from .library_context import brief, cached_read, observation_view, read_arguments, read_definition, result_page, task_memory
 from .mcp_client import PROJECT_ROOT, ResearchMCPClient
 from .plans import PlanStore
-from .state import AgentError
+from .state import AgentCancelled, AgentError
+from .store import JobConflict
 from .model import stream_model_reply
 
 
@@ -23,7 +24,7 @@ PROPOSE = {"type": "function", "function": {"name": "propose_library_plan", "des
     "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "operations": {"type": "array", "minItems": 1, "maxItems": 100,
         "items": {"type": "object", "properties": {"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}, "reason": {"type": "string"}},
                   "required": ["id", "tool", "arguments"], "additionalProperties": False}}}, "required": ["summary", "operations"], "additionalProperties": False}}}
-RESEARCH = {"type": "function", "function": {"name": "research_library", "description": "Delegate literature reviews, scientific comparisons and finding related papers to the source-verified reading agent. Uses previous conversation. Call alone; its verified report is the final answer.",
+RESEARCH = {"type": "function", "function": {"name": "research_library", "description": "Delegate literature reviews, scientific comparisons and finding related papers to the source-verified reading agent. Uses previous conversation. Call alone; its verified report is the final answer. On failure, use the returned error to adjust the task or inspect available library data before retrying.",
     "parameters": {"type": "object", "properties": {"task": {"type": "string"}}, "required": ["task"], "additionalProperties": False}}}
 READ_PLAN = {"type": "function", "function": {"name": "get_task_plan", "description": "Read a prior plan in this conversation to revise it. Operations are paginated. Does not execute it.",
     "parameters": {"type": "object", "properties": {"planId": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}, "required": ["planId"], "additionalProperties": False}}}
@@ -87,6 +88,7 @@ class LibraryState(TypedDict, total=False):
     tool_calls: int
     plan_id: str
     research_task: str
+    research_attempts: int
     output: dict
     finalizing: bool
     planning_version: int
@@ -113,7 +115,8 @@ class LibraryAgent:
         self.check()
         catalog = (await self.client.call("agent_capabilities", {}))["tools"]
         return {"catalog": catalog, "facts": [], "selected": [], "rounds": 0, "tool_calls": 0,
-                "finalizing": False, "planning_version": PLANNING_VERSION, "plan_repairs": 0, "plan_failure": {}}
+                "finalizing": False, "planning_version": PLANNING_VERSION, "plan_repairs": 0, "plan_failure": {},
+                "research_attempts": 0}
 
     async def agent(self, state):
         self.check()
@@ -230,15 +233,34 @@ class LibraryAgent:
                 else:
                     raise ValueError("请先发现只读工具；写操作只能提交 propose_library_plan，不能直接调用。")
                 facts.append({"tool": name, "arguments": args, "result": data})
-            except (ValueError, TypeError, OSError, AgentError) as error:
-                facts.append({"tool": name, "arguments": args, "error": str(error)[:1500]})
+            except (AgentCancelled, JobConflict):
+                raise
+            except Exception as error:
+                message = str(error)[:1500] or type(error).__name__
+                facts.append({"tool": name, "arguments": args, "error": message})
+                self.emit("tool_rejected", name=name, error=message)
             self.check()
         return {"facts": facts, "selected": selected, "tool_calls": state["tool_calls"] + len(calls), **update}
 
     async def research(self, state):
+        self.check()
         options = replace(self.options, task=state["research_task"])
-        result = await ReadingAgent(options, self.model, on_event=self.on_event,
-            checkpoint_path=self.checkpoint_path.with_name("checkpoints.sqlite3"), thread_id=self.turn_id, guard=self.guard).run()
+        attempts = state.get("research_attempts", 0)
+        # Resume the same attempt after a worker restart, but let a corrected
+        # delegation start fresh instead of replaying the failed checkpoint.
+        thread_id = f"{self.turn_id}:research:{attempts}" if attempts else self.turn_id
+        try:
+            result = await ReadingAgent(options, self.model, on_event=self.on_event,
+                checkpoint_path=self.checkpoint_path.with_name("checkpoints.sqlite3"), thread_id=thread_id, guard=self.guard).run()
+        except AgentCancelled:
+            raise
+        except Exception as error:
+            self.check()
+            message = str(error)[:1500] or type(error).__name__
+            self.emit("tool_rejected", name="research_library", error=message)
+            return {"research_task": "", "research_attempts": attempts + 1, "facts": [*state["facts"], {"tool": "research_library",
+                "arguments": {"task": state["research_task"]}, "error": message}]}
+        self.check()
         return {"output": {**result, "kind": "research"}}
 
     def review(self, state):
@@ -296,8 +318,8 @@ class LibraryAgent:
             builder.add_conditional_edges("agent", lambda state: "tools" if state["reply"].get("tool_calls") else "finish")
             builder.add_conditional_edges("tools", lambda state: "review" if state.get("plan_id") else "research" if state.get("research_task") else "agent")
             builder.add_conditional_edges("review", lambda state: "end" if state.get("output") else "agent", {"end": END, "agent": "agent"})
-            for name in ("research", "finish"):
-                builder.add_edge(name, END)
+            builder.add_conditional_edges("research", lambda state: "end" if state.get("output") else "agent", {"end": END, "agent": "agent"})
+            builder.add_edge("finish", END)
             graph = builder.compile(checkpointer=saver)
             config = {"configurable": {"thread_id": self.turn_id}, "recursion_limit": 100}
             saved = await graph.aget_state(config)

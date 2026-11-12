@@ -9,7 +9,7 @@ from time import monotonic
 
 from backend.mcp_markdown import _without_code, validate_note_markdown
 from .mcp_client import MODEL_TOOLS, PROJECT_ROOT, ResearchMCPClient
-from .state import AgentError, AgentOptions, ResearchState
+from .state import AgentCancelled, AgentError, AgentOptions, ResearchState
 from .evidence import CLAIM_TOOL, audit_report, register_claim, report_with_paper_links, source_signatures
 from .context import READ_EVIDENCE_TOOL, bounded_context, json_size, passage_view, recall_evidence
 from .model import stream_model_reply
@@ -59,15 +59,45 @@ class ReadingAgent:
         return result
 
     async def prepare(self, _state):
-        listing = await self.call("list_papers", {"hashes": list(self.options.hashes)} if self.options.hashes else {})
-        records = listing["papers"]
+        errors = []
+
+        async def preload(name, arguments):
+            try:
+                return await self.call(name, arguments)
+            except AgentCancelled:
+                raise
+            except Exception as exc:
+                message = str(exc)[:2000] or type(exc).__name__
+                errors.append({"tool": name, "arguments": arguments, "isError": True, "message": message})
+                self.emit("tool_rejected", name=name, error=message)
+                return None
+
+        listing = await preload("list_papers", {"hashes": list(self.options.hashes)} if self.options.hashes else {})
+        records = listing["papers"] if listing is not None else []
+        if listing is None:
+            # Listing article metadata can fail on one missing directory. The
+            # manifest search still supplies IDs/titles for the remaining work.
+            offset = 0
+            while True:
+                page = await preload("search_library", {"itemType": "paper", "offset": offset, "limit": 200})
+                if page is None:
+                    break
+                records.extend({**item, "hash": item["id"]} for item in page["matches"]
+                               if not self.options.hashes or item["id"] in self.options.hashes)
+                next_offset = page.get("nextOffset")
+                if next_offset is None or next_offset <= offset:
+                    break
+                offset = next_offset
         if self.options.category_ids:
-            overview = await self.call("library_overview", {"limit": 1})
-            parents = {item["id"]: item.get("parentId", "") for item in overview["categories"]}
+            overview = await preload("library_overview", {"limit": 1})
+            parents = {item["id"]: item.get("parentId", "") for item in overview["categories"]} if overview else {}
             requested = {"uncategorized" if value.strip() in {"Uncategorized", "未分类"} else value.strip().replace("\\", "/")
                          for value in self.options.category_ids}
+            if overview is not None and requested - parents.keys():
+                errors.append({"tool": "library_overview", "isError": True,
+                               "message": "分类不存在：" + ", ".join(sorted(requested - parents.keys()))})
             if requested - parents.keys():
-                raise AgentError("分类不存在：" + ", ".join(sorted(requested - parents.keys())))
+                records = []
             scope = set(requested)
             while True:
                 expanded = scope | {key for key, parent in parents.items() if parent in scope}
@@ -80,8 +110,9 @@ class ReadingAgent:
         selected = records[:self.options.max_catalog]
         candidates = []
         for start in range(0, len(selected), 20):
-            batch = await self.call("list_paper_summaries", {"hashes": [item["hash"] for item in selected[start:start + 20]]})
-            for paper in batch["papers"]:
+            items = selected[start:start + 20]
+            batch = await preload("list_paper_summaries", {"hashes": [item["hash"] for item in items]})
+            for paper in batch["papers"] if batch is not None else items:
                 candidates.append({"hash": paper["hash"], "title": str(paper["title"])[:500],
                                    "abstract": str(paper.get("abstract") or "")[:800],
                                    "threeLineSummary": json.dumps(paper.get("threeLineSummary", {}), ensure_ascii=False)[:1200]})
@@ -101,10 +132,13 @@ class ReadingAgent:
              + json.dumps(self.options.conversation, ensure_ascii=False) + "\n\n" if self.options.conversation else "")
             + "本轮研究任务：\n" + self.options.task.strip() + "\n\n文献目录资料（摘要可能缺失或被截短）：\n"
             + json.dumps(self.catalog, ensure_ascii=False)
+            + ("\n\n目录预加载工具错误（可继续处理可用文献，或根据原因调整请求）：\n"
+               + json.dumps(errors, ensure_ascii=False) if errors else "")
         )}], "model_calls": 0, "tool_calls": 0, "repairs": 0, "evidence": {}, "report": "", "retry": False,
                 "claims": {}, "verification": {}, "catalog": self.catalog, "scope_count": self.scope_count,
                 "allowed_ids": sorted(self.allowed), "finalizing": False, "finalization_calls": 0,
-                "finalization_tool_calls": 0, "finalization_version": FINALIZATION_VERSION, "validation_error": ""}
+                "finalization_tool_calls": 0, "finalization_version": FINALIZATION_VERSION, "validation_error": "",
+                "catalog_errors": errors}
 
     def scoped_arguments(self, name, arguments):
         if name not in MODEL_TOOLS or not isinstance(arguments, dict):
@@ -135,7 +169,7 @@ class ReadingAgent:
     async def model_step(self, state):
         self.check_guard()
         messages = list(state["messages"])
-        if not self.catalog:
+        if not self.catalog and not state.get("catalog_errors"):
             return {"report": "所选范围内没有可用的 PDF 文献，未进行正文阅读或研究结论汇总。"}
         archive_chars = json_size([passage_view(item) for item in state["evidence"].values()]) + json_size(state.get("claims", {}))
         context_pressure = bool(state["evidence"]) and archive_chars >= self.options.max_context_chars * .60
@@ -265,9 +299,12 @@ class ReadingAgent:
                         if passage.get("source") == "full_text" and passage.get("text", "").strip() and paper_hash in self.allowed:
                             evidence[passage["passageId"]] = {"hash": paper_hash, **passage}
                             focus_ids.insert(0, passage["passageId"])
-            except (AgentError, ValueError, TypeError) as exc:
-                text = json.dumps({"isError": True, "message": str(exc)[:2000]}, ensure_ascii=False)
-                self.emit("tool_rejected", name=name)
+            except AgentCancelled:
+                raise
+            except Exception as exc:
+                message = str(exc)[:2000] or type(exc).__name__
+                text = json.dumps({"isError": True, "message": message}, ensure_ascii=False)
+                self.emit("tool_rejected", name=name, error=message)
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": text})
         self.check_guard()
         return {"messages": messages, "evidence": evidence, "tool_calls": count, "claims": claims,
