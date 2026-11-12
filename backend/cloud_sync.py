@@ -679,6 +679,8 @@ def normalize_discussion_payload(discussion):
         }
         if not thread["messages"] and thread["title"] == "New discussion":
             continue
+        if item.get("mode") == "agent":
+            thread["mode"] = "agent"
         thread["hash"] = make_discussion_thread_hash(thread)
         threads.append(thread)
     return {"threads": threads}

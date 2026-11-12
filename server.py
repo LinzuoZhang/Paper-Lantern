@@ -2433,16 +2433,23 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             return
 
         if request_path == "/api/discuss":
+            mode = payload.get("mode", "normal")
+            if mode not in ("normal", "agent"):
+                self._send_json(400, {"error": "讨论模式无效。"})
+                return
             paper_text = str(payload.get("paperText", "")).strip()
             question = str(payload.get("question", "")).strip()
             context_type = "note" if str(payload.get("contextType", "")).strip().lower() == "note" else "paper"
             task_instruction = str(payload.get("taskInstruction", "")).strip()[:2000]
             selection_reference = normalize_selection_reference(payload.get("selectionReference"))
-            if context_type == "paper" and len(paper_text) < 80:
+            if mode == "normal" and context_type == "paper" and len(paper_text) < 80:
                 self._send_json(400, {"error": "Please provide at least 80 characters of paper text."})
                 return
             if not question:
                 self._send_json(400, {"error": "Please enter a discussion question."})
+                return
+            if mode == "agent" and len(question) > 8000:
+                self._send_json(400, {"error": "Agent 讨论问题请控制在 8000 字符以内。"})
                 return
             try:
                 answer = discuss_paper(
@@ -2459,6 +2466,9 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     stream=bool(payload.get("stream")),
                     paper_id=str(payload.get("paperId", "")),
                     paper_ids=payload.get("paperIds"),
+                    mode=mode,
+                    item_id=str(payload.get("itemId", "")),
+                    think_mode=_think_mode,
                 )
                 if bool(payload.get("stream")):
                     first_chunk = next(answer, None)
@@ -3921,7 +3931,38 @@ def explain_selected_text(api_key, model, chat_completions_url, paper_text, sele
     return raw["choices"][0]["message"]["content"].strip()
 
 
-def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, selection_reference=None, context_type="paper", task_instruction="", stream=False, paper_id="", paper_ids=None):
+def discuss_paper(api_key, model, chat_completions_url, paper_text, question, summary=None, history=None, selection_reference=None, context_type="paper", task_instruction="", stream=False, paper_id="", paper_ids=None, mode="normal", item_id="", think_mode=None):
+    if mode not in ("normal", "agent"):
+        raise ValueError("讨论模式无效。")
+    if mode == "agent":
+        from backend.discussion_agent_bridge import run_discussion_agent
+
+        if len(question) > 8000:
+            raise ValueError("Agent 讨论问题请控制在 8000 字符以内。")
+        if paper_ids is not None and (not isinstance(paper_ids, list) or any(not isinstance(value, str) for value in paper_ids)):
+            raise ValueError("paperIds 必须为论文编号数组。")
+        agent_summary = summary or {}
+        serialized_summary = json.dumps(agent_summary, ensure_ascii=False)
+        if len(serialized_summary) > 12_000:
+            agent_summary = {"excerpt": serialized_summary[:12_000], "truncated": True}
+        messages = build_discussion_payload(
+            model, paper_text[:40_000], question, agent_summary, history, selection_reference,
+            context_type=context_type, task_instruction=task_instruction,
+        )["messages"]
+        messages.insert(2, {"role": "user", "content": "当前资料标识（仅作检索上下文）：" + json.dumps({
+            "contextType": context_type, "currentItemId": item_id or paper_id,
+            "currentPaperId": paper_id if context_type == "paper" else "",
+            "priorityPaperIds": (paper_ids or [])[:40],
+            "contextTruncated": len(paper_text) > 40_000,
+            "notice": "当前资料只提供前40000字符，必要时通过 MCP 读取其余论文原文。" if len(paper_text) > 40_000 else "",
+        }, ensure_ascii=False)})
+        if think_mode is None:
+            think_mode = get_ai_config("discuss")[3]
+        events = run_discussion_agent(messages, (api_key, model, chat_completions_url, think_mode),
+                                      get_module_custom_prompt("discuss"), LIBRARY_DIR)
+        if stream:
+            return events
+        return "".join(event.get("delta", "") for event in events)
     upstream_payload = build_discussion_payload(
         model,
         paper_text,
@@ -3934,8 +3975,9 @@ def discuss_paper(api_key, model, chat_completions_url, paper_text, question, su
     )
     if (context_type == "paper" and paper_id) or paper_ids is not None:
         def events():
-            yield {"status": "正在准备其他论文的编号和摘要…"}
             papers = load_discussion_papers(paper_id, paper_ids)
+            if papers:
+                yield {"status": "正在准备其他论文的编号和摘要…"}
 
             def decide(messages):
                 result, _raw = call_chat_completions(
@@ -4808,6 +4850,8 @@ def normalize_discussion_payload(discussion):
             "createdAt": created_at,
             "updatedAt": updated_at,
         }
+        if item.get("mode") == "agent":
+            thread["mode"] = "agent"
         thread["hash"] = make_discussion_thread_hash(thread)
         threads.append(thread)
     return {"threads": threads}

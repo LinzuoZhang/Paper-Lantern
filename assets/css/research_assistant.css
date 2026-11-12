@@ -119,19 +119,8 @@ body.library-page.research-docked-open { display: grid; grid-template-columns: m
 .research-status { margin: -8px 0 20px; color: var(--note-secondary); font-size: 11px; line-height: 1.65; white-space: pre-line; overflow-wrap: anywhere; }
 .research-status.is-error { color: #a75043; }
 .workspace-page .research-form { flex: 0 0 auto; margin: 0; padding: 12px 16px 16px; border: 0; background: #fff; }
-.workspace-page .research-form .discussion-composer { gap: 10px; padding: 12px 10px 8px; border: 1px solid #e5e7e5; border-radius: 10px; background: #fff; }
-.workspace-page .research-form .discussion-composer:focus-within { border-color: var(--note-focus); }
-.workspace-page .research-form .discussion-composer textarea { min-height: 25px; max-height: min(220px, 28dvh); padding: 0 2px; color: var(--note-ink); font: 13px/1.75 var(--note-font); field-sizing: fixed; }
-.research-form .discussion-compose-actions { gap: 8px; }
-.research-form .discussion-send-controls { flex: 1; max-width: none; margin-left: 0; justify-content: space-between; }
-.workspace-page .research-form .discussion-model-select { width: auto; max-width: calc(100% - 40px); height: 30px; min-height: 30px; padding: 0 4px; border-radius: 4px; color: var(--note-secondary); font-size: 12px; }
-.workspace-page .research-form .discussion-model-select:hover:not(:disabled) { background: var(--note-hover); }
-.workspace-page .research-form .discussion-compose-actions :is(.add-discussion-paper-button, .send-discussion-button) { flex: 0 0 30px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 6px; border-radius: 6px; }
-.workspace-page .research-form .discussion-compose-actions .add-discussion-paper-button { background: transparent; color: var(--note-secondary); }
-.workspace-page .research-form .discussion-compose-actions .send-discussion-button { background: var(--note-ink); color: #fff; }
-.workspace-page .research-form .discussion-compose-actions .send-discussion-button:disabled { background: var(--note-active); color: var(--note-tertiary); }
-.workspace-page .research-form .discussion-compose-actions .send-discussion-button:hover:not(:disabled) { background: #40454a; color: #fff; }
-.research-form .discussion-compose-actions button svg { width: 16px; height: 16px; }
+/* This input is sized by resizeInput(); the visual treatment lives in note.css. */
+.workspace-page .research-form .discussion-composer textarea { field-sizing: fixed; }
 .research-form .discussion-papers { gap: 4px; max-height: 84px; overflow-y: auto; }
 .research-form .discussion-paper-chip { padding: 2px 4px 2px 6px; background: var(--note-hover); }
 .workspace-page .research-form .discussion-paper-link { max-width: 220px; overflow: hidden; color: var(--note-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }

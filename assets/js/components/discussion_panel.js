@@ -35,6 +35,7 @@ export function initDiscussionPanel({
   const send = find("#sendDiscussionButton");
   const modelSelect = find("#discussionModelSelect");
   const modelStatus = find("#discussionModelStatus");
+  const modeControls = [[find("#discussionModeChat"), "normal"], [find("#discussionModeWork"), "agent"]];
   const addPaper = find("#addDiscussionPaperButton");
   const paperTray = find("#discussionPapers");
   const paperStatus = find("#discussionPaperStatus");
@@ -58,6 +59,7 @@ export function initDiscussionPanel({
   let markdownRenderer = null;
   let discussionThreadHeaderVisible = false;
   let discussionListHeaderVisible = false;
+  let mode = "normal";
 
   if (!form || !input || !messages) {
     return emptyController();
@@ -78,6 +80,24 @@ export function initDiscussionPanel({
     onStop: () => abortController?.abort(), onModelStateChange: renderDraftPapers });
 
   form.addEventListener("submit", submit);
+  modeControls.forEach(([control, value]) => control?.addEventListener("change", () => {
+    if (busy) { renderMode(); return; }
+    if (!control.checked) return;
+    mode = value;
+    const thread = threads.find((entry) => entry.id === activeId);
+    if (thread) {
+      thread.mode = mode;
+      thread.updatedAt = new Date().toISOString();
+      void persist();
+    }
+    renderMode();
+  }));
+
+  function renderMode() {
+    modeControls.forEach(([control, value]) => {
+      if (control) { control.checked = mode === value; control.disabled = busy; }
+    });
+  }
   addPaper?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!busy) paperReferences?.pickPaper(addPaper, attachPaper);
@@ -133,6 +153,8 @@ export function initDiscussionPanel({
     draftPapers.push(paper);
     renderDraftPapers();
     try {
+      // Agent reads stored summaries or original passages on demand.
+      if (mode === "agent") return;
       const response = await apiFetch("/api/discussion/paper-summary", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paperId: paper.id }),
@@ -190,6 +212,7 @@ export function initDiscussionPanel({
     const requestedAt = Date.now();
     try {
       answer = await requestAnswer({
+        mode: thread.mode === "agent" ? "agent" : "normal",
         question,
         history: thread.messages.slice(0, -1),
         selectionReference: thread.reference,
@@ -232,7 +255,7 @@ export function initDiscussionPanel({
     }
   }
 
-  async function requestAnswer({ question, history, selectionReference, signal, onDelta, onStatus, paperIds }) {
+  async function requestAnswer({ mode, question, history, selectionReference, signal, onDelta, onStatus, paperIds }) {
     const context = String(getContextText?.() || "");
     const response = await apiFetch("/api/discuss", {
       method: "POST",
@@ -240,6 +263,8 @@ export function initDiscussionPanel({
       cache: "no-store",
       body: JSON.stringify({
         paperText: context,
+        mode,
+        itemId: String(getItem?.()?.id || ""),
         paperId: contextType === "paper" ? String(getItem?.()?.id || "") : "",
         paperIds,
         question,
@@ -338,7 +363,7 @@ export function initDiscussionPanel({
 
   function createThread(reference = null) {
     const now = new Date().toISOString();
-    return { id: `discussion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title: reference ? "引用提问" : "新讨论", messages: [], reference, createdAt: now, updatedAt: now };
+    return { id: `discussion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title: reference ? "引用提问" : "新讨论", mode, messages: [], reference, createdAt: now, updatedAt: now };
   }
 
   // 从未发送过消息的讨论只是草稿：不出现在列表里，也不会写入磁盘。
@@ -380,6 +405,8 @@ export function initDiscussionPanel({
     renderDraftPapers();
     dropEmptyThreads(id);
     activeId = id;
+    mode = thread.mode === "agent" ? "agent" : "normal";
+    renderMode();
     if (listView) listView.hidden = true;
     if (threadView) threadView.hidden = false;
     renderHeader(thread);
@@ -421,6 +448,7 @@ export function initDiscussionPanel({
     const show = !activeHeaderVisible;
     compactBar.classList.toggle("discussion-compact-visible", show);
     compactBar.setAttribute("aria-hidden", String(!show));
+    compactBar.inert = !show;
     if (compactTitle) {
       compactTitle.textContent = thread?.title || "新讨论";
       compactTitle.title = thread?.title || "新讨论";
@@ -693,6 +721,7 @@ export function initDiscussionPanel({
 
   function setBusy(next) {
     busy = Boolean(next);
+    renderMode();
     composer.setBusy(busy);
     renderDraftPapers();
   }
@@ -709,6 +738,7 @@ function normalizeThreads(value) {
   return raw.map((thread, index) => ({
     id: String(thread?.id || `discussion-${Date.now().toString(36)}-${index}`),
     title: String(thread?.title || "新讨论"),
+    mode: thread?.mode === "agent" ? "agent" : "normal",
     messages: Array.isArray(thread?.messages) ? thread.messages.map((message) => ({ role: message?.role === "user" ? "user" : "assistant", content: String(message?.content || "").trim(), ...(message?.papers?.length ? { papers: normalizePapers(message.papers) } : {}) })).filter((message) => message.content) : [],
     reference: normalizeReference(thread?.reference),
     createdAt: String(thread?.createdAt || new Date().toISOString()),

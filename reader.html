@@ -389,6 +389,10 @@
             <span id="discussionPaperStatus" class="discussion-paper-status" role="status"></span>
             <div class="discussion-send-controls">
             <select id="discussionModelSelect" class="discussion-model-select" aria-label="讨论模型" aria-describedby="discussionModelStatus" title="仅切换讨论使用的模型" disabled><option value="">讨论模型</option></select>
+            <div class="discussion-mode-switch" role="radiogroup" aria-label="讨论模式">
+              <label class="discussion-mode-option"><input id="discussionModeChat" type="radio" name="discussionMode" value="normal" checked><span>聊天</span></label>
+              <label class="discussion-mode-option"><input id="discussionModeWork" type="radio" name="discussionMode" value="agent"><span>工作</span></label>
+            </div>
             <button id="sendDiscussionButton" class="send-discussion-button" type="submit" aria-label="发送" title="发送">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="M12 19V5m-7 7 7-7 7 7"></path>
