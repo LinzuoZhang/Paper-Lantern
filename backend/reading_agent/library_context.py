@@ -6,6 +6,10 @@ import json
 from .context import json_size
 
 
+READ_CAPS = {"library_overview": 5, "search_library": 30, "get_paper_passages": 5, "search_paper_content": 5,
+             "get_paper_highlights": 5, "get_paper_annotations": 5}
+
+
 def brief(value, max_string=4000):
     if isinstance(value, str):
         return value if len(value) <= max_string else value[:max_string] + "\n[内容已截短]"
@@ -18,7 +22,7 @@ def brief(value, max_string=4000):
 
 def read_arguments(name, arguments):
     args = deepcopy(arguments)
-    caps = {"library_overview": 5, "search_library": 30, "get_paper_passages": 5, "search_paper_content": 5}
+    caps = READ_CAPS
     if name in caps:
         args.setdefault("limit", caps[name])
         if type(args["limit"]) is int:
@@ -45,7 +49,7 @@ def read_definition(definition):
     function = tool["function"]
     name = function["name"]
     schema = function["parameters"]
-    caps = {"library_overview": 5, "search_library": 30, "get_paper_passages": 5, "search_paper_content": 5}
+    caps = READ_CAPS
     if name in caps and "limit" in schema.get("properties", {}):
         schema["properties"]["limit"].update(maximum=caps[name], default=caps[name])
     if name == "list_paper_summaries":
@@ -70,7 +74,7 @@ def result_page(facts, index, offset=0, limit=12):
         seen.add(index); index = facts[index]["cachedFrom"]
     fact = facts[index]
     data = deepcopy(fact.get("result", {"error": fact.get("error", "结果不存在。")}))
-    field = next((key for key in ("papers", "matches", "categories", "tools", "passages") if isinstance(data.get(key), list)), None)
+    field = next((key for key in ("papers", "matches", "categories", "tools", "passages", "groups") if isinstance(data.get(key), list)), None)
     result = {"observation": index, "tool": fact["tool"], "result": data}
     if fact.get("stale"):
         result["stale"] = True

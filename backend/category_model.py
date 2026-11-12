@@ -15,6 +15,7 @@ def library_locked(function):
     return locked
 
 UNCATEGORIZED_ID = "uncategorized"
+UNCATEGORIZED_ALIASES = {UNCATEGORIZED_ID, "Uncategorized", "未分类"}
 LEGACY_TIMESTAMP = "1970-01-01T00:00:00+00:00"
 
 
@@ -24,7 +25,7 @@ def normalize_category_ids(value):
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError("categoryIds must be an array of strings.")
     ids = {item.strip().replace("\\", "/") for item in value if item.strip()}
-    ids -= {UNCATEGORIZED_ID, "Uncategorized", "未分类"}
+    ids -= UNCATEGORIZED_ALIASES
     return sorted(ids) or [UNCATEGORIZED_ID]
 
 
@@ -44,6 +45,11 @@ def normalize_record_categories(record, valid_ids=None):
             key: {"present": True, "updatedAt": LEGACY_TIMESTAMP}
             for key in category_ids(record) if key != UNCATEGORIZED_ID
         }
+    # Uncategorized is derived from the absence of memberships, never stored
+    # as a relationship that can coexist with a real category or return on sync.
+    for key in list(record["categoryMemberships"]):
+        if key.strip().replace("\\", "/") in UNCATEGORIZED_ALIASES:
+            record["categoryMemberships"].pop(key)
     ids = category_ids(record)
     if valid_ids is not None:
         ids = [key for key in ids if key in valid_ids] or [UNCATEGORIZED_ID]

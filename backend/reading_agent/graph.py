@@ -110,7 +110,12 @@ class ReadingAgent:
         if name not in MODEL_TOOLS or not isinstance(arguments, dict):
             raise AgentError("只允许本次已声明的只读研究工具。")
         args = deepcopy(arguments)
-        if name in {"get_paper_summary", "get_paper_passages"}:
+        if name in {"get_paper_highlights", "get_paper_annotations"}:
+            if not isinstance(args.get("id"), str) or args["id"].strip() not in self.allowed:
+                raise AgentError("文章不在本次研究目录中。")
+            args["id"] = args["id"].strip()
+            args.setdefault("limit", 5)
+        elif name in {"get_paper_summary", "get_paper_passages"}:
             if not isinstance(args.get("hash"), str) or args["hash"].strip() not in self.allowed:
                 raise AgentError("文章不在本次研究目录中。")
             args["hash"] = args["hash"].strip()

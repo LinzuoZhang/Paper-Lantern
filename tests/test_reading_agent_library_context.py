@@ -11,7 +11,7 @@ import server
 from backend.reading_agent.context import json_size
 from backend.reading_agent.library_agent import LibraryState, PLANNING_VERSION, proposal_definition
 from backend.reading_agent.capabilities import mcp_module
-from backend.reading_agent.library_context import cached_read, observation_view, result_page, task_memory
+from backend.reading_agent.library_context import cached_read, observation_view, read_arguments, read_definition, result_page, task_memory
 from backend.reading_agent.mcp_client import ResearchMCPClient
 from backend.reading_agent.plans import PlanStore, preview_plan
 from backend.reading_agent.store import JobStore
@@ -87,6 +87,19 @@ class LibraryContextTests(unittest.TestCase):
         original = {"tool": "search_paper_content", "result": {"matches": [
             {"hash": "paper", "passageId": "source-version", "text": "Exact original text", "sourceVersion": "v1"}]}}
         self.assertEqual(observation_view(original), original)
+
+    def test_annotation_tools_have_bounded_reads_and_recall_groups(self):
+        for name in ("get_paper_highlights", "get_paper_annotations"):
+            schema = mcp_module().TOOLS[name][1]
+            adapted = read_definition({"type": "function", "function": {"name": name, "parameters": schema}})
+            self.assertEqual(adapted["function"]["parameters"]["properties"]["limit"]["maximum"], 5)
+            self.assertEqual(read_arguments(name, {"id": "paper"})["limit"], 5)
+            self.assertEqual(read_arguments(name, {"id": "paper", "limit": 50})["limit"], 5)
+        facts = [{"tool": "get_paper_annotations", "result": {"id": "paper", "total": 20,
+                  "groups": [{"groupId": str(i)} for i in range(20)], "nextOffset": None}}]
+        page = result_page(facts, 0, 12, 5)
+        self.assertEqual([group["groupId"] for group in page["result"]["groups"]], [str(i) for i in range(12, 17)])
+        self.assertEqual(page["nextResultOffset"], 17)
 
 
 @unittest.skipUnless(HAS_RUNTIME, "Install Agent runtime")

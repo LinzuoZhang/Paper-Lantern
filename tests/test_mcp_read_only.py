@@ -34,6 +34,11 @@ class MCPReadOnlyTests(LibraryFixture):
         metadata = server.read_json(directory / "metadata.json", {})
         metadata.update(abstract="Control evidence", notes="Legacy notes")
         server.write_json(directory / "metadata.json", metadata)
+        server.write_json(directory / "highlights.json", [{
+            "pageNumber": 1, "left": 0.1, "top": 0.2, "width": 0.3, "height": 0.04,
+            "selectedText": "Original control evidence", "comment": "Legacy comment",
+            "translation": "Legacy translation", "text": ["Older entry"],
+        }])
         (directory / server.NOTES_FILE).unlink(missing_ok=True)
         server.write_text_file(directory / server.EXTRACTED_TEXT_FILE, "Original control evidence. " * 5)
         before = self.snapshot()
@@ -42,6 +47,8 @@ class MCPReadOnlyTests(LibraryFixture):
                 ("library_overview", {}), ("search_library", {"query": "Paper"}), ("list_papers", {}),
                 ("list_paper_summaries", {}), ("get_paper_summary", {"hash": paper["id"]}),
                 ("get_paper_full_text", {"hash": paper["id"]}),
+                ("get_paper_highlights", {"id": paper["id"]}),
+                ("get_paper_annotations", {"id": paper["id"]}),
                 ("search_paper_content", {"query": "control", "sources": ["abstract", "notes"]}),
                 ("get_paper_passages", {"hash": paper["id"], "source": "notes"}),
                 ("get_item", {"id": paper["id"]}), ("list_flags", {}), ("agent_capabilities", {}),
@@ -58,7 +65,9 @@ class MCPReadOnlyTests(LibraryFixture):
         exposed = {tool["name"] for tool in self.mcp.list_tools()}
         self.assertEqual(exposed, set(self.mcp.READ_ONLY_TOOLS))
         for name, args in (("create_note", {"title": "No write"}), ("delete_item", {"id": paper["id"]}),
-                           ("auto_highlight_paper", {"id": paper["id"]}), ("ask_paper", {"hash": paper["id"], "question": "Why?"})):
+                           ("auto_highlight_paper", {"id": paper["id"]}), ("ask_paper", {"hash": paper["id"], "question": "Why?"}),
+                           ("add_paper_highlight", {"id": paper["id"], "pageNumber": 1, "text": "No write"}),
+                           ("add_paper_annotation", {"id": paper["id"], "groupId": "group", "content": "No write"})):
             result = self.call(name, args)
             self.assertTrue(result["isError"])
             self.assertIn("read-only", result["content"][0]["text"])

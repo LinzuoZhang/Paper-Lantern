@@ -3,6 +3,8 @@ const labels = {
   list_papers: "整理文献目录", library_overview: "查看文献库概况", search_library: "搜索文献库",
   list_paper_summaries: "批量读取摘要", get_paper_summary: "查看论文摘要", search_paper_content: "搜索原文",
   get_paper_passages: "读取原文片段", get_read_evidence: "回看已读原文", get_item: "读取文献详情", list_flags: "查看标记",
+  get_paper_highlights: "读取论文高亮", get_paper_annotations: "读取论文批注",
+  add_paper_highlight: "新增论文高亮", add_paper_annotation: "追加论文批注",
   discover_tools: "发现可用工具", propose_library_plan: "提交操作计划", research_library: "查阅研究资料",
   get_task_plan: "查看操作计划", get_task_result: "回看工具结果",
   create_category: "创建分类", rename_category: "重命名分类", move_category: "移动分类", delete_category: "删除分类",
@@ -10,7 +12,7 @@ const labels = {
   update_paper: "修改文献信息", batch_update_items: "批量修改文献", batch_update_flags: "批量修改标记",
   create_flag: "创建标记", update_flag: "修改标记", create_note: "创建笔记", write_note: "修改笔记",
 };
-const fields = { title: "标题", categoryIds: "分类", flags: "标记", basicInfo: "文献元数据", notes: "笔记内容",
+const fields = { title: "标题", categoryIds: "分类", flags: "标记", basicInfo: "文献元数据", notes: "笔记内容", highlights: "高亮与批注",
   doi: "DOI", name: "名称", color: "颜色", icon: "图标", parentId: "父分类", order: "排序", id: "编号" };
 const statusLabels = { success: "已完成", failed: "失败", running: "正在执行", pending: "未执行", approval: "等待确认",
   skipped: "已跳过", unknown: "回执待核对", warning: "需核对" };

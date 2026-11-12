@@ -69,6 +69,10 @@ class ReadingAgentContractTests(unittest.TestCase):
         agent = ReadingAgent(AgentOptions("Compare", Path(".")), None)
         agent.allowed = {"inside"}
         self.assertEqual(agent.scoped_arguments("search_paper_content", {"query": "x"})["hashes"], ["inside"])
+        for name in ("get_paper_highlights", "get_paper_annotations"):
+            self.assertEqual(agent.scoped_arguments(name, {"id": " inside "}), {"id": "inside", "limit": 5})
+            with self.assertRaises(AgentError):
+                agent.scoped_arguments(name, {"id": "outside"})
         for name, args in (("delete_item", {"id": "inside"}), ("get_paper_passages", {"hash": "outside"}),
                            ("list_paper_summaries", {"hashes": ["outside"]}),
                            ("get_paper_passages", {"hash": "inside", "limit": 50})):

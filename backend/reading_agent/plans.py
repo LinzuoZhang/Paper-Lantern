@@ -15,6 +15,7 @@ from backend.category_model import category_ids, set_record_categories
 from backend.mcp_markdown import validate_note_markdown
 from .capabilities import WRITE_CAPABILITIES, mcp_module
 from .store import JobConflict
+from .annotation_actions import ANNOTATION_TOOLS, prepare_annotation_change
 
 
 EXECUTION_LOCK = threading.RLock()
@@ -40,7 +41,7 @@ def reference_value(value):
     # Older model responses encoded an entire reference as a string. Only
     # recognize this exact form; never interpolate references inside content.
     if isinstance(value, str):
-        match = re.fullmatch(r"\{ref:([A-Za-z0-9_-]{1,80}\.(?:categoryId|flagId|noteId))\}", value)
+        match = re.fullmatch(r"\{ref:([A-Za-z0-9_-]{1,80}\.(?:categoryId|flagId|noteId|groupId|entryId))\}", value)
         if match:
             return {"ref": match.group(1)}
     return value
@@ -145,16 +146,27 @@ class PlanStore:
 
 def snapshot(api):
     db = api.load_library_db()
-    metadata, notes, local, signatures = {}, {}, {}, {}
+    metadata, notes, local, signatures, highlights = {}, {}, {}, {}, {}
     for key, record in db["papers"].items():
         folder = api.paper_dir_from_record(record)
         metadata[key] = api.read_json(folder / "metadata.json", {})
         notes[key] = api.read_text_file(folder / api.NOTES_FILE) if (folder / api.NOTES_FILE).exists() else str(metadata[key].get("notes", ""))
         local[key] = api.paper_local_state(key, metadata[key])
         signatures[key] = {"metadata": metadata[key], "notes": notes[key], "local": local[key], "exists": folder.is_dir()}
+        path = folder / "highlights.json"
+        raw = path.read_bytes() if path.exists() else b"[]"
+        signatures[key]["highlights"] = hashlib.sha256(raw).hexdigest()
+        try:
+            highlights[key] = json.loads(raw)
+        except (ValueError, UnicodeError):
+            highlights[key] = None
+        pdf_path = folder / "paper.pdf"
+        if pdf_path.is_file():
+            stat = pdf_path.stat()
+            signatures[key]["pdf"] = [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino]
     flags = api.library_flag_definitions()
     revision = digest({"library": db, "items": signatures, "flags": flags})
-    return {"db": deepcopy(db), "metadata": metadata, "notes": notes, "local": local,
+    return {"db": deepcopy(db), "metadata": metadata, "notes": notes, "local": local, "highlights": highlights,
             "exists": {key: value["exists"] for key, value in signatures.items()},
             "flags": {flag["id"]: flag for flag in flags}}, revision
 
@@ -338,6 +350,16 @@ def simulate(api, module, state, name, arguments, key, plan_id):
             current = set(item_view(state, item_id)["flags"])
             desired = current | set(args["flags"]) if args["operation"] == "add" else current - set(args["flags"])
             update_item({"id": item_id, "flags": sorted(desired)})
+    elif name in ANNOTATION_TOOLS:
+        args["id"] = args["id"].strip()
+        record = db["papers"].get(args["id"])
+        if not record or record.get("itemType", "paper") != "paper" or not state["exists"].get(args["id"]):
+            raise ValueError("目标不是可用的 PDF 论文。")
+        highlights = state["highlights"].get(args["id"])
+        if not isinstance(highlights, list) or any(not isinstance(item, dict) for item in highlights):
+            raise ValueError("论文高亮文件损坏，请先修复；本次未保存任何变更。")
+        output, before, after = prepare_annotation_change(api.paper_dir_from_record(record), highlights, name, args, plan_id, key)
+        changes = [{"id": args["id"], "title": record.get("title", args["id"]), "before": before, "after": after}]
     elif name == "create_note":
         title = args["title"].strip()
         if not 1 <= len(title) <= 200 or "categoryId" in args:
@@ -381,7 +403,7 @@ def preview_plan(api, plans, plan_id, job_id):
             try:
                 args = resolve(operation["arguments"], outputs)
                 output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
-            except (ValueError, TypeError, OSError) as error:
+            except (ValueError, TypeError, OSError, RuntimeError) as error:
                 data.update(state="failed", failure={"stage": "preview", "operationId": operation["id"],
                             "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": False,
                             "parameterSchema": module.TOOLS[operation["tool"]][1]})
@@ -397,6 +419,14 @@ def preview_plan(api, plans, plan_id, job_id):
 
 
 def apply_operation(api, module, name, args, plan_id, key):
+    if name in ANNOTATION_TOOLS:
+        args = {**args, "id": args["id"].strip()}
+        directory, highlights = module.read_article_highlights(args["id"])
+        output, _before, _after = prepare_annotation_change(directory, highlights, name, args, plan_id, key)
+        if output["changed"]:
+            api.write_json(directory / "highlights.json", highlights)
+            api.update_paper_sync_hash(directory)
+        return output
     if name == "create_category":
         return {"categoryId": api.create_category(args.get("parentId", ""), args["name"])}
     if name == "rename_category":
@@ -488,7 +518,8 @@ def approve_plan(api, plans, plan_id, job_id, expected_digest):
                 break
         else:
             data["state"] = "completed"; plans.save(data)
-    if any(result["status"] == "completed" and result["tool"] not in {"create_flag", "update_flag", "batch_update_flags"} for result in data["results"]):
+    if any(result["status"] == "completed" and result["tool"] not in {"create_flag", "update_flag", "batch_update_flags"}
+           and result["output"].get("changed", True) for result in data["results"]):
         try:
             api.maybe_auto_sync_library()
         except Exception as error:

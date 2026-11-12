@@ -11,7 +11,8 @@ from .state import AgentError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL_TOOLS = frozenset({"list_paper_summaries", "get_paper_summary", "search_paper_content", "get_paper_passages"})
+MODEL_TOOLS = frozenset({"list_paper_summaries", "get_paper_summary", "search_paper_content", "get_paper_passages",
+                         "get_paper_highlights", "get_paper_annotations"})
 
 
 class ResearchMCPClient:

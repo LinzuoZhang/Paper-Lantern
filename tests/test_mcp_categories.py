@@ -208,7 +208,7 @@ class MCPStdioTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         responses = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual([response["id"] for response in responses], [1, 2, 3, 4, 5, 6])
-        self.assertEqual(responses[0]["result"]["serverInfo"]["version"], "0.6.0")
+        self.assertEqual(responses[0]["result"]["serverInfo"]["version"], "0.7.0")
         for name in ("list_papers", "list_paper_summaries", "get_paper_summary", "get_paper_full_text", "ask_paper",
                      "search_paper_content", "get_paper_passages"):
             self.assertIn(name, {tool["name"] for tool in responses[1]["result"]["tools"]})

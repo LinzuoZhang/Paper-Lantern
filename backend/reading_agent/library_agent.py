@@ -50,7 +50,7 @@ def proposal_definition(write_schemas):
         schema = deepcopy(schema)
         if schema.get("type") == "string":
             return {"anyOf": [schema, {"type": "object", "properties": {"ref": {"type": "string",
-                    "description": "Earlier operation output, e.g. create_topic.categoryId"}},
+                    "description": "Earlier operation output, e.g. create_topic.categoryId or highlight.groupId"}},
                     "required": ["ref"], "additionalProperties": False}]}
         if "properties" in schema:
             schema["properties"] = {key: with_references(value) for key, value in schema["properties"].items()

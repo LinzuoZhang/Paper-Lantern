@@ -9,7 +9,7 @@ def require_pymupdf():
     try:
         import fitz
     except ImportError as exc:
-        raise RuntimeError("MCP 自动高亮需要 PyMuPDF，请运行 python -m pip install pymupdf。") from exc
+        raise RuntimeError("PDF 高亮需要 PyMuPDF，请运行 python -m pip install pymupdf。") from exc
     return fitz
 
 
@@ -50,6 +50,30 @@ def quote_rectangles(page, quote):
             "height": rect.height / bounds.height,
         })
     return result
+
+
+def prepare_pdf_highlight(path, existing, page_number, text, color="yellow", group_id=None):
+    """Locate a manual quotation without writing, shared by MCP and Agent plans."""
+    from backend.paper_annotations import highlight_groups
+
+    if not normalize_quote(text):
+        raise ValueError("text must contain an original quotation from the PDF.")
+    fitz = require_pymupdf()
+    with fitz.open(str(path)) as pdf:
+        if page_number > len(pdf):
+            raise ValueError(f"pageNumber exceeds the PDF page count ({len(pdf)}).")
+        rectangles = quote_rectangles(pdf[page_number - 1], text)
+        if not rectangles:
+            raise ValueError("Quotation was not found uniquely on this page; provide a longer exact quotation.")
+    group = next((group for group in highlight_groups(existing)
+                  if group["pageNumber"] == page_number and
+                  normalize_quote(group["selectedText"]) == normalize_quote(text)), None)
+    if group:
+        return group, []
+    group_id = group_id or f"annotation-{uuid.uuid4().hex}"
+    additions = [{**rect, "pageNumber": page_number, "groupId": group_id,
+                  "selectedText": text, "color": color, "text": [], "source": "mcp"} for rect in rectangles]
+    return highlight_groups(additions)[0], additions
 
 
 def build_pdf_highlights(pdf, quotes, existing):

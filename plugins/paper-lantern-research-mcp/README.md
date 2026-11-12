@@ -7,12 +7,16 @@ It operates on the same library directory as `server.py`:
 - default: `literature_library/`
 - override: `PAPER_LIBRARY_DIR`
 
-The optional [reading agent](../../doc/reading-agent.md) connects through the official MCP SDK. It sets `PAPER_LANTERN_MCP_READ_ONLY=1`: only `library_overview`, `search_library`, `list_papers`, `list_paper_summaries`, `get_paper_summary`, `get_paper_full_text`, `search_paper_content`, `get_paper_passages`, `get_item`, `list_flags`, and `agent_capabilities` are exposed. The read-only `get_item` reads existing files without note migration. Other calls are rejected, including helpers that invoke AI. The existing v2 manifest is read without reconciliation or saving; legacy/missing manifests return errors instead of being migrated or initialized. Normal MCP connections retain their existing behavior.
+The optional [reading agent](../../doc/reading-agent.md) connects through the official MCP SDK. It sets `PAPER_LANTERN_MCP_READ_ONLY=1`: only `library_overview`, `search_library`, `list_papers`, `list_paper_summaries`, `get_paper_summary`, `get_paper_full_text`, `search_paper_content`, `get_paper_passages`, `get_paper_highlights`, `get_paper_annotations`, `get_item`, `list_flags`, and `agent_capabilities` are exposed. The read-only `get_item` reads existing files without note migration. Other calls are rejected, including helpers that invoke AI. The existing v2 manifest is read without reconciliation or saving; legacy/missing manifests return errors instead of being migrated or initialized. Normal MCP connections retain their existing behavior.
 
 `agent_capabilities` returns the reviewed general Agent capability catalog with read/write effects and approval requirements. Optional `names` (1–6 tool names) includes their existing MCP parameter schemas. Discovering a write schema does not make that tool callable on a read-only connection. Web Agent writes are submitted as concrete plans, simulated by the HTTP service, and executed there only after user approval; this does not change normal MCP clients' write access.
 
 ## Tools
 
+- `get_paper_highlights`: read PDF highlight groups with original quotations, rectangles, colors and annotation entries.
+- `get_paper_annotations`: read highlight groups containing comments or translations, including legacy annotations.
+- `add_paper_highlight`: highlight an exact original quotation on a PDF page, without an AI call.
+- `add_paper_annotation`: append a comment or translation to an existing highlight group.
 - `list_papers`: list every article hash and its metadata, or select articles by `hashes`.
 - `list_paper_summaries`: list every article hash with its stored abstract and three-line summary; optionally select `hashes`.
 - `get_paper_summary`: read a single article's stored summary by `hash`.
@@ -44,11 +48,43 @@ The optional [reading agent](../../doc/reading-agent.md) connects through the of
 - `batch_update_flags`: add or remove flags on multiple articles/notes; supports a preview.
 - `update_paper`: update paper/note metadata, category memberships, notes, or local read/todo state.
 - `set_item_categories`: replace all memberships of a paper or note; `categoryIds: []` clears them.
-- `add_item_categories`: add memberships while preserving all others.
+- `add_item_categories`: add memberships while preserving other real categories; Uncategorized is automatically removed.
 - `remove_item_categories`: remove selected memberships; optional `includeDescendants: true` also removes memberships in subcategories.
 - `create_note`: create a standalone note or report.
 - `write_note`: replace, append, or prepend Markdown content in a standalone note.
 - `make_paper_link`: generate the Paper Lantern note link format.
+
+## 读取与新增论文高亮、批注 (v0.7.0)
+
+四个工具均使用论文库内 `id`（与文章工具的 `hash` 相同），不接受独立笔记 ID。读取高亮或批注无需 AI、PyMuPDF 或启动 HTTP 服务；新增高亮需要在 MCP 的 Python 环境安装 `pymupdf`，追加批注无需该依赖。更新插件后重启或重新连接 MCP，让客户端发现新接口。
+
+分页读取高亮，或只读取带非空批注／翻译的高亮组：
+
+```json
+{"name":"get_paper_highlights","arguments":{"id":"<paper-id>"}}
+{"name":"get_paper_annotations","arguments":{"id":"<paper-id>","pageNumber":2,"color":"green"}}
+```
+
+两者都返回 `{id, total, groups, offset, nextOffset}`，`total` 是分页前、筛选后的高亮组数。可选 `pageNumber` 从 1 开始，`color` 按颜色精确筛选；`offset` 默认 0，`limit` 默认 50、范围 1–50。`nextOffset` 非空时还有下一页。每组包含 `groupId`、`pageNumber`、`selectedText`、`color`、`entries` 和 `highlights`。`entries` 是 `{id, type, content}` 列表，`type` 为 `comment` 或 `translation`；`highlights` 保留原始矩形和其他字段。一段跨行原文对应多个矩形，同属一个 `groupId`。旧格式 `comment`、`translation` 和字符串 `text` 会转换到返回的 `entries` 中，读取时不迁移文件。旧矩形若没有 `groupId`，返回与阅读器一致的位置标识，可直接用于追加批注。
+
+按原文新增高亮：
+
+```json
+{"name":"add_paper_highlight","arguments":{"id":"<paper-id>","pageNumber":2,"text":"An exact original quotation from this page.","color":"yellow"}}
+```
+
+`id`、`pageNumber`、`text` 必填。`text` 必须能在指定页唯一定位，允许原文跨行、空白和连字规范化；找不到或多次出现会报错，可提供更长的原文消除歧义。扫描 PDF 需先 OCR。`color` 默认 `yellow`，支持 `yellow/green/blue/pink/orange/purple/red`。返回 `{id, added, group, sync}`；同页相同原文已存在时 `added: false`，返回已有组，保留其颜色和批注，不重复写入或触发同步。
+
+使用读取或新增结果中的 `groupId` 追加批注，也可以增加翻译条目：
+
+```json
+{"name":"add_paper_annotation","arguments":{"id":"<paper-id>","groupId":"<group-id>","content":"这里的实验条件需要与表 2 对照。"}}
+{"name":"add_paper_annotation","arguments":{"id":"<paper-id>","groupId":"<group-id>","type":"translation","content":"这段原文的翻译。"}}
+```
+
+`id`、`groupId`、非空 `content` 必填，`type` 默认 `comment`。返回 `{id, entry, group, sync}`，每次调用追加一条新记录。保留原有批注、翻译、高亮颜色及其他组的数据，并更新该组所有矩形的 `text/comment/translation/type`，以兼容阅读器和 PDF 导出。新增内容存储到 `highlights.json`，遵循现有自动同步设置，不改写 PDF 字节。保存后刷新已打开的阅读器即可查看。无效目标、空内容、错误页码和损坏的批注 JSON 返回工具错误，不覆盖批注文件。
+
+只读模式开放两个读取工具，隐藏并拒绝两个新增工具。网页阅读 Agent 可发现并调用两个读取接口，每次默认最多 5 组；两个新增接口已加入其计划能力，经服务端模拟、用户确认后执行。同一计划可先新增高亮，再通过 `{"ref":"highlight.groupId"}` 引用前一步高亮并追加批注。执行前重新检查论文与批注版本，库发生变化则要求重新预览。独立研究流程可读取范围内的高亮与批注作为线索，仍须通过正文片段核验科学结论。
 
 ## 批量整理、分类与自定义标志 (v0.5.0)
 
@@ -83,6 +119,10 @@ The optional [reading agent](../../doc/reading-agent.md) connects through the of
 批量操作不提供磁盘事务回滚。遇到写入错误时停止后续条目，返回 MCP `isError: true`，并在 `results` 中区分 `updated`、`failed`、`skipped`；失败项含 `error` 和 `possiblePartialWrite: true`。已完成的条目保留，失败项可能已写入部分字段，应重新读取后决定重试。若只有同步失败，返回 `syncError`，已保存的更新仍保留。`revision` 始终表示应用前的状态。
 
 ### 分类管理
+
+**未分类是保底分类。** 内置 ID 为 `uncategorized`（显示名“未分类” / `Uncategorized`），仅在条目没有任何正式分类时生效。为文献或笔记添加任一正式分类后，系统自动移出未分类；移除最后一个正式分类后，系统自动归回未分类。
+
+Agent 分类时只提交目标正式分类 ID，不能为了“保留已有归属”把 `uncategorized` 一并保留、追加或重新加回，也不需要额外调用移除工具。保留其他已有归属仅指正式分类。例如，原归属为 `["uncategorized"]`，调用 `add_item_categories` 并传入 `["Research/RAG"]` 后，结果为 `["Research/RAG"]`。替换分类、批量更新、导入和创建笔记均遵守此规则；写入时混合传入未分类和正式分类，未分类会被忽略。查找尚未分类的条目仍可使用 `search_library` 的 `categoryIds: ["uncategorized"]` 筛选。
 
 ```json
 {"name":"rename_category","arguments":{"id":"Research/RAG","name":"Retrieval"}}
@@ -203,6 +243,8 @@ The optional [reading agent](../../doc/reading-agent.md) connects through the of
 ## Multiple Categories (v0.2.0)
 
 Paper and note results include parallel `categoryIds` and `categoryNames` arrays. Summary results from `search_library` and `library_overview` retain the legacy `categoryId` and `categoryName` fields, reflecting the first category. An item with no memberships appears in `uncategorized`; its PDF, notes, and annotations remain shared across all categories.
+
+Uncategorized (`uncategorized`, displayed as 未分类 / Uncategorized) is a fallback only. Adding any real category automatically removes it; removing the last real category restores it. Agents must submit only the intended real category IDs when classifying an item. Do not preserve, append, or re-add `uncategorized` to keep existing memberships, and do not issue a separate removal call. Preserving other memberships means preserving other real categories. Mixed write arrays ignore Uncategorized when real categories are present. This applies to category tools, `update_paper`, `batch_update_items`, imports, and note creation. Searching with `categoryIds: ["uncategorized"]` still selects items without real categories.
 
 `start_import`, `import_paper_from_url`, and `create_note` accept `categoryIds`. Empty or omitted memberships mean Uncategorized; a duplicate import adds the requested memberships to the existing article. Existing single-category `categoryId` requests remain supported. When both parameters are supplied, `categoryIds` takes precedence.
 
