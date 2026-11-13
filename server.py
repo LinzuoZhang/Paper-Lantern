@@ -1,7 +1,6 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import base64
 import cgi
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import difflib
 import hashlib
 import html
@@ -47,7 +46,6 @@ MAX_DISCUSSION_HISTORY_ITEMS = 200
 DISCUSSION_RECENT_MESSAGE_COUNT = 24
 MAX_DISCUSSION_MESSAGE_CHARS = 3000
 MAX_DISCUSSION_EARLIER_CONTEXT_CHARS = 8000
-MAX_METHOD_POINT_WORKERS = 5
 KEYWORD_EXPLANATION_CACHE_VERSION = 2
 MAX_EXTRACTED_TEXT_CHARS = 40_000_000
 MAX_NOTES_CHARS = 300_000
@@ -2343,16 +2341,31 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             "/api/explain": "explain", "/api/auto-highlight": "autoHighlight",
             "/api/discuss": "discuss", "/api/discussion-title": "discussionTitle",
         }[request_path]
-        api_key, model, chat_completions_url, _think_mode = get_ai_config(module)
-        if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
-            self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
-            return
-
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
         except (ValueError, json.JSONDecodeError):
             self._send_json(400, {"error": "Invalid JSON request."})
+            return
+
+        if request_path in {"/api/summarize", "/api/overview"}:
+            from backend.paper_analysis import OVERVIEW_GOALS, goal_module, normalize_goals, validate_goal
+
+            try:
+                if not isinstance(payload, dict):
+                    raise ValueError("解析请求必须是 JSON 对象。")
+                defaults = list(OVERVIEW_GOALS) if request_path == "/api/overview" else None
+                payload["goal"] = validate_goal(payload.get("goal", ""))
+                payload["goals"] = (None if "goals" not in payload and payload["goal"]
+                                    else normalize_goals(payload.get("goals", defaults)))
+                module = "overview" if request_path == "/api/overview" else goal_module(payload["goals"])
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+
+        api_key, model, chat_completions_url, _think_mode = get_ai_config(module)
+        if not api_key or api_key in {"sk-your-api-key", "sk-your-real-api-key"}:
+            self._send_json(500, {"error": "Missing AI API key. Open Settings and save your API key."})
             return
 
         if request_path == "/api/discussion/paper-summary":
@@ -2514,7 +2527,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
             run_dir = create_ai_run_dir(payload.get("paperId", ""))
             write_ai_stage(run_dir, "request_overview", {"paperTextChars": len(paper_text), "model": model, "url": chat_completions_url})
             try:
-                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+                overview, raw = extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=run_dir,
+                                                     goals=payload["goals"], goal=payload["goal"])
                 write_ai_stage(run_dir, "overview_final", {"overviewInfo": overview})
                 self._send_json(200, {"overviewInfo": overview, "raw": raw})
             except urllib.error.HTTPError as exc:
@@ -2546,7 +2560,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     self.wfile.flush()
 
                 try:
-                    summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir, on_stage=send_stage)
+                    summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir, on_stage=send_stage,
+                                                   goals=payload["goals"], goal=payload["goal"])
                     write_ai_stage(run_dir, "summary_final", {"summary": summary})
                     send_stage("complete", summary)
                 except (BrokenPipeError, ConnectionResetError):
@@ -2556,7 +2571,8 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
                     send_stage("error", {"detail": str(exc)})
                 return
 
-            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir)
+            summary, raw = summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=run_dir,
+                                           goals=payload["goals"], goal=payload["goal"])
             write_ai_stage(run_dir, "summary_final", {"summary": summary})
             self._send_json(200, {"summary": summary, "raw": raw})
         except urllib.error.HTTPError as exc:
@@ -3526,69 +3542,23 @@ class PaperReaderHandler(SimpleHTTPRequestHandler):
         self._send_json(200, {"paper": read_paper(paper_id, db), "tree": read_library_tree(), "sync": sync})
 
 
-def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None):
-    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    conversation = [{"role": "system", "content": render_prompt("summary_system.txt")}]
-    overview, overview_raw = extract_paper_overview(api_key, model, chat_completions_url, paper_excerpt, run_dir=run_dir, on_stage=on_stage, conversation=conversation)
-    method_points = normalize_method_points(overview.get("methodPoints", []))
-    keyword_list = normalize_keywords(overview.get("keywords", []))
-    if not method_points:
-        method_points = [{"title": "Core method", "description": "The method points were not clearly separated."}]
+def analyze_paper_goals(api_key, model, chat_completions_url, paper_text, goals=None, goal="", run_dir=None, on_stage=None, module="summary"):
+    from backend.paper_analysis import run_analysis
 
-    keyword_explanations = overview.get("keywordExplanations", {}) or {}
-    partial_sections = [None] * len(method_points)
-
-    def on_method_point(index, detail):
-        partial_sections[index] = detail
-        if on_stage:
-            on_stage("method_progress", {
-                "methodSections": normalize_method_sections([section for section in partial_sections if section]),
-                "complete": all(section is not None for section in partial_sections),
-            })
-
-    point_results = summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir, on_point=on_method_point if on_stage else None, conversation=conversation)
-    point_details = [item["detail"] for item in point_results]
-    point_raws = [item["raw"] for item in point_results]
-
-    polish_prompt = build_method_polish_prompt("The paper content is available earlier in this conversation.", method_points, point_details)
-    polished, polished_raw = call_conversation_completion(
-        api_key,
-        model,
-        chat_completions_url,
-        polish_prompt,
-        conversation,
-        instruction=build_method_polish_system_prompt(),
-        module="summary",
+    _key, _model, _url, think_mode = get_ai_config(module)
+    result, raw = run_analysis(
+        paper_text, goals, goal, (api_key, model, chat_completions_url, think_mode),
+        get_module_custom_prompt(module), on_stage=on_stage,
     )
-    write_ai_stage(run_dir, "method_polish", {"prompt": polish_prompt, "parsed": polished, "raw": polished_raw})
-    formatted, format_raw = format_method_breakdown(api_key, model, chat_completions_url, polished, run_dir=run_dir, conversation=conversation)
+    write_ai_stage(run_dir, "paper_analysis_agent", {"result": result, "raw": raw})
+    return result, raw
 
-    three_line = overview.get("threeLineSummary", {})
-    method_sections = normalize_method_sections(formatted.get("methodSections", []))
-    method_text = formatted.get("method", "") or sections_to_text(method_sections)
-    summary = {
-        "paperTitle": str(overview.get("paperTitle", "")).strip(),
-        "keywords": keyword_list,
-        "keywordExplanations": keyword_explanations,
-        "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
-        "threeLineSummary": {
-            "challenges": three_line.get("challenges", ""),
-            "method": three_line.get("method", "") or method_text,
-            "conclusion": three_line.get("conclusion", ""),
-        },
-        "methodOverview": str(formatted.get("methodOverview", "")).strip(),
-        "methodSections": method_sections,
-        "methodConclusion": str(formatted.get("methodConclusion", "")).strip(),
-    }
-    raw = {
-        "overview": overview_raw,
-        "method_point_details": point_raws,
-        "method_polish": polished_raw,
-        "method_format": format_raw,
-        "method_points": method_points,
-        "point_details": point_details,
-    }
-    return summary, raw
+
+def summarize_paper(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None, goals=None, goal=""):
+    from backend.paper_analysis import goal_module
+
+    return analyze_paper_goals(api_key, model, chat_completions_url, paper_text,
+                               goals=goals, goal=goal, run_dir=run_dir, on_stage=on_stage, module=goal_module(goals))
 
 
 def resolve_ai_settings_input(payload):
@@ -3668,185 +3638,12 @@ def test_ai_api(payload):
     }
 
 
-def format_method_breakdown(api_key, model, chat_completions_url, method_json, run_dir=None, conversation=None):
-    format_prompt = build_method_format_prompt(method_json)
-    try:
-        if conversation is None:
-            formatted, raw = call_chat_completions(
-                api_key, model, chat_completions_url, format_prompt,
-                system_prompt=build_method_format_system_prompt(), temperature=0, module="summary",
-            )
-        else:
-            formatted, raw = call_conversation_completion(
-                api_key, model, chat_completions_url, format_prompt, conversation,
-                instruction=build_method_format_system_prompt(), temperature=0, module="summary",
-            )
-        write_ai_stage(run_dir, "method_format", {"prompt": format_prompt, "parsed": formatted, "raw": raw})
-    except Exception as exc:
-        formatted = method_json if isinstance(method_json, dict) else {}
-        raw = {"format_error": str(exc)}
-        write_ai_error(run_dir, "method_format", exc)
-    return sanitize_method_formula_format(merge_method_breakdown(method_json, formatted)), raw
+def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None, conversation=None, goals=None, goal=""):
+    from backend.paper_analysis import OVERVIEW_GOALS
 
-
-def merge_method_breakdown(original, formatted):
-    original = original if isinstance(original, dict) else {}
-    formatted = formatted if isinstance(formatted, dict) else {}
-    merged = dict(original)
-    for key in ("method", "methodOverview", "methodConclusion"):
-        if str(formatted.get(key, "")).strip():
-            merged[key] = formatted[key]
-
-    original_sections = original.get("methodSections", [])
-    formatted_sections = formatted.get("methodSections", [])
-    if isinstance(formatted_sections, list) and formatted_sections:
-        merged_sections = []
-        for index, section in enumerate(formatted_sections):
-            if not isinstance(section, dict):
-                continue
-            fallback = original_sections[index] if isinstance(original_sections, list) and index < len(original_sections) and isinstance(original_sections[index], dict) else {}
-            merged_section = dict(fallback)
-            for key in ("title", "motivation", "content"):
-                value = section.get(key)
-                if value:
-                    merged_section[key] = value
-            merged_sections.append(merged_section)
-        if merged_sections:
-            merged["methodSections"] = merged_sections
-    return merged
-
-
-def sanitize_method_formula_format(method_json):
-    if not isinstance(method_json, dict):
-        return {}
-    sanitized = dict(method_json)
-    sections = []
-    for section in sanitized.get("methodSections", []):
-        if not isinstance(section, dict):
-            continue
-        item = dict(section)
-        content = str(item.get("content", "") or "").strip()
-        if content:
-            item["content"] = fix_math_delimited_subscripts(content)
-        if isinstance(item.get("formulas"), list):
-            item["formulas"] = [sanitize_formula_item(formula) for formula in normalize_list(item.get("formulas", []))]
-        sections.append(item)
-    sanitized["methodSections"] = sections
-    return sanitized
-
-
-def sanitize_formula_item(value):
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    return fix_multicharacter_subscripts(text)
-
-
-def fix_multicharacter_subscripts(text):
-    return re.sub(r"_([A-Za-z][A-Za-z0-9]{1,})(?![A-Za-z0-9]*\})", r"_{\1}", text)
-
-
-# Math delimiters that may appear inside free-form prose content.
-_MATH_CHUNK_RE = re.compile(r"(\$\$.+?\$\$|\$[^$\n]+?\$|\\\(.+?\\\))", re.DOTALL)
-
-
-def fix_math_delimited_subscripts(text):
-    """Rewrite _name -> _{name} only inside $...$ / $$...$$ / \\(...\\) spans,
-    leaving surrounding Chinese prose untouched."""
-    text = str(text or "")
-    parts = []
-    cursor = 0
-    for match in _MATH_CHUNK_RE.finditer(text):
-        parts.append(text[cursor:match.start()])
-        parts.append(fix_multicharacter_subscripts(match.group(0)))
-        cursor = match.end()
-    parts.append(text[cursor:])
-    return "".join(parts)
-
-
-def summarize_method_points(api_key, model, chat_completions_url, paper_excerpt, method_points, run_dir=None, on_point=None, conversation=None):
-    total = len(method_points)
-    if conversation is not None:
-        results = []
-        for index, point in enumerate(method_points, start=1):
-            result = summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir, conversation=conversation)
-            results.append(result)
-            if on_point:
-                on_point(index - 1, result["detail"])
-        return results
-    max_workers = min(MAX_METHOD_POINT_WORKERS, total)
-    if max_workers <= 1:
-        results = []
-        for index, point in enumerate(method_points, start=1):
-            result = summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=run_dir)
-            results.append(result)
-            if on_point:
-                on_point(index - 1, result["detail"])
-        return results
-
-    results = [None] * total
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(summarize_method_point, api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir): index - 1
-            for index, point in enumerate(method_points, start=1)
-        }
-        for future in as_completed(future_to_index):
-            index = future_to_index[future]
-            results[index] = future.result()
-            if on_point:
-                on_point(index, results[index]["detail"])
-    return results
-
-
-def summarize_method_point(api_key, model, chat_completions_url, paper_excerpt, point, index, total, run_dir=None, conversation=None):
-    prompt = build_method_point_prompt("The paper content is available earlier in this conversation." if conversation is not None else paper_excerpt, point, index, total)
-    if conversation is None:
-        detail, detail_raw = call_chat_completions(api_key, model, chat_completions_url, prompt, module="summary")
-    else:
-        detail, detail_raw = call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation, module="summary")
-    content = (
-        str(detail.get("content", "") or "").strip()
-        or str(detail.get("summary", "") or "").strip()
-        or str(point.get("description", "") or "").strip()
-    )
-    result = {
-        "detail": {
-            "title": detail.get("title") or point["title"],
-            "motivation": detail.get("motivation", ""),
-            "content": content,
-        },
-        "raw": detail_raw,
-    }
-    write_ai_stage(run_dir, f"method_point_{index:02d}", {"prompt": prompt, "parsed": result["detail"], "raw": detail_raw})
-    return result
-
-
-def extract_paper_overview(api_key, model, chat_completions_url, paper_text, run_dir=None, on_stage=None, conversation=None):
-    paper_excerpt = paper_text[:MAX_PAPER_CHARS]
-    prompt = build_overview_prompt(paper_excerpt)
-    if conversation is None:
-        overview, raw = call_chat_completions(api_key, model, chat_completions_url, prompt, module="overview")
-    else:
-        overview, raw = call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation, module="overview")
-    three_line = overview.get("threeLineSummary", {})
-    parsed = {
-        "paperTitle": str(overview.get("paperTitle", "")).strip(),
-        "keywords": normalize_keywords(overview.get("keywords", [])),
-        "basicInfo": normalize_basic_info(overview.get("basicInfo", {})),
-        "methodPoints": normalize_method_points(overview.get("methodPoints", [])),
-        "threeLineSummary": {
-            "challenges": str(three_line.get("challenges", "")).strip(),
-            "method": str(three_line.get("method", "")).strip(),
-            "conclusion": str(three_line.get("conclusion", "")).strip(),
-        },
-    }
-    if on_stage:
-        on_stage("overview", parsed)
-    parsed["keywordExplanations"] = explain_keywords(api_key, model, chat_completions_url, parsed["keywords"], run_dir)
-    if on_stage:
-        on_stage("keywords", {"keywords": parsed["keywords"], "keywordExplanations": parsed["keywordExplanations"]})
-    write_ai_stage(run_dir, "overview", {"prompt": prompt, "parsed": parsed, "raw": raw})
-    return parsed, raw
+    return analyze_paper_goals(api_key, model, chat_completions_url, paper_text,
+                               goals=list(OVERVIEW_GOALS) if goals is None and not goal else goals, goal=goal,
+                               run_dir=run_dir, on_stage=on_stage, module="overview")
 
 
 def auto_highlight_quotes(pages, api_key, model, chat_completions_url):
@@ -4503,17 +4300,6 @@ def parse_model_json_response(content):
         return json.loads(repaired, strict=False)
 
 
-def call_conversation_completion(api_key, model, chat_completions_url, prompt, conversation, instruction="", temperature=0.12, module=None):
-    content = f"{instruction}\n\n{prompt}" if instruction else prompt
-    messages = conversation + [{"role": "user", "content": content}]
-    parsed, raw = call_chat_completions(
-        api_key, model, chat_completions_url, prompt,
-        temperature=temperature, messages=messages, module=module,
-    )
-    conversation.extend((messages[-1], {"role": "assistant", "content": raw["choices"][0]["message"]["content"]}))
-    return parsed, raw
-
-
 def call_chat_completions(api_key, model, chat_completions_url, prompt, system_prompt=None, temperature=0.12, messages=None, module=None):
     upstream_payload = {
         "model": model,
@@ -4946,22 +4732,6 @@ def normalize_cached_keyword_explanation(value):
     return re.sub(r"\s+", " ", str(raw or "")).strip()[:600]
 
 
-def normalize_method_points(points):
-    normalized = []
-    for item in points:
-        if isinstance(item, str):
-            title = item.strip()
-            description = ""
-        elif isinstance(item, dict):
-            title = str(item.get("title", "")).strip()
-            description = str(item.get("description", "")).strip()
-        else:
-            continue
-        if title:
-            normalized.append({"title": title, "description": description})
-    return normalized[:5]
-
-
 def normalize_method_sections(sections):
     normalized = []
     if not isinstance(sections, list):
@@ -4986,7 +4756,7 @@ def normalize_method_sections(sections):
                     "content": content,
                 }
             )
-    return normalized[:5]
+    return normalized[:12]
 
 
 def normalize_basic_info(info):
@@ -5000,59 +4770,10 @@ def normalize_basic_info(info):
     }
 
 
-def sections_to_text(sections):
-    parts = []
-    for section in sections:
-        lines = [section.get("title", ""), section.get("motivation", "")]
-        content = section.get("content", "")
-        if content:
-            lines.append(content)
-        else:
-            lines.append(str(section.get("summary", "") or "").strip())
-            lines.extend(normalize_list(section.get("bullets", [])))
-            lines.extend(normalize_list(section.get("formulas", [])))
-        parts.append("\n".join([line for line in lines if line]))
-    return "\n\n".join(parts)
-
-
 def render_prompt(template_name, **values):
     template_path = PROMPT_DIR / template_name
     template = template_path.read_text(encoding="utf-8")
     return template.format(**values).strip()
-
-
-def build_overview_prompt(paper_text):
-    return render_prompt("overview.txt", paper_text=paper_text)
-
-
-def build_method_point_prompt(paper_text, point, index, total):
-    return render_prompt(
-        "method_point.txt",
-        paper_text=paper_text,
-        point_json=json.dumps(point, ensure_ascii=False),
-        index=index,
-        total=total,
-    )
-
-
-def build_method_polish_prompt(paper_text, method_points, point_details):
-    return render_prompt(
-        "method_polish.txt",
-        paper_text=paper_text,
-        method_points_json=json.dumps(method_points, ensure_ascii=False),
-        point_details_json=json.dumps(point_details, ensure_ascii=False),
-    )
-
-
-def build_method_polish_system_prompt():
-    return render_prompt("method_polish_system.txt")
-
-
-def build_method_format_prompt(method_json):
-    return render_prompt(
-        "method_format.txt",
-        method_json=json.dumps(method_json, ensure_ascii=False),
-    )
 
 
 def build_keyword_explanations_prompt(keywords):
@@ -5060,10 +4781,6 @@ def build_keyword_explanations_prompt(keywords):
         "keyword_explanations.txt",
         keywords_json=json.dumps(normalize_keywords(keywords), ensure_ascii=False),
     )
-
-
-def build_method_format_system_prompt():
-    return render_prompt("method_format_system.txt")
 
 
 def main(argv=None):

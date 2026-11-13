@@ -20,6 +20,7 @@ python server.py
 | `backend/link_preview.py` | 网页链接预览 |
 | `backend/llm_diagnostics.py` | AI 请求耗时记录 |
 | `backend/auto_highlight.py` | 自动高亮的输入校验、分批 LLM 原文筛选与唯一引文校验 |
+| `backend/paper_analysis.py` | LangGraph 论文解析 Agent：目标选择、原文读取/搜索、分析草稿、结构和公式校验、自动修正与有界工具循环 |
 | `backend/pdf_highlights.py` | MCP 通过 PyMuPDF 将引文转换为阅读器使用的相对坐标 |
 | `backend/reading_agent/` | LangGraph 通用阅读 Agent：能力发现、只读 MCP、计划预览与确认执行、持久化任务、检查点恢复、原文证据核验与隔离演示 |
 | `backend/reading_agent/capabilities.py` | Agent 开放的查询与写入能力目录，复用现有 MCP 参数定义 |
@@ -43,6 +44,14 @@ python server.py
 页面入口负责组合共享组件。ES Module 的 `import` 路径相对于模块文件；页面跳转、PDF worker 和 Vditor 的资源地址相对于根目录 HTML，调整文件位置时需要分别检查。
 
 后端模块使用 `backend.*` 导入，包内部使用相对导入。`server.py` 留在根目录，因此配置、提示词、默认文献库位置，以及 MCP 插件的项目定位方式保持不变。
+
+## 论文解析的数据流
+
+`summarize_paper()` 和 `extract_paper_overview()` 仅将原文、最终目标及模块配置交给 `backend/paper_analysis.py`。LangGraph 的 `agent → tools → agent` 循环允许模型自主选择 `select_goals`（自然语言目的时）、`read_paper`、`search_paper`、`update_result`、`validate_result` 和 `finish`，没有人为指定的分析步骤顺序。`finish` 必须针对当前草稿重新校验，不复用修订前的校验结果。
+
+原文通过字符位置按需读取，搜索结果保留原文位置，明确标记返回范围。草稿只保存在本次运行状态中，进度 SSE 使用 `agent_progress`，通过最终校验后才发送 `complete`。刷新关键词、三行摘要或方法时，前端只请求相应目标并合并对应字段；方法最多保留 12 项，避免旧版的 5 项截断。
+
+主服务运行环境有 LangGraph 时直接运行，否则通过共用的 JSON-lines worker 桥接到阅读 Agent 的 Python 环境。模型配置通过标准输入传递。核心阅读和文献管理仍可在没有 Agent 依赖时启动。解析验证覆盖真实 LangGraph 修正循环、预算、目标范围、JSON/SSE 路由以及前端单项合并。
 
 ## 自动高亮的数据流
 

@@ -1851,6 +1851,10 @@ async function summarizeText(text) {
   async function applyEvent(event) {
     if (currentPaper?.id !== paperId) return;
     if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
+    if (event.stage === "agent_progress") {
+      setStatus(event.summary?.detail || "正在解析论文…");
+      return;
+    }
     let persist = true;
     if (event.stage === "overview") {
       summary = {
@@ -1909,6 +1913,7 @@ async function summarizeText(text) {
 }
 
 async function regenerateSummarySection(section) {
+  const paperId = currentPaper?.id;
   const text = lastExtractedText.trim();
   if (text.length < 80) {
     setStatus("Upload a PDF first. No extracted text is available for regeneration.", true);
@@ -1930,7 +1935,8 @@ async function regenerateSummarySection(section) {
   }
   try {
     if (section === "keywords") {
-      const overviewInfo = await fetchOverviewInfo(text);
+      const overviewInfo = await fetchFullSummary(text, ["keywords"], "生成关键词及其释义，并检查格式。");
+      if (currentPaper?.id !== paperId) return;
       const keywordsValue = overviewInfo.keywords || [];
       const keywordExplanations = overviewInfo.keywordExplanations || {};
       renderKeywords(keywordsValue, keywordExplanations);
@@ -1939,7 +1945,10 @@ async function regenerateSummarySection(section) {
       return;
     }
 
-    const summary = await fetchFullSummary(text);
+    const goals = section === "threeLine" ? ["threeLine"] : ["method"];
+    const goal = section === "threeLine" ? "生成三行摘要，并检查格式。" : "拆解论文方法，解释各部分如何衔接，并检查格式。";
+    const summary = await fetchFullSummary(text, goals, goal);
+    if (currentPaper?.id !== paperId) return;
     if (section === "threeLine") {
       const threeLineSummary = summary.threeLineSummary || {};
       renderSummaryLine(challenges, threeLineSummary.challenges);
@@ -1995,11 +2004,11 @@ function setSummarySectionLoading(section) {
   }
 }
 
-async function fetchFullSummary(text) {
+async function fetchFullSummary(text, goals, goal = "") {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text, goals, goal }),
   });
   const data = await readJsonResponse(response);
   if (!response.ok) throw new Error(data.detail || data.error || "Summary failed.");

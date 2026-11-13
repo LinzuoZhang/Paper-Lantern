@@ -142,8 +142,8 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 | 路径 | 主要请求字段 | 普通响应 |
 | --- | --- | --- |
-| `/api/overview` | `paperText`，可选 `paperId` | `{overviewInfo, raw}` |
-| `/api/summarize` | `paperText`，可选 `paperId`、`stream` | `{summary, raw}` |
+| `/api/overview` | `paperText`，可选 `paperId`、`goal`、`goals` | `{overviewInfo, raw}` |
+| `/api/summarize` | `paperText`，可选 `paperId`、`stream`、`goal`、`goals` | `{summary, raw}` |
 | `/api/translate` | `text`，可选 `paperText`、`summary` | `{translation}` |
 | `/api/explain` | `selectedText`、`paperText`，可选 `summary` | `{explanation}` |
 | `/api/auto-highlight` | `pages: [{pageNumber, text}]`，页码从 1 开始 | `{highlights: [{pageNumber, text}]}` |
@@ -151,6 +151,22 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 | `/api/discussion-title` | `question`，可选 `answer`、`paperTitle`、`selectionReference` | `{title}` |
 
 概览、总结、解释和论文讨论要求去除首尾空白后的 `paperText` 至少 80 个字符。讨论设为 `contextType: "note"` 时使用笔记上下文，不受该最低长度限制；`history` 使用 `role`、`content` 消息对象数组。翻译的文本字段是 `text`，解释的文本字段是 `selectedText`。
+
+### 按目标解析论文
+
+概览和总结共用 LangGraph Agent，不再按固定顺序调用概览、逐点展开、润色和格式化。只需提供论文及最终目的：
+
+```json
+{"paperText":"<论文原文，至少80字符>","goal":"生成关键词及释义，并拆解方法，说明各环节如何衔接。","stream":true}
+```
+
+`goal` 为最多 8000 字符的自然语言目的。省略 `goals` 时，Agent 根据 `goal` 自主选择交付范围；也可通过 `goals: ["keywords", "method"]` 明确最终成果类别。这些类别不是执行步骤，可选值为 `metadata`（标题和基本信息）、`keywords`（关键词及释义）、`threeLine`（三行摘要）、`method`（方法概览、条目和结论）。无 `goal`/`goals` 时，`/api/summarize` 默认生成全部类别，`/api/overview` 默认生成前三类。空数组或未知类别返回 400。
+
+Agent 自主选择读取或搜索原文、分项生成和修订。程序独立校验字段类型、目标完整性、关键词与释义对应关系、方法结构、公式分隔符、花括号、多字符下标和块公式间距；失败会作为工具结果反馈，供 Agent 修正。只有通过最终校验才能返回成功结果，达到 24 轮模型调用、48 次工具调用或上下文上限则报错。原文按需读取，不再把整篇论文重复放入每次请求。
+
+返回字段保持现有阅读器结构；未请求的类别为默认空值，客户端只应合并所请求类别的字段。非流式 `raw` 含 `engine: "langgraph"`、实际 `goals`、调用次数、已读字符区间、工具执行摘要和 `validated: true`，不包含模型隐藏推理。校验保证结构及所列格式规则，内容准确性仍取决于原文质量与模型分析。
+
+完整和方法任务使用 `summary` 模块；仅关键词使用 `keywords`；仅基本信息/三行摘要使用 `overview`。只提供自然语言目的时使用 `summary`，`/api/overview` 始终使用 `overview`。每次任务只使用该模块的模型、Think 与个性化提示词，不固定切换其他模块。需安装 `requirements-reading-agent.txt` 并使用支持原生工具调用的模型；可复用阅读 Agent 的独立 Python 环境和 `PAPER_LANTERN_AGENT_PYTHON`。
 
 ### 自动高亮
 
@@ -206,7 +222,7 @@ data: {"delta":"回答片段"}
 data: [DONE]
 ```
 
-总结按阶段返回 `{"stage":"阶段名","summary":{...}}`，阶段包括 `overview`、`keywords`、`method_progress` 和 `complete`。发生流内错误时返回 `stage: "error"`，详情位于 `summary.detail`；总结流不使用讨论的 `[DONE]` 结束标记。
+总结返回 `{"stage":"agent_progress","summary":{"detail":"正在读取论文原文…","tool":"read_paper"}}` 等进度事件，通过最终校验后返回 `{"stage":"complete","summary":{...}}`。草稿不作为可保存的阶段结果返回，不要求固定的阶段顺序。发生流内错误时返回 `stage: "error"`，详情位于 `summary.detail`；总结流不使用讨论的 `[DONE]` 结束标记。
 
 ## 设置与同步
 

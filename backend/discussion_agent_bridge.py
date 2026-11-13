@@ -13,8 +13,13 @@ from .reading_agent.web_bridge import PROJECT_ROOT, agent_python
 def run_discussion_agent(messages, connection, custom_prompt, library_dir):
     payload = {"messages": messages, "connection": connection, "customPrompt": custom_prompt,
                "libraryDir": str(library_dir)}
+    yield from run_agent_worker(payload, "backend.discussion_agent", "正在连接文献库 MCP…")
+
+
+def run_agent_worker(payload, module, status, timeout=600):
+    """Run a JSON-lines worker without putting credentials in process arguments."""
     process = subprocess.Popen(
-        [agent_python(), "-X", "utf8", "-m", "backend.discussion_agent"],
+        [agent_python(), "-X", "utf8", "-m", module],
         cwd=PROJECT_ROOT, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         text=True, encoding="utf-8", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -48,9 +53,9 @@ def run_discussion_agent(messages, connection, custom_prompt, library_dir):
         # Credentials and document text never appear in process arguments or logs.
         json.dump(payload, process.stdin, ensure_ascii=False)
         process.stdin.close()
-        yield {"status": "正在连接文献库 MCP…"}
+        yield {"status": status}
         started = monotonic()
-        while monotonic() - started < 600:
+        while monotonic() - started < timeout:
             try:
                 line = events.get(timeout=1)
             except queue.Empty:
@@ -64,7 +69,7 @@ def run_discussion_agent(messages, connection, custom_prompt, library_dir):
             if event.get("done"):
                 return
             yield event
-        raise ValueError("Agent 讨论超时，请缩小问题范围后重试。")
+        raise ValueError("Agent 运行超时，请缩小任务范围后重试。")
     finally:
         stopped.set()
         if process.stdin and not process.stdin.closed:
