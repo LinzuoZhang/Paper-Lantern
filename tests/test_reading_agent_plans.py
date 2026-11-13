@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import server
-from backend.reading_agent.plans import PlanStore, approve_plan, preview_plan, retry_plan
+from backend.reading_agent.plans import PlanStore, PlanValidationError, approve_plan, preview_plan, retry_plan
 from backend.reading_agent.service import resume_after_plan
 from backend.reading_agent.store import JobConflict, JobStore
 from backend.reading_agent.worker import execute_job
@@ -76,6 +76,46 @@ class PlanTests(LibraryFixture):
         self.assertNotEqual(updated["id"], plan["id"])
         self.assertEqual(updated["state"], "awaiting_approval")
         self.assertFalse(server.read_paper(paper["id"])["todo"])
+
+    def test_legacy_string_category_reference_previews_and_executes_without_losing_memberships(self):
+        for memberships in ([], ["A"]):
+            with self.subTest(memberships=memberships):
+                paper = self.paper(memberships)
+                name = "Topic" + str(self.counter)
+                raw = self.plan([
+                    {"id": "create_topic", "tool": "create_category", "arguments": {"name": name}},
+                    {"id": "assign", "tool": "add_item_categories", "arguments": {
+                        "id": paper["id"], "categoryIds": ["uncategorized", "{ref:create_topic.categoryId}"]}},
+                ])
+                before = self.files()
+                plan = preview_plan(server, self.plans, raw["id"], self.job["id"])
+                self.assertEqual(plan["preview"][1]["arguments"]["categoryIds"], ["uncategorized", name])
+                self.assertEqual(self.files(), before)
+                completed = approve_plan(server, self.plans, plan["id"], self.job["id"], plan["digest"])
+                self.assertEqual(completed["state"], "completed", completed)
+                self.assertEqual(server.read_paper(paper["id"])["categoryIds"], sorted(memberships + [name]))
+
+    def test_missing_item_id_and_unknown_category_return_actionable_preview_feedback(self):
+        paper = self.paper([])
+        for arguments, expected in (
+            ({"categoryIds": ["{ref:topic.categoryId}"]}, "arguments.id is required"),
+            ({"id": paper["id"], "categoryIds": ["missing-category"]}, "missing-category"),
+            ({"id": paper["id"], "categoryIds": ["{ref:future.categoryId}"]}, "future.categoryId"),
+        ):
+            with self.subTest(arguments=arguments):
+                raw = self.plan([
+                    {"id": "topic", "tool": "create_category", "arguments": {"name": "Topic"}},
+                    {"id": "assign", "tool": "add_item_categories", "arguments": arguments},
+                ])
+                before = self.files()
+                with self.assertRaises(PlanValidationError) as caught:
+                    preview_plan(server, self.plans, raw["id"], self.job["id"])
+                failure = caught.exception.plan["failure"]
+                self.assertIn(expected, failure["error"])
+                self.assertIn("id", failure["parameterSchema"]["required"])
+                self.assertEqual(failure["operationId"], "assign")
+                self.assertFalse(failure["possiblePartialWrite"])
+                self.assertEqual(self.files(), before)
 
     def test_invalid_unapproved_or_cross_library_plans_cannot_write(self):
         for operations in (
@@ -147,13 +187,86 @@ class PlanTests(LibraryFixture):
         self.assertEqual(retry["proposal"]["operations"][0]["arguments"]["categoryIds"], ["Created"])
         self.assertNotIn("Created", server.read_paper(paper["id"])["categoryIds"])
 
+    def test_retry_resolves_legacy_reference_to_completed_creation(self):
+        paper = self.paper([])
+        raw = self.plan([
+            {"id": "cat", "tool": "create_category", "arguments": {"name": "Created"}},
+            {"id": "assign", "tool": "add_item_categories", "arguments": {
+                "id": paper["id"], "categoryIds": ["{ref:cat.categoryId}"]}},
+        ])
+        plan = preview_plan(server, self.plans, raw["id"], self.job["id"])
+        from backend.reading_agent import plans as module
+        original = module.apply_operation
+        def fail(api, mcp, name, args, plan_id, key):
+            if key == "assign":
+                raise OSError("Simulated write failure")
+            return original(api, mcp, name, args, plan_id, key)
+        with patch.object(module, "apply_operation", side_effect=fail):
+            result = approve_plan(server, self.plans, plan["id"], self.job["id"], plan["digest"])
+        self.assertEqual(result["state"], "failed")
+        retry = retry_plan(server, self.plans, plan["id"], self.job["id"])
+        self.assertEqual(len(retry["proposal"]["operations"]), 1)
+        self.assertEqual(retry["proposal"]["operations"][0]["arguments"]["categoryIds"], ["Created"])
+        with patch.object(server, "create_category", side_effect=AssertionError("Must not recreate category")):
+            completed = approve_plan(server, self.plans, retry["id"], self.job["id"], retry["digest"])
+        self.assertEqual(completed["state"], "completed", completed)
+        self.assertEqual(server.read_paper(paper["id"])["categoryIds"], ["Created"])
+
 
 @unittest.skipUnless(HAS_RUNTIME, "Install Agent runtime")
 class GeneralAgentTests(LibraryFixture):
+    def test_preview_repair_receives_required_fields_and_still_requires_approval(self):
+        target = self.paper([])
+        store = JobStore(self.root / "jobs.sqlite3")
+        job, _ = store.create({"task": "创建分类并归类文献", "agentVersion": "general-v1"}, self.library)
+        case = self
+
+        class Model:
+            calls = 0
+            async def complete(self, messages, tools):
+                self.calls += 1
+                context = json.loads(messages[-1]["content"])
+                if self.calls == 1:
+                    name, args = "discover_tools", {"names": ["create_category", "add_item_categories"]}
+                else:
+                    arguments = {"categoryIds": ["{ref:topic.categoryId}"]}
+                    if self.calls == 3:
+                        failure = context["planFailure"]["failure"]
+                        case.assertIn("arguments.id is required", failure["error"])
+                        case.assertIn("id", failure["parameterSchema"]["required"])
+                        case.assertEqual(context["planFailure"]["completedOperationIds"], [])
+                        arguments = {"id": target["id"], "categoryIds": [{"ref": "topic.categoryId"}]}
+                    case.assertLessEqual(self.calls, 3)
+                    name, args = "propose_library_plan", {"summary": "创建主题并归类", "operations": [
+                        {"id": "topic", "tool": "create_category", "arguments": {"name": "Topic"}},
+                        {"id": "assign", "tool": "add_item_categories", "arguments": arguments}]}
+                return {"role": "assistant", "tool_calls": [{"id": f"call-{self.calls}", "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+        model = Model()
+        asyncio.run(execute_job(store, job["id"], 1, lambda: model))
+        plans = PlanStore(store)
+        pending = store.get(job["id"])
+        with self.assertRaises(PlanValidationError) as caught:
+            preview_plan(server, plans, pending["result"]["planId"], job["id"])
+        with patch("backend.reading_agent.service.launch"):
+            resume_after_plan(store, job["id"], self.library, caught.exception.plan)
+        queued = store.get(job["id"])
+        asyncio.run(execute_job(store, job["id"], queued["attempt"], lambda: model))
+        pending = store.get(job["id"])
+        self.assertEqual(pending["status"], "awaiting_approval", pending["error"])
+        plan = preview_plan(server, plans, pending["result"]["planId"], job["id"])
+        self.assertEqual(plan["state"], "awaiting_approval")
+        self.assertNotIn("Topic", server.load_library_db()["categories"])
+        self.assertEqual(server.read_paper(target["id"])["categoryIds"], ["uncategorized"])
+        completed = approve_plan(server, plans, plan["id"], job["id"], plan["digest"])
+        self.assertEqual(completed["state"], "completed", completed)
+        self.assertEqual(server.read_paper(target["id"])["categoryIds"], ["Topic"])
+
     def test_real_graph_pauses_for_approval_and_resumes_without_reexecuting_tools(self):
         self.run_plan_and_resume(False)
 
-    def test_failed_graph_accepts_reviewed_replacement_without_replanning_or_repeating_successes(self):
+    def test_failed_graph_repairs_and_waits_for_approval_without_repeating_successes(self):
         self.run_plan_and_resume(True)
 
     def run_plan_and_resume(self, fail_first):
@@ -199,16 +312,24 @@ class GeneralAgentTests(LibraryFixture):
             resume_after_plan(store, job["id"], self.library, executed)
         queued = store.get(job["id"])
         self.assertEqual(queued["status"], "queued")
-        with patch.object(model, "complete", side_effect=AssertionError("Do not rerun planning or writes")):
-            asyncio.run(execute_job(store, job["id"], queued["attempt"], lambda: model))
-        completed = store.get(job["id"])
-        self.assertEqual(completed["status"], "completed", completed["error"])
         if fail_first:
-            replacement = retry_plan(server, plans, executed["id"], job["id"])
+            async def repair(messages, tools):
+                feedback = json.loads(messages[-1]["content"])["planFailure"]
+                self.assertEqual(feedback["completedOperationIds"], ["cat"])
+                self.assertEqual(feedback["failedOperation"]["id"], "group")
+                self.assertIn("Simulated classification failure", feedback["failure"]["error"])
+                return {"role": "assistant", "tool_calls": [{"id": "repair", "type": "function", "function": {
+                    "name": "propose_library_plan", "arguments": json.dumps({"summary": "保留已创建分类，重新归类文献", "operations": [
+                        {"id": "group", "tool": "batch_update_items", "arguments": {"items": [
+                            {"id": target["id"], "categoryIds": ["专题"]}]}}]})}}]}
+            with patch.object(model, "complete", side_effect=repair) as repaired:
+                asyncio.run(execute_job(store, job["id"], queued["attempt"], lambda: model))
+            self.assertEqual(repaired.call_count, 1)
+            pending = store.get(job["id"])
+            self.assertEqual(pending["status"], "awaiting_approval", pending["error"])
+            self.assertEqual(server.read_paper(target["id"])["categoryIds"], ["uncategorized"])
+            replacement = preview_plan(server, plans, pending["result"]["planId"], job["id"])
             self.assertEqual([op["id"] for op in replacement["proposal"]["operations"]], ["group"])
-            with store.connect() as connection:
-                connection.execute("UPDATE jobs SET status='awaiting_approval',result=? WHERE id=?",
-                    (json.dumps({"kind": "plan", "planId": replacement["id"], "report": "Retry plan"}), job["id"]))
             with patch.object(server, "create_category", side_effect=AssertionError("Do not repeat successful writes")):
                 retried = approve_plan(server, plans, replacement["id"], job["id"], replacement["digest"])
             self.assertEqual(retried["state"], "completed", retried)
@@ -219,5 +340,12 @@ class GeneralAgentTests(LibraryFixture):
                 asyncio.run(execute_job(store, job["id"], queued["attempt"], lambda: model))
             completed = store.get(job["id"])
             self.assertEqual(completed["status"], "completed", completed["error"])
+        else:
+            with patch.object(model, "complete", side_effect=AssertionError("Do not rerun planning or writes")):
+                asyncio.run(execute_job(store, job["id"], queued["attempt"], lambda: model))
+            completed = store.get(job["id"])
+            self.assertEqual(completed["status"], "completed", completed["error"])
         self.assertEqual(server.read_paper(target["id"])["categoryIds"], ["专题"])
-        self.assertIn("1 / 1" if fail_first else "2 / 2", completed["result"]["report"])
+        self.assertIn("批量修改文献或笔记：完成", completed["result"]["report"])
+        self.assertNotIn("项操作", completed["result"]["report"])
+        self.assertNotIn("# 文献库操作结果", completed["result"]["report"])

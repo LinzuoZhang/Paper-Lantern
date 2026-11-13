@@ -432,30 +432,74 @@
   filter: none;
 }
 
-/* A single rounded writing surface, shared by paper and note discussions. */
+/* Shared writing surface for paper discussions, notes and the reading assistant. */
 .workspace-page .discussion-form { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; border: 0; border-radius: 0; box-shadow: none; }
-.workspace-page .discussion-composer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 12px 10px; border: 1px solid var(--note-line); border-radius: 26px; background: var(--note-hover); transition: border-color 140ms ease; }
-.workspace-page .discussion-composer:focus-within { border-color: #b9bdb9; }
-.workspace-page .discussion-form .discussion-composer textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 1lh; max-height: min(280px, 36dvh); margin: 0; padding: 0 5px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--note-ink); font: 400 14px/1.65 var(--note-font); field-sizing: content; resize: none; overflow-y: auto; }
+.workspace-page .discussion-composer { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 10px 8px; border: 1px solid #e5e7e5; border-radius: 10px; background: #fff; transition: border-color 140ms ease; }
+.workspace-page .discussion-composer:focus-within { border-color: var(--note-focus); }
+.workspace-page .discussion-form .discussion-composer textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 25px; max-height: min(220px, 28dvh); margin: 0; padding: 0 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--note-ink); font: 400 13px/1.75 var(--note-font); field-sizing: content; resize: none; overflow-y: auto; }
 .workspace-page .discussion-form .discussion-composer textarea:focus { outline: none; border: 0; box-shadow: none; }
 .workspace-page .discussion-composer textarea::placeholder { color: #939791; opacity: 1; }
-.discussion-compose-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.discussion-send-controls { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: calc(100% - 44px); margin-left: auto; }
-.workspace-page .discussion-model-select { field-sizing: content; width: auto; max-width: min(200px, calc(100% - 44px)); min-width: 0; height: 30px; min-height: 30px; padding: 0 2px 0 4px; border: 0; border-radius: 0; background: transparent; color: var(--note-secondary); box-shadow: none; font: 400 13px/1.5 var(--note-font); text-overflow: ellipsis; cursor: pointer; transition: color 140ms ease; }
+.discussion-compose-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.discussion-send-controls { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.workspace-page .discussion-model-select { field-sizing: content; width: auto; max-width: calc(100% - 40px); min-width: 0; height: 30px; min-height: 30px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--note-secondary); box-shadow: none; font: 400 12px/1.5 var(--note-font); text-overflow: ellipsis; cursor: pointer; transition: color 140ms ease; }
 .workspace-page .discussion-model-select option { background: var(--note-canvas); color: var(--note-ink); }
-.workspace-page .discussion-model-select:hover:not(:disabled) { background: transparent; color: var(--note-ink); }
+.workspace-page .discussion-model-select:hover:not(:disabled) { background: var(--note-hover); color: var(--note-ink); }
 .workspace-page .discussion-model-select:focus-visible { outline: 1px solid var(--note-focus); outline-offset: 2px; }
 .workspace-page .discussion-model-select:disabled { opacity: .5; cursor: default; }
+.workspace-page .discussion-model-select.model-picker-native { display: none !important; }
+/* Compact model popover shared by paper discussion, notes and the reading agent. */
+.model-picker { display: inline-flex; flex: 0 1 auto; min-width: 0; max-width: min(240px, 52vw); }
+.workspace-page .discussion-form .model-picker-trigger { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; width: auto; min-width: 0; max-width: 100%; height: 30px; min-height: 30px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--note-secondary); font: 400 12px/1.5 var(--note-font); text-align: left; cursor: pointer; transition: color 140ms ease; }
+.workspace-page .discussion-form .model-picker-trigger:hover:not(:disabled) { color: var(--note-ink); }
+.workspace-page .discussion-form .model-picker-trigger[aria-expanded="true"] { color: var(--note-ink); }
+.workspace-page .discussion-form .model-picker-trigger:focus-visible { outline: none; text-decoration: underline; text-underline-offset: 3px; }
+.workspace-page .discussion-form .model-picker-trigger:disabled { opacity: .55; cursor: default; }
+.model-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-picker-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.model-picker-menu { position: fixed; z-index: 4000; display: flex; flex-direction: column; box-sizing: border-box; max-height: min(360px, calc(100dvh - 16px)); padding: 6px; border: 0; border-radius: 12px; background: var(--note-canvas); color: var(--note-ink); box-shadow: 0 12px 32px rgb(36 39 43 / 14%), 0 2px 8px rgb(36 39 43 / 8%); font: 400 12px/1.5 var(--note-font); opacity: 0; transform: translateY(4px) scale(.985); transform-origin: bottom center; transition: opacity 120ms ease-out, transform 120ms ease-out; }
+.model-picker-menu.is-open { opacity: 1; transform: none; }
+.model-picker-search { flex: 0 0 auto; padding: 0 2px 6px; }
+.model-picker-search input { box-sizing: border-box; width: 100%; height: 30px; padding: 0 7px; border: 0; border-radius: 7px; background: transparent; color: var(--note-ink); font: 400 12px/1.5 var(--note-font); }
+.model-picker-search input::placeholder { color: var(--note-tertiary); opacity: 1; }
+.workspace-page .model-picker-search input:focus,
+.workspace-page .model-picker-search input:focus-visible { outline: none; }
+.model-picker-list { flex: 1 1 auto; min-height: 0; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; padding: 0; outline: none; }
+.model-picker-option { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 32px; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--note-secondary); font: 400 12px/1.5 var(--note-font); text-align: left; cursor: pointer; }
+.model-picker-option:hover, .model-picker-option.is-active { color: var(--note-ink); font-weight: 500; }
+.model-picker-option[aria-selected="true"] { color: var(--note-ink); font-weight: 500; }
+.model-picker-option-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-picker-check { display: inline-flex; flex: 0 0 14px; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--note-ink); visibility: hidden; }
+.model-picker-option[aria-selected="true"] .model-picker-check { visibility: visible; }
+.model-picker-empty { margin: 0; padding: 14px 10px; color: var(--note-secondary); font: 400 12px/1.6 var(--note-font); text-align: center; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .model-picker { max-width: min(190px, 48vw); } }
+@media (prefers-reduced-motion: reduce) { .model-picker-menu { transition: none; } }
 .discussion-model-status { margin: 0 5px; color: #a14d45; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.workspace-page .discussion-compose-actions .send-discussion-button { margin-left: auto; flex: 0 0 36px; width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--note-ink); color: var(--note-canvas); box-shadow: none; }
-.workspace-page .discussion-compose-actions .send-discussion-button:hover:not(:disabled) { background: #424740; color: var(--note-canvas); box-shadow: none; transform: none; }
-.workspace-page .discussion-composer:has(textarea:placeholder-shown) .send-discussion-button:not(.discussion-stop-mode), .workspace-page .discussion-compose-actions .send-discussion-button:disabled { background: #dcdfd9; color: #858a82; }
-.workspace-page .discussion-compose-actions .add-discussion-paper-button { flex: 0 0 34px; width: 34px; min-width: 34px; height: 34px; min-height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--note-secondary); box-shadow: none; }
-.discussion-compose-actions .add-discussion-paper-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.discussion-send-controls > .discussion-mode-switch { margin-left: auto; }
+.workspace-page .discussion-send-controls:has(.discussion-mode-switch) .send-discussion-button { margin-left: 0; }
+.discussion-mode-switch { position: relative; isolation: isolate; display: inline-grid; grid-template-columns: repeat(2, 1fr); flex: 0 0 auto; padding: 3px; border: 1px solid var(--note-line); border-radius: 999px; background: var(--note-active); font: 400 12px/1.5 var(--note-font); }
+.discussion-mode-switch::before { content: ""; position: absolute; inset: 3px auto 3px 3px; width: calc((100% - 6px) / 2); border-radius: 999px; background: var(--note-canvas); box-shadow: 0 1px 3px #00000014; transition: transform 160ms ease; }
+.discussion-mode-switch:has(input[value="agent"]:checked)::before { transform: translateX(100%); }
+.discussion-mode-switch[hidden] { display: none; }
+.workspace-page .discussion-mode-option { position: relative; display: grid; place-items: center; min-width: 38px; height: 22px; margin: 0; padding: 0 6px; color: var(--note-secondary); font: inherit; cursor: pointer; }
+.workspace-page .discussion-mode-option input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.workspace-page .discussion-mode-option span { color: inherit; font: inherit; pointer-events: none; }
+.discussion-mode-option:has(input:checked) { color: var(--note-ink); }
+.discussion-mode-switch:has(input:focus-visible) { outline: 2px solid var(--note-focus); outline-offset: 2px; }
+.discussion-mode-switch:has(input:disabled) { opacity: .5; }
+.discussion-mode-option:has(input:disabled) { cursor: default; }
+@media (prefers-reduced-motion: reduce) { .discussion-mode-switch::before { transition: none; } }
+.workspace-page .discussion-compose-actions :is(.add-discussion-paper-button, .send-discussion-button) { flex: 0 0 30px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 6px; box-shadow: none; }
+.workspace-page .discussion-compose-actions .send-discussion-button { margin-left: auto; background: var(--note-ink); color: #fff; }
+.workspace-page .discussion-compose-actions .send-discussion-button:hover:not(:disabled) { background: #40454a; color: #fff; box-shadow: none; transform: none; }
+.workspace-page .discussion-compose-actions .send-discussion-button:disabled { background: var(--note-active); color: var(--note-tertiary); }
+.workspace-page .discussion-compose-actions .add-discussion-paper-button { background: transparent; color: var(--note-secondary); }
+.discussion-compose-actions button svg { width: 16px; height: 16px; }
+.discussion-compose-actions .add-discussion-paper-button svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .workspace-page .discussion-compose-actions .add-discussion-paper-button:hover:not(:disabled) { background: var(--note-active); color: var(--note-ink); box-shadow: none; transform: none; }
 .workspace-page .discussion-compose-actions button:focus-visible { outline: 2px solid var(--note-focus); outline-offset: 3px; }
 .discussion-composer > .discussion-papers, .discussion-composer > .discussion-reference-box { margin: 0 4px; }
 .discussion-paper-status { min-width: 0; color: var(--note-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.discussion-paper-status:empty { display: none; }
 .discussion-paper-status.error { color: #a14d45; }
 .discussion-papers, .discussion-message-papers { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .discussion-papers[hidden] { display: none; }

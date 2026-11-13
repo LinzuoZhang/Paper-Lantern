@@ -158,8 +158,18 @@
         <textarea id="libCitationOutput" class="citation-output" readonly spellcheck="false" aria-label="引用结果"></textarea>
       </div>
     </div>
-    <button id="researchLauncher" class="research-launcher" type="button" aria-label="打开阅读助手" aria-controls="researchPanel" aria-expanded="false" title="阅读助手 · 拖动可移动">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM7 7h10M7 11h6"/></svg>
+    <button id="researchLauncher" class="research-launcher" type="button" aria-label="打开阅读助手" aria-controls="researchPanel" aria-expanded="false" title="阅读助手">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 7.1V4.7" stroke-width="1.9"/>
+          <circle cx="12" cy="3.3" r="1.4" fill="currentColor" stroke="none"/>
+          <rect x="4.1" y="7.1" width="15.8" height="11.4" rx="3.5" stroke-width="1.9"/>
+          <path d="M2 11.4v3.2M22 11.4v3.2" stroke-width="1.9"/>
+          <circle cx="9" cy="12.2" r="1.3" fill="currentColor" stroke="none"/>
+          <circle cx="15" cy="12.2" r="1.3" fill="currentColor" stroke="none"/>
+          <path d="M9.6 15.7h4.8" stroke-width="1.9"/>
+        </g>
+      </svg>
       <span class="research-launcher-dot" aria-hidden="true" hidden></span>
     </button>
     <section id="researchPanel" class="research-panel" role="dialog" aria-modal="false" aria-labelledby="researchTitle" hidden>
@@ -186,6 +196,9 @@
         <div id="researchThreadList" class="discussion-thread-list" aria-label="研究对话列表"></div>
         <div id="researchMessages" class="research-messages" aria-label="之前的问答" hidden></div>
         <div id="researchQuestion" class="research-question" hidden></div>
+        <p id="researchStatus" class="research-status" role="status" aria-live="polite" hidden></p>
+        <section id="researchPlan" class="research-plan" aria-label="Agent 执行记录" hidden></section>
+        <p id="researchPlanSummary" class="research-execution-summary" hidden></p>
         <div id="researchAnswer" class="research-answer" hidden>
           <article id="researchReport" class="research-report" aria-label="研究报告" hidden></article>
           <div id="researchResultActions" class="research-result-actions" role="group" aria-label="报告操作" hidden>
@@ -194,12 +207,10 @@
             <a id="researchNote" class="research-icon-button" title="打开笔记" aria-label="打开笔记" hidden target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M14 3h7v7M10 14 21 3"/></svg></a>
           </div>
         </div>
-        <section id="researchPlan" class="research-plan" aria-label="待确认的文献库操作" hidden></section>
         <button id="researchResume" class="research-resume" type="button" hidden>从检查点继续</button>
       </div>
       <button id="researchScrollBottom" class="research-scroll-bottom" type="button" title="回到底部" aria-label="回到底部" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m7-7-7 7-7-7"/></svg><span>回到底部</span></button>
       </div>
-      <p id="researchStatus" class="research-status" role="status" aria-live="polite" hidden></p>
       <form id="researchForm" class="discussion-form research-form">
         <div class="discussion-composer">
           <div id="researchPapers" class="discussion-papers" aria-label="已加入的论文" hidden></div>

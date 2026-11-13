@@ -117,6 +117,45 @@ class FinalizationTests(unittest.TestCase):
                 asyncio.run(ReadingAgent(options, model, checkpoint_path=checkpoint, thread_id="bounded").run())
             self.assertEqual(model.calls, before, "Resume must not reset exhausted settlement budgets")
 
+    def test_failed_catalog_link_checkpoint_revalidates_without_new_model_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = create_demo_library(Path(directory) / "library")
+            checkpoint = Path(directory) / "checkpoints.sqlite3"
+
+            class OldVerifier(ReadingAgent):
+                def verify(self, state):
+                    allowed = self.allowed
+                    try:
+                        # Reproduce the old bug: only read papers count as existing.
+                        self.allowed = {item["hash"] for item in state["evidence"].values()}
+                        return super().verify(state)
+                    finally:
+                        self.allowed = allowed
+
+            class Model:
+                calls = 0
+
+                async def complete(self, messages, _tools):
+                    self.calls += 1
+                    if self.calls == 1:
+                        return read_reply()
+                    if self.calls == 2:
+                        return claim_reply(context_from(messages)["evidence"][0])
+                    return report(f"# Comparison\nFinding [Flow](hash:{DEMO_IDS[0]}) [C1].\n"
+                                  f"Candidate [Baseline](hash:{DEMO_IDS[1]}) (original not checked).")
+
+            model = Model()
+            options = AgentOptions(DEMO_TASK, library, max_rounds=1)
+            with self.assertRaisesRegex(AgentError, "Unknown library ID"):
+                asyncio.run(OldVerifier(options, model, checkpoint_path=checkpoint, thread_id="catalog-link").run())
+            calls = model.calls
+            result = asyncio.run(ReadingAgent(options, model, checkpoint_path=checkpoint, thread_id="catalog-link").run())
+            self.assertEqual(model.calls, calls, "Fixing validation should reuse the final report, even with no model budget left")
+            self.assertEqual(result["readPaperIds"], [DEMO_IDS[0]])
+            self.assertIn(f"[C1](hash:{DEMO_IDS[0]})", result["report"])
+            self.assertIn(f"[Baseline](hash:{DEMO_IDS[1]})", result["report"])
+            self.assertTrue(result["verification"]["checks"]["sourcesRevalidated"])
+
     def test_legacy_failed_verifier_can_continue_from_read_evidence_without_research(self):
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         from langgraph.graph import END, START, StateGraph

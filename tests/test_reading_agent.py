@@ -69,6 +69,10 @@ class ReadingAgentContractTests(unittest.TestCase):
         agent = ReadingAgent(AgentOptions("Compare", Path(".")), None)
         agent.allowed = {"inside"}
         self.assertEqual(agent.scoped_arguments("search_paper_content", {"query": "x"})["hashes"], ["inside"])
+        for name in ("get_paper_highlights", "get_paper_annotations"):
+            self.assertEqual(agent.scoped_arguments(name, {"id": " inside "}), {"id": "inside", "limit": 5})
+            with self.assertRaises(AgentError):
+                agent.scoped_arguments(name, {"id": "outside"})
         for name, args in (("delete_item", {"id": "inside"}), ("get_paper_passages", {"hash": "outside"}),
                            ("list_paper_summaries", {"hashes": ["outside"]}),
                            ("get_paper_passages", {"hash": "inside", "limit": 50})):
@@ -121,6 +125,23 @@ class ReadingAgentContractTests(unittest.TestCase):
         state["messages"] = [{"role": "assistant", "content": "[Read](hash:read) supports the comparison."}]
         self.assertIn("Read", agent.verify(state)["report"])
 
+    def test_catalog_reference_is_valid_but_does_not_replace_original_evidence(self):
+        agent = ReadingAgent(AgentOptions("Compare", Path(".")), None)
+        agent.allowed = {"read", "catalog-only"}
+        state = {"messages": [{"role": "assistant", "content":
+                 "Finding [Read](hash:read) [C1].\nCandidate [Paper](hash:catalog-only) (original not checked)."}],
+                 "evidence": {"passage": {"hash": "read"}}, "repairs": 0, "model_calls": 1,
+                 "claims": {"C1": {"supports": [{"hash": "read"}]}}}
+        self.assertIn("hash:catalog-only", agent.verify(state)["report"])
+        state["messages"][0]["content"] = "Candidate [Paper](hash:catalog-only) [C1]."
+        self.assertIn("已读取正文", agent.verify(state)["validation_error"])
+        state["messages"][0]["content"] = "Finding [Read](hash:read) [C1]; [Missing](hash:unknown)."
+        self.assertIn("Unknown library ID 'unknown'", agent.verify(state)["validation_error"])
+        state["messages"][0]["content"] = "Finding [Read](hash:read) [C9]; [Paper](hash:catalog-only)."
+        self.assertIn("未知证据编号", agent.verify(state)["validation_error"])
+        state["messages"][0]["content"] = "Finding [Read](hash:read); [Paper](hash:catalog-only)."
+        self.assertIn("未引用证据编号", agent.verify(state)["validation_error"])
+
 
 @unittest.skipUnless(HAS_RUNTIME, "Install requirements-reading-agent.txt on stable Python 3.11/3.12")
 class ReadingAgentIntegrationTests(unittest.TestCase):
@@ -145,6 +166,8 @@ class ReadingAgentIntegrationTests(unittest.TestCase):
             self.assertIn("search_paper_content", names)
             self.assertEqual(names.count("get_paper_passages"), 4)
             self.assertEqual(fixture.requests[1]["messages"][-1]["role"], "tool")
+            self.assertTrue(all(request["stream"] for request in fixture.requests))
+            self.assertGreater(len([event for event in result["events"] if event["type"] == "report_delta"]), 1)
 
     def test_mcp_server_itself_rejects_write_calls(self):
         from backend.reading_agent.mcp_client import ResearchMCPClient

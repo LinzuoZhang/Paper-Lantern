@@ -7,6 +7,8 @@ const sharedHistory = await readFile(new URL('../assets/js/components/discussion
 source = source.replace('./discussion_history.js', `data:text/javascript;base64,${Buffer.from(sharedHistory).toString('base64')}`);
 const sharedComposer = await readFile(new URL('../assets/js/components/discussion_composer.js', import.meta.url), 'utf8');
 source = source.replace('./discussion_composer.js', `data:text/javascript;base64,${Buffer.from(sharedComposer).toString('base64')}`);
+const sharedExecution = await readFile(new URL('../assets/js/components/agent_execution_view.js', import.meta.url), 'utf8');
+source = source.replace('./agent_execution_view.js', `data:text/javascript;base64,${Buffer.from(sharedExecution).toString('base64')}`);
 const { clampPosition, clampPanelWidth, readResearchStream, initResearchAssistant, researchProgressText } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 assert.match(researchProgressText({ catalogPaperCount: 12 }, '比较控制方法'), /比较控制方法.*12 篇候选文献/);
@@ -14,8 +16,8 @@ assert.match(researchProgressText({ summary: '核对两篇论文的实验条件'
 assert.match(researchProgressText({ readPaperCount: 3 }), /已读取的 3 篇文献/);
 assert.match(researchProgressText({ finalizing: true }), /核对引文并组织回答/);
 
-assert.deepEqual(clampPosition({ x: -100, y: 9999 }, 800, 700), { x: 16, y: 646 });
-assert.deepEqual(clampPosition({ x: 900, y: -10 }, 300, 400), { x: 246, y: 16 });
+assert.deepEqual(clampPosition({ x: -100, y: 9999 }, 800, 700), { x: 16, y: 636 });
+assert.deepEqual(clampPosition({ x: 900, y: -10 }, 300, 400), { x: 236, y: 16 });
 assert.equal(clampPanelWidth(-100), 360);
 assert.equal(clampPanelWidth(900), 600);
 assert.equal(clampPanelWidth(undefined), 420);
@@ -95,14 +97,14 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
 {
   const { elements: e, storage, listeners } = fixture();
   const button = e.researchLauncher;
-  assert.equal(button.style.left, '938px');
-  assert.equal(button.style.top, '838px');
+  assert.equal(button.style.left, '928px');
+  assert.equal(button.style.top, '828px');
   await button.fire('pointerdown', { button: 0, isPrimary: true, pointerId: 1, clientX: 940, clientY: 840 });
   await button.fire('pointermove', { pointerId: 1, clientX: 440, clientY: 340 });
   await button.fire('pointerup', { pointerId: 1 });
   await button.fire('click');
   assert.equal(e.researchPanel.hidden, true, 'Dragging must not open the panel');
-  assert.equal(button.style.left, '438px');
+  assert.equal(button.style.left, '428px');
   assert.ok(storage.has('paperLanternResearchPosition'));
   await new Promise(resolve => setTimeout(resolve, 1));
   await button.fire('click');
@@ -111,10 +113,10 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   await e.researchClose.fire('click');
   assert.equal(e.researchPanel.hidden, true);
   window.innerWidth = 320; window.innerHeight = 500; listeners.resize();
-  assert.equal(button.style.left, '266px');
-  assert.equal(button.style.top, '338px');
+  assert.equal(button.style.left, '256px');
+  assert.equal(button.style.top, '328px');
   await button.fire('keydown', { shiftKey: true, key: 'ArrowLeft' });
-  assert.equal(button.style.left, '246px');
+  assert.equal(button.style.left, '236px');
 }
 {
   const { elements: e, storage, agent } = fixture();
@@ -288,6 +290,84 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   listeners.beforeunload();
 }
 
+// Report deltas render before job completion; retries replace the draft and
+// repeated SSE events cannot duplicate content. The question is visible while
+// the initial POST is still pending.
+{
+  const id = '7'.repeat(32);
+  let current = { id, task: 'Stream a report', status: 'running', result: null };
+  let stream, finishCreate;
+  const json = data => new Response(JSON.stringify(data));
+  const { elements: e, listeners } = fixture(null, async (url, options = {}) => {
+    if (url.includes('/events?')) return new Response(new ReadableStream({ start(controller) { stream = controller; } }));
+    if (options.method === 'POST') return new Promise(resolve => { finishCreate = () => resolve(json({ job: current })); });
+    return json({ jobs: [], libraryKey: 'streaming' });
+  }, true);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  e.researchTask.value = current.task;
+  const submitted = e.researchForm.fire('submit');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(e.researchQuestion.textContent, current.task);
+  assert.equal(e.researchQuestion.hidden, false);
+  assert.equal(e.researchStatus.hidden, false);
+  finishCreate(); await submitted;
+  const send = event => stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+  send({ seq: 1, agent: { type: 'report_started', streamId: 'draft' } });
+  send({ seq: 2, agent: { type: 'report_delta', streamId: 'draft', delta: '# 标题\n\n' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(e.researchReport.textContent, '# 标题\n\n');
+  assert.equal(e.researchAnswer.hidden, false);
+  assert.equal(e.researchResultActions.hidden, true);
+  assert.equal(e.researchCopy.hidden, true);
+  send({ seq: 3, agent: { type: 'report_delta', streamId: 'draft', delta: '正文' } });
+  send({ seq: 3, agent: { type: 'report_delta', streamId: 'draft', delta: '正文' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(e.researchReport.textContent, '# 标题\n\n正文');
+  send({ seq: 4, agent: { type: 'report_reset', streamId: 'draft' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(e.researchAnswer.hidden, true);
+  send({ seq: 5, agent: { type: 'report_started', streamId: 'repaired' } });
+  send({ seq: 6, agent: { type: 'report_delta', streamId: 'repaired', delta: '修正后的报告' } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(e.researchReport.textContent, '修正后的报告');
+  current = { ...current, status: 'completed', result: { report: '修正后的报告（已核验）' } };
+  send({ seq: 7, job: current }); stream.close();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(e.researchReport.textContent, '修正后的报告（已核验）');
+  assert.equal(e.researchResultActions.hidden, false);
+  assert.equal(e.researchCopy.hidden, false);
+  assert.equal(e.researchStatus.hidden, true);
+  listeners.beforeunload();
+}
+
+// Reopening an unfinished turn replays its deltas from the turn boundary even
+// if a saved cursor points into the middle of that report.
+{
+  const id = '8'.repeat(32);
+  const current = { id, task: 'Resume stream', status: 'running', eventAfter: 20 };
+  const urls = [];
+  const json = data => new Response(JSON.stringify(data));
+  const { elements: e, storage, listeners } = fixture(null, async url => {
+    urls.push(url);
+    if (url.includes('/events?')) {
+      const events = [
+        { seq: 21, agent: { type: 'report_started', streamId: 'restored' } },
+        { seq: 22, agent: { type: 'report_delta', streamId: 'restored', delta: '完整' } },
+        { seq: 23, agent: { type: 'report_delta', streamId: 'restored', delta: '正文' } },
+        { seq: 24, job: { ...current, status: 'completed', result: { report: '完整正文' } } },
+      ];
+      return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''));
+    }
+    if (url.includes('/status?')) return json({ job: current });
+    return json({ jobs: [current], libraryKey: 'resume-stream' });
+  }, true);
+  storage.set('paperLanternResearchJob:resume-stream', JSON.stringify({ id, cursor: 22 }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(urls.some(url => url.includes('/events?') && url.endsWith('after=20')));
+  assert.equal(e.researchReport.textContent, '完整正文');
+  listeners.beforeunload();
+}
+
 // Follow-ups share one history entry, retain earlier answers on screen and
 // inherit server-side scope instead of silently switching with the library view.
 {
@@ -340,8 +420,8 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   listeners.beforeunload();
 }
 
-// Plan previews never approve automatically; explicit buttons bind approval to
-// the exact immutable digest, support revision and refresh the library on apply.
+// Plan previews expose one confirmation action and bind approval to the exact
+// immutable digest. Revisions remain available through the conversation input.
 {
   const id = '4'.repeat(32), planId = '3'.repeat(32);
   let plan = { id: planId, version: 1, digest: 'reviewed-digest', state: 'awaiting_approval',
@@ -349,6 +429,7 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
     preview: [{ id: 'topic', label: '创建分类', reason: 'Relevant to the selected topic', changes: [{ before: null, after: { id: 'Topic' } }] }], results: [] };
   let current = { id, turnId: id, task: 'Organize papers', status: 'awaiting_approval', result: { kind: 'plan', planId, report: '# Proposed plan' } };
   const calls = [], updates = [];
+  let finishApproval;
   const json = data => new Response(JSON.stringify(data));
   const { elements: e, listeners } = fixture(null, async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
@@ -356,6 +437,7 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
     if (url.endsWith('/plan/preview')) return json({ plan, job: current });
     if (url.endsWith('/plan/approve')) {
       assert.deepEqual(body, { jobId: id, planId, digest: 'reviewed-digest' });
+      await new Promise(resolve => { finishApproval = resolve; });
       plan = { ...plan, state: 'completed', results: [{ id: 'topic', status: 'completed' }] };
       current = { ...current, status: 'completed', result: { ...current.result, kind: 'library', report: '# Completed' } };
       return json({ plan, job: current, tree: { folders: [] } });
@@ -367,18 +449,33 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   await e.researchThreadList.children[0].fire('click');
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(e.researchPlan.hidden, false);
-  assert.match(e.researchPlan.children[0].textContent, /等待确认/);
+  assert.equal(e.researchPlan.dataset.state, 'approval');
+  assert.equal(e.researchAnswer.hidden, true);
+  assert.equal(e.researchResultActions.hidden, true);
+  assert.equal(e.researchPlan.querySelector('.execution-group').tagName, 'details');
   assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 0);
   assert.equal(e.researchTask.disabled, false, 'Users can revise a plan with a follow-up');
-  let controls = e.researchPlan.children.at(-1);
-  await controls.children[1].fire('click');
-  assert.equal(e.researchTask.focused, true);
-  assert.equal(calls.filter(call => call.body && call.url.endsWith('/plan/approve')).length, 0);
+  let controls = e.researchPlan.querySelector('.research-plan-buttons');
+  assert.equal(controls.children.length, 1);
+  assert.equal(controls.children[0].textContent, '确认操作');
+  const approval = controls.children[0].fire('click');
+  assert.equal(controls.children.length, 1);
+  assert.equal(controls.children[0].disabled, true);
+  assert.equal(controls.children[0].textContent, '正在执行…');
   await controls.children[0].fire('click');
+  assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 1, 'Pending approval must not post twice');
+  finishApproval();
+  await approval;
   assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 1);
   assert.equal(updates.length, 1);
-  assert.match(e.researchPlan.children[0].textContent, /已执行/);
-  assert.equal(e.researchReport.textContent, '# Completed');
+  assert.equal(e.researchPlan.dataset.state, 'success');
+  assert.equal(controls.hidden, true);
+  assert.equal(controls.children.length, 0);
+  assert.equal(e.researchAnswer.hidden, true);
+  assert.equal(e.researchReport.hidden, true);
+  assert.equal(e.researchResultActions.hidden, true);
+  assert.equal(e.researchSave.hidden, true);
+  assert.equal(e.researchPlan.querySelector('.execution-operation').dataset.state, 'success');
   await e.researchNew.fire('click');
   assert.equal(e.researchPlan.hidden, true);
   listeners.beforeunload();

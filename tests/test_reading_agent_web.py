@@ -71,7 +71,11 @@ class DurableJobHTTPTests(LibraryFixture):
                 payload = propose("Stale")
                 preview = request("/plan/preview", payload)["plan"]
                 server.create_category("", "Concurrent")
-                rejected("/plan/approve", {**payload, "digest": preview["digest"]}, 409)
+                stale = request("/plan/approve", {**payload, "digest": preview["digest"]})
+                self.assertEqual(stale["plan"]["state"], "stale")
+                self.assertEqual(stale["job"]["status"], "queued")
+                self.assertNotIn("Stale", server.load_library_db()["categories"])
+                rejected("/plan/approve", {**payload, "digest": "wrong"}, 409)
                 replacement = request("/plan/retry", payload)
                 self.assertNotEqual(replacement["plan"]["id"], payload["planId"])
                 self.assertEqual(replacement["job"]["status"], "awaiting_approval")

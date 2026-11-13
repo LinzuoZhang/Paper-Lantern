@@ -6,7 +6,7 @@ async function loadModule(path) {
   const source = await readFile(new URL(path, import.meta.url), 'utf8');
   return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }
-const { collectUniquePapers, getCategoryIds, categorySearchText } = await loadModule('../assets/js/components/category_manager.js');
+const { collectUniquePapers, getCategoryIds, getCategoryLabels, categorySearchText } = await loadModule('../assets/js/components/category_manager.js');
 const { getRecentPapers } = await loadModule('../assets/js/lib/recent_papers.js');
 const paper = { id: 'shared', title: 'Shared', categoryIds: ['Research', 'Research/Navigation', 'References'], categoryNames: ['Research', 'Navigation', 'References'], viewedAt: '2026-10-21T01:00:00Z', todo: true };
 const other = { id: 'other', title: 'Other' };
@@ -18,6 +18,16 @@ assert.equal(collectUniquePapers(tree).filter(p => p.todo).length, 1);
 assert.equal(getRecentPapers([paper, paper], []).length, 1);
 assert.deepEqual(getCategoryIds({ category: 'legacy' }), ['legacy']);
 assert.deepEqual(getCategoryIds({ categoryId: 'legacy' }), ['legacy']);
+for (const alias of ['uncategorized', 'Uncategorized', '未分类']) {
+  const mixed = { categoryIds: [alias, 'Research', 'Research'], categoryNames: ['未分类', '研究', '研究'], categoryName: '未分类' };
+  assert.deepEqual(getCategoryIds(mixed), ['Research']);
+  assert.deepEqual(getCategoryLabels(mixed), ['研究']);
+  assert.ok(!categorySearchText(mixed).includes('未分类'));
+  assert.deepEqual(getCategoryIds({ categoryIds: [alias] }), ['uncategorized']);
+}
+assert.deepEqual(getCategoryIds({ categoryIds: [] }), ['uncategorized']);
+assert.deepEqual(getCategoryLabels({ categoryIds: [] }), ['未分类']);
+assert.deepEqual(getCategoryLabels({ categoryIds: ['uncategorized', 'Research'], categoryName: '未分类' }), ['Research']);
 assert.ok(categorySearchText(paper).includes('Navigation'));
 
 const api = await loadModule('../extension/api.js');

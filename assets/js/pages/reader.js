@@ -7,6 +7,7 @@ import { initDiscussionPanel } from "../components/discussion_panel.js";
 import { recordPaperViewed } from "../lib/recent_papers.js";
 import { getCategoryLabels } from "../components/category_manager.js";
 import { findAutoHighlightRange, normalizeHighlightQuote } from "../lib/auto_highlight.js";
+import { extractReferenceEntries, findReferenceCitations, getReferenceLabel } from "../lib/reference_citations.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -1826,109 +1827,6 @@ async function extractPdfText(file) {
   };
 }
 
-function extractReferenceEntries(text) {
-  const source = String(text || "")
-    .replace(/\0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!source) return new Map();
-
-  const sectionStart = findReferenceSectionStart(source);
-  if (sectionStart < 0) return new Map();
-
-  const section = trimReferenceSection(source.slice(sectionStart).trim());
-  const markers = Array.from(section.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g));
-  if (!markers.length) return new Map();
-
-  const entries = new Map();
-  markers.forEach((marker, index) => {
-    const number = marker[1];
-    const contentStart = marker.index + marker[0].length;
-    const contentEnd = index + 1 < markers.length ? markers[index + 1].index : section.length;
-    const citation = cleanReferenceText(section.slice(contentStart, contentEnd));
-    if (citation.length >= 12) entries.set(number, citation);
-  });
-  return entries;
-}
-
-function trimReferenceSection(section) {
-  const appendixMatch = section.match(/\b(?:appendix|a\s+p\s*p\s*e\s*n\s*d\s*i\s*x|附录)\b/i);
-  if (!appendixMatch) return section;
-
-  const beforeAppendix = section.slice(0, appendixMatch.index);
-  const markers = beforeAppendix.match(/(?:^|\s)\[(\d{1,3})\]\s+/g) || [];
-  return markers.length >= 5 ? beforeAppendix : section;
-}
-
-function findReferenceSectionStart(source) {
-  const headingMatches = Array.from(
-    source.matchAll(/\b(?:references|bibliography|r\s+e\s*f\s*e\s*r\s*e\s*n\s*c\s*e\s*s|参考文献)\b/gi),
-  );
-  for (let index = headingMatches.length - 1; index >= 0; index -= 1) {
-    const match = headingMatches[index];
-    const preview = source.slice(match.index, match.index + 1800);
-    const firstMarker = preview.match(/\[(1)\]\s+/);
-    if (firstMarker) return match.index + firstMarker.index;
-  }
-
-  return findSequentialReferenceListStart(source);
-}
-
-function findSequentialReferenceListStart(source) {
-  const markers = Array.from(source.matchAll(/(?:^|\s)\[(\d{1,3})\]\s+/g)).map((match) => ({
-    number: Number(match[1]),
-    index: match.index + match[0].indexOf("["),
-  }));
-
-  let best = null;
-  markers.forEach((marker, startIndex) => {
-    if (marker.number !== 1) return;
-    let expected = 2;
-    let lastIndex = marker.index;
-    let count = 1;
-
-    for (let index = startIndex + 1; index < markers.length && expected <= 12; index += 1) {
-      const next = markers[index];
-      if (next.index - lastIndex > 2500) break;
-      if (next.number !== expected) continue;
-      count += 1;
-      expected += 1;
-      lastIndex = next.index;
-    }
-
-    if (count >= 5 && (!best || count > best.count || marker.index > best.index)) {
-      best = { count, index: marker.index };
-    }
-  });
-
-  return best ? best.index : -1;
-}
-
-function cleanReferenceText(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:])/g, "$1")
-    .trim();
-}
-
-function getCitationNumbers(value) {
-  const body = String(value || "").replace(/^\[/, "").replace(/\]$/, "");
-  const numbers = [];
-  body.split(/[，,]/).forEach((part) => {
-    const range = part.match(/(\d{1,3})\s*-\s*(\d{1,3})/);
-    if (range) {
-      const start = Number(range[1]);
-      const end = Number(range[2]);
-      const step = start <= end ? 1 : -1;
-      for (let number = start; number !== end + step; number += step) numbers.push(String(number));
-      return;
-    }
-    const single = part.match(/\d{1,3}/);
-    if (single) numbers.push(single[0]);
-  });
-  return Array.from(new Set(numbers));
-}
-
 async function summarizeText(text) {
   const paperId = currentPaper?.id || "";
   const response = await apiFetch("/api/summarize", {
@@ -1953,6 +1851,10 @@ async function summarizeText(text) {
   async function applyEvent(event) {
     if (currentPaper?.id !== paperId) return;
     if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
+    if (event.stage === "agent_progress") {
+      setStatus(event.summary?.detail || "正在解析论文…");
+      return;
+    }
     let persist = true;
     if (event.stage === "overview") {
       summary = {
@@ -2011,6 +1913,7 @@ async function summarizeText(text) {
 }
 
 async function regenerateSummarySection(section) {
+  const paperId = currentPaper?.id;
   const text = lastExtractedText.trim();
   if (text.length < 80) {
     setStatus("Upload a PDF first. No extracted text is available for regeneration.", true);
@@ -2032,7 +1935,8 @@ async function regenerateSummarySection(section) {
   }
   try {
     if (section === "keywords") {
-      const overviewInfo = await fetchOverviewInfo(text);
+      const overviewInfo = await fetchFullSummary(text, ["keywords"], "生成关键词及其释义，并检查格式。");
+      if (currentPaper?.id !== paperId) return;
       const keywordsValue = overviewInfo.keywords || [];
       const keywordExplanations = overviewInfo.keywordExplanations || {};
       renderKeywords(keywordsValue, keywordExplanations);
@@ -2041,7 +1945,10 @@ async function regenerateSummarySection(section) {
       return;
     }
 
-    const summary = await fetchFullSummary(text);
+    const goals = section === "threeLine" ? ["threeLine"] : ["method"];
+    const goal = section === "threeLine" ? "生成三行摘要，并检查格式。" : "拆解论文方法，解释各部分如何衔接，并检查格式。";
+    const summary = await fetchFullSummary(text, goals, goal);
+    if (currentPaper?.id !== paperId) return;
     if (section === "threeLine") {
       const threeLineSummary = summary.threeLineSummary || {};
       renderSummaryLine(challenges, threeLineSummary.challenges);
@@ -2097,11 +2004,11 @@ function setSummarySectionLoading(section) {
   }
 }
 
-async function fetchFullSummary(text) {
+async function fetchFullSummary(text, goals, goal = "") {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text, goals, goal }),
   });
   const data = await readJsonResponse(response);
   if (!response.ok) throw new Error(data.detail || data.error || "Summary failed.");
@@ -2752,45 +2659,84 @@ function showTranslationWindow(text) {
   bubble.style.top = `${top}px`;
 }
 
+function collectReferenceText(textLayer) {
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let text = "";
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const value = node.nodeValue || "";
+    if (!value) continue;
+    // PDF.js can split a citation across spans or lines.
+    if (text && !/\s$/.test(text) && !/^[\s,.;:)）'’ʼ]/.test(value) && !/['’ʼ]$/.test(text)) text += " ";
+    nodes.push({ node, start: text.length, end: text.length + value.length });
+    text += value;
+  }
+  return { text, nodes };
+}
+
+function mergeReferenceCitationRects(clientRects) {
+  const merged = [];
+  for (const rect of clientRects) {
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    let bounds = { left: rect.left, top: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height };
+    // A multi-span range can report both a span's box and its text box.
+    // Union boxes on the same line so translucent backgrounds never stack.
+    for (let index = 0; index < merged.length;) {
+      const other = merged[index];
+      const height = Math.min(bounds.bottom - bounds.top, other.bottom - other.top);
+      const overlap = Math.min(bounds.bottom, other.bottom) - Math.max(bounds.top, other.top);
+      const gap = Math.max(bounds.left, other.left) - Math.min(bounds.right, other.right);
+      if (overlap >= height * 0.7 && gap <= Math.max(2, height * 0.5)) {
+        bounds = {
+          left: Math.min(bounds.left, other.left), top: Math.min(bounds.top, other.top),
+          right: Math.max(bounds.right, other.right), bottom: Math.max(bounds.bottom, other.bottom),
+        };
+        merged.splice(index, 1);
+        index = 0;
+      } else {
+        index += 1;
+      }
+    }
+    merged.push(bounds);
+  }
+  return merged.map((rect) => ({ left: rect.left, top: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top }));
+}
+
 function decorateReferenceCitations(pageNode, textLayer) {
+  pageNode.querySelectorAll(".pdf-reference-cue").forEach((cue) => cue.remove());
   if (!referenceEntries.size) return;
 
   const pageRect = pageNode.getBoundingClientRect();
-  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-  textNodes.forEach((node) => {
-    const text = node.nodeValue || "";
-    const matches = Array.from(text.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
-    matches.forEach((match) => {
-      const numbers = getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
-      if (!numbers.length) return;
-
-      const range = document.createRange();
-      range.setStart(node, match.index);
-      range.setEnd(node, match.index + match[0].length);
-      const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-      range.detach();
-
-      rects.forEach((rect) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "pdf-reference-cue";
-        button.dataset.references = numbers.join(",");
-        button.setAttribute("aria-label", `Show reference ${numbers.join(", ")}`);
-        button.title = `Reference ${numbers.join(", ")}`;
-        button.style.left = `${rect.left - pageRect.left}px`;
-        button.style.top = `${rect.top - pageRect.top}px`;
-        button.style.width = `${Math.max(rect.width, 10)}px`;
-        button.style.height = `${Math.max(rect.height, 10)}px`;
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          showReferencePopover(numbers, event.clientX, event.clientY);
-        });
-        pageNode.appendChild(button);
+  const { text, nodes } = collectReferenceText(textLayer);
+  findReferenceCitations(text, referenceEntries).forEach((match) => {
+    const end = match.index + match.text.length;
+    const first = nodes.find((part) => part.start <= match.index && part.end > match.index);
+    const last = nodes.find((part) => part.start < end && part.end >= end);
+    if (!first || !last) return;
+    const range = document.createRange();
+    range.setStart(first.node, match.index - first.start);
+    range.setEnd(last.node, end - last.start);
+    const rects = mergeReferenceCitationRects(range.getClientRects());
+    range.detach();
+    const label = match.keys.map(getReferenceLabel).join(", ");
+    rects.forEach((rect) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "pdf-reference-cue";
+      button.dataset.references = match.keys.join(",");
+      button.setAttribute("aria-label", `Show reference ${label}`);
+      button.title = `Reference ${label}`;
+      button.style.left = `${rect.left - pageRect.left}px`;
+      button.style.top = `${rect.top - pageRect.top}px`;
+      button.style.width = `${rect.width}px`;
+      button.style.height = `${rect.height}px`;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showReferencePopover(match.keys, event.clientX, event.clientY);
       });
+      pageNode.appendChild(button);
     });
   });
 }
@@ -3115,20 +3061,14 @@ function handlePdfClick(event) {
 function getCitationAtPoint(clientX, clientY) {
   const range = getTextRangeAtPoint(clientX, clientY);
   if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE) return [];
-
-  const text = range.startContainer.nodeValue || "";
-  const offset = range.startOffset;
-  const windowStart = Math.max(0, offset - 16);
-  const windowText = text.slice(windowStart, Math.min(text.length, offset + 16));
-  const matches = Array.from(windowText.matchAll(/\[(\s*\d{1,3}(?:\s*[,，-]\s*\d{1,3})*\s*)\]/g));
-  const match = matches.find((item) => {
-    const start = windowStart + item.index;
-    const end = start + item[0].length;
-    return offset >= start && offset <= end;
-  });
-  if (!match) return [];
-
-  return getCitationNumbers(match[0]).filter((number) => referenceEntries.has(number));
+  const textLayer = range.startContainer.parentElement?.closest(".pdf-text-layer");
+  if (!textLayer) return [];
+  const { text, nodes } = collectReferenceText(textLayer);
+  const part = nodes.find((item) => item.node === range.startContainer);
+  if (!part) return [];
+  const offset = part.start + range.startOffset;
+  const match = findReferenceCitations(text, referenceEntries).find((item) => offset >= item.index && offset <= item.index + item.text.length);
+  return match?.keys || [];
 }
 
 function getTextRangeAtPoint(clientX, clientY) {
@@ -3178,7 +3118,7 @@ function showReferencePopover(numbers, clientX, clientY) {
     const item = document.createElement("article");
     item.className = "reference-entry";
     const number = document.createElement("strong");
-    number.textContent = `[${entry.number}]`;
+    number.textContent = getReferenceLabel(entry.number);
     const text = document.createElement("p");
     text.textContent = entry.text;
     const actions = document.createElement("div");
@@ -3206,7 +3146,7 @@ function positionReferencePopover(popover, clientX, clientY) {
 }
 
 async function copyReferenceEntries(entries, button) {
-  const text = entries.map((entry) => `[${entry.number}] ${entry.text}`).join("\n");
+  const text = entries.map((entry) => /^\d+$/.test(entry.number) ? `${getReferenceLabel(entry.number)} ${entry.text}` : entry.text).join("\n");
   try {
     await copyTextToClipboard(text);
     button.classList.add("copied");

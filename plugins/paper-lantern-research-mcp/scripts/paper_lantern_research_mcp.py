@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 
 SERVER_NAME = "paper-lantern-research"
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.7.0"
 
 
 def find_project_root() -> Path:
@@ -38,6 +38,7 @@ import server as paper_server  # noqa: E402
 from backend.mcp_markdown import MARKDOWN_RULES, validate_note_markdown  # noqa: E402
 from backend.paper_content import SOURCES, build_passages, query_terms, read_source, score_passage  # noqa: E402
 from backend.content_index import ContentIndex, library_cache_dir  # noqa: E402
+from backend.paper_annotations import append_annotation, highlight_groups  # noqa: E402
 
 
 JsonObject = dict[str, Any]
@@ -45,6 +46,7 @@ READ_ONLY_TOOLS = frozenset({
     "library_overview", "search_library", "list_papers", "list_paper_summaries",
     "get_paper_summary", "get_paper_full_text", "search_paper_content", "get_paper_passages",
     "agent_capabilities", "get_item", "list_flags",
+    "get_paper_highlights", "get_paper_annotations",
 })
 
 
@@ -434,6 +436,72 @@ def tool_ask_paper(args: JsonObject) -> JsonObject:
     return tool_text({"hash": paper["hash"], "id": paper["id"], "title": paper["title"],
                       "answer": answer, "contextCharCount": len(context),
                       "contextTruncated": len(text) > len(context)})
+
+
+def read_article_highlights(item_id: str) -> tuple[Path, list[JsonObject]]:
+    db = read_db()
+    record = select_papers(db, [item_id])[0]
+    directory = paper_server.paper_dir_from_record(record)
+    if not directory.is_dir():
+        raise FileNotFoundError("Article directory not found.")
+    path = directory / "highlights.json"
+    # Do not replace malformed JSON with [] and accidentally discard annotations.
+    highlights = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    if not isinstance(highlights, list) or any(not isinstance(item, dict) for item in highlights):
+        raise ValueError("Existing highlights are invalid; no changes were saved.")
+    return directory, highlights
+
+
+@paper_server.library_locked
+def read_highlight_groups(args: JsonObject, annotations_only: bool = False) -> JsonObject:
+    item_id = args["id"].strip()
+    _directory, highlights = read_article_highlights(item_id)
+    groups = highlight_groups(highlights)
+    if "pageNumber" in args:
+        groups = [group for group in groups if group["pageNumber"] == args["pageNumber"]]
+    if "color" in args:
+        groups = [group for group in groups if group["color"] == args["color"]]
+    if annotations_only:
+        groups = [group for group in groups if any(entry["content"] for entry in group["entries"])]
+    offset, limit = args.get("offset", 0), args.get("limit", 50)
+    end = offset + limit
+    return tool_text({"id": item_id, "total": len(groups), "groups": groups[offset:end],
+                      "offset": offset, "nextOffset": end if end < len(groups) else None})
+
+
+def tool_get_paper_highlights(args: JsonObject) -> JsonObject:
+    return read_highlight_groups(args)
+
+
+def tool_get_paper_annotations(args: JsonObject) -> JsonObject:
+    return read_highlight_groups(args, annotations_only=True)
+
+
+def tool_add_paper_highlight(args: JsonObject) -> JsonObject:
+    from backend.pdf_highlights import prepare_pdf_highlight
+
+    item_id, page_number, text = args["id"].strip(), args["pageNumber"], args["text"].strip()
+    with paper_server.LIBRARY_LOCK:
+        directory, highlights = read_article_highlights(item_id)
+        group, additions = prepare_pdf_highlight(directory / "paper.pdf", highlights, page_number, text, args.get("color", "yellow"))
+        if not additions:
+            return tool_text({"id": item_id, "added": False, "group": group, "sync": None})
+        paper_server.write_json(directory / "highlights.json", highlights + additions)
+        paper_server.update_paper_sync_hash(directory)
+    return tool_text({"id": item_id, "added": True, "group": group,
+                      "sync": paper_server.maybe_auto_sync_library()})
+
+
+def tool_add_paper_annotation(args: JsonObject) -> JsonObject:
+    item_id, group_id = args["id"].strip(), args["groupId"].strip()
+    with paper_server.LIBRARY_LOCK:
+        directory, highlights = read_article_highlights(item_id)
+        entry = append_annotation(highlights, group_id, args["content"].strip(), args.get("type", "comment"))
+        paper_server.write_json(directory / "highlights.json", highlights)
+        paper_server.update_paper_sync_hash(directory)
+        group = next(group for group in highlight_groups(highlights) if group["groupId"] == group_id)
+    return tool_text({"id": item_id, "entry": entry, "group": group,
+                      "sync": paper_server.maybe_auto_sync_library()})
 
 
 def tool_auto_highlight_paper(args: JsonObject) -> JsonObject:
@@ -891,6 +959,12 @@ def tool_make_paper_link(args: JsonObject) -> JsonObject:
 
 
 CATEGORY_IDS_SCHEMA: JsonObject = {"type": "array", "items": {"type": "string", "minLength": 1}}
+UNCATEGORIZED_RULES = (
+    " Uncategorized (uncategorized / 未分类) is a fallback only: adding a real category automatically removes it, "
+    "and removing the last real category restores it. When classifying, submit only real category IDs; "
+    "do not preserve, append or re-add uncategorized, and do not issue a separate removal call. "
+    "Preserving other memberships means other real categories. Mixed write arrays ignore Uncategorized when real categories are present."
+)
 LEGACY_CATEGORY_SCHEMA: JsonObject = {
     "type": "string",
     "description": "Legacy single-category parameter. categoryIds takes precedence when both are supplied.",
@@ -899,7 +973,7 @@ MEMBERSHIP_SCHEMA: JsonObject = {
     "type": "object",
     "properties": {
         "id": {"type": "string", "minLength": 1, "description": "Paper or standalone note ID."},
-        "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Existing category IDs, as returned by library_overview."},
+        "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Existing category IDs, as returned by library_overview." + UNCATEGORIZED_RULES},
     },
     "required": ["id", "categoryIds"],
     "additionalProperties": False,
@@ -924,8 +998,8 @@ ITEM_UPDATE_SCHEMA: JsonObject = {
         "id": {"type": "string", "minLength": 1},
         "title": {"type": "string"},
         "categoryId": LEGACY_CATEGORY_SCHEMA,
-        "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Replace all memberships with existing categories; [] clears memberships."},
-        "addCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Add existing categories while keeping other memberships."},
+        "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Replace all memberships with existing categories; [] clears memberships." + UNCATEGORIZED_RULES},
+        "addCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Add existing categories while keeping other real memberships." + UNCATEGORIZED_RULES},
         "removeCategoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Remove exact memberships; removal wins over additions."},
         "doi": {"type": "string"},
         "basicInfo": {"type": "object"},
@@ -939,6 +1013,13 @@ ITEM_UPDATE_SCHEMA: JsonObject = {
 }
 ID_SCHEMA: JsonObject = {"type": "string", "minLength": 1}
 DRY_RUN_SCHEMA: JsonObject = {"type": "boolean", "default": False, "description": "Preview changes without applying them or triggering sync."}
+HIGHLIGHT_COLOR_SCHEMA: JsonObject = {"type": "string", "enum": ["yellow", "green", "blue", "pink", "orange", "purple", "red"]}
+HIGHLIGHT_PAGE_SCHEMA: JsonObject = {"type": "integer", "minimum": 1, "description": "PDF page number, starting at 1."}
+HIGHLIGHT_READ_SCHEMA: JsonObject = {
+    "type": "object", "properties": {"id": ID_SCHEMA, "pageNumber": HIGHLIGHT_PAGE_SCHEMA, "color": HIGHLIGHT_COLOR_SCHEMA,
+                                      "offset": CONTENT_OFFSET_SCHEMA, "limit": {**CONTENT_LIMIT_SCHEMA, "default": 50}},
+    "required": ["id"], "additionalProperties": False,
+}
 
 
 TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
@@ -1071,6 +1152,32 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
         },
         tool_get_item,
     ),
+    "get_paper_highlights": (
+        "Read PDF highlight groups, including rectangles, selectedText, color, groupId and comment/translation entries. Optional pageNumber/color filters and offset/limit pagination (default 50, maximum 50); follow nextOffset to read more. No AI or PDF extraction required; standalone notes are excluded.",
+        HIGHLIGHT_READ_SCHEMA,
+        tool_get_paper_highlights,
+    ),
+    "get_paper_annotations": (
+        "Read PDF highlight groups containing nonempty comments or translations, including legacy annotations. Same result shape and filters as get_paper_highlights; plain highlights are omitted.",
+        HIGHLIGHT_READ_SCHEMA,
+        tool_get_paper_annotations,
+    ),
+    "add_paper_highlight": (
+        "Add a PDF highlight by an exact original quotation on a 1-based page. Requires PyMuPDF, no AI configuration. A unique match is required; repeated quotations return the existing group without changes. Preserves all existing annotations. Returns groupId for add_paper_annotation. Refresh the reader after saving.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "pageNumber": HIGHLIGHT_PAGE_SCHEMA,
+                                          "text": {"type": "string", "minLength": 1, "description": "Exact original PDF quotation, uniquely located on this page."},
+                                          "color": {**HIGHLIGHT_COLOR_SCHEMA, "default": "yellow"}},
+         "required": ["id", "pageNumber", "text"], "additionalProperties": False},
+        tool_add_paper_highlight,
+    ),
+    "add_paper_annotation": (
+        "Append a comment or translation to an existing PDF highlight group, preserving previous entries and updating all its rectangles. Obtain groupId with get_paper_highlights or add_paper_highlight. No AI or PyMuPDF required. Refresh the reader after saving.",
+        {"type": "object", "properties": {"id": ID_SCHEMA, "groupId": ID_SCHEMA,
+                                          "content": {"type": "string", "minLength": 1},
+                                          "type": {"type": "string", "enum": ["comment", "translation"], "default": "comment"}},
+         "required": ["id", "groupId", "content"], "additionalProperties": False},
+        tool_add_paper_annotation,
+    ),
     "auto_highlight_paper": (
         "Use the configured LLM to select important original text from a library PDF and save purple highlights, preserving existing annotations and skipping duplicates. Requires PyMuPDF. Set save=false to preview without writing. Returns normalized rectangles, quotes, counts, and colorMeaning. Refresh the PDF reader after saving.",
         {
@@ -1092,7 +1199,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
                 "url": {"type": "string", "minLength": 1},
                 "title": {"type": "string"},
                 "categoryId": LEGACY_CATEGORY_SCHEMA,
-                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized; missing category paths are created. For duplicates, memberships are added to the existing item."},
+                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized; missing category paths are created. For duplicates, memberships are added to the existing item." + UNCATEGORIZED_RULES},
             },
             "required": ["url"],
             "additionalProperties": False,
@@ -1107,7 +1214,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
                 "url": {"type": "string", "minLength": 1},
                 "title": {"type": "string"},
                 "categoryId": LEGACY_CATEGORY_SCHEMA,
-                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized; missing category paths are created. For duplicates, memberships are added to the existing item."},
+                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized; missing category paths are created. For duplicates, memberships are added to the existing item." + UNCATEGORIZED_RULES},
             },
             "required": ["url"],
             "additionalProperties": False,
@@ -1258,12 +1365,12 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
         tool_batch_update_flags,
     ),
     "set_item_categories": (
-        "Replace every category membership of a paper or note. categoryIds=[] clears memberships and places it in Uncategorized. Returns the updated paper with categoryIds/categoryNames.",
+        "Replace every category membership of a paper or note. categoryIds=[] clears memberships and places it in Uncategorized. Returns the updated paper with categoryIds/categoryNames." + UNCATEGORIZED_RULES,
         MEMBERSHIP_SCHEMA,
         tool_set_item_categories,
     ),
     "add_item_categories": (
-        "Add a paper or note to existing categories, preserving its other memberships. Duplicate IDs are ignored; [] makes no change.",
+        "Add a paper or note to existing categories, preserving its other real memberships. Duplicate IDs are ignored; [] makes no change." + UNCATEGORIZED_RULES,
         MEMBERSHIP_SCHEMA,
         tool_add_item_categories,
     ),
@@ -1285,7 +1392,7 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "properties": {
                 "title": {"type": "string"},
                 "categoryId": LEGACY_CATEGORY_SCHEMA,
-                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized. Missing category paths are created."},
+                "categoryIds": {**CATEGORY_IDS_SCHEMA, "description": "Initial memberships. Empty or omitted means Uncategorized. Missing category paths are created." + UNCATEGORIZED_RULES},
                 "content": {"type": "string", "description": MARKDOWN_RULES},
             },
             "required": ["title"],

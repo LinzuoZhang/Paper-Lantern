@@ -2,6 +2,7 @@ import { initNotesPanel } from "../components/notes_panel.js";
 import { initLibrarySidebar } from "../components/library_sidebar.js";
 import { initDiscussionPanel } from "../components/discussion_panel.js";
 import { initNoteAnnotations } from "../components/note_annotations.js";
+import { initSettingsModal } from "../components/settings_modal.js";
 
 const noteId = new URLSearchParams(window.location.search).get("id") || "";
 const noteShell = document.querySelector(".standalone-note-shell");
@@ -103,6 +104,15 @@ const librarySidebar = initLibrarySidebar({
 initDiscussionResizer();
 initTitleEditing();
 initNoteZoom();
+initSettingsModal({
+  openButtons: ["#noteSettingsButton"],
+  apiFetch,
+  setBusy: (isBusy) => {
+    const button = document.querySelector("#noteSettingsButton");
+    if (button) button.disabled = isBusy;
+  },
+  setStatus,
+});
 loadNote();
 
 async function loadNote() {

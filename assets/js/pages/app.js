@@ -152,9 +152,6 @@ const researchAssistant = initResearchAssistant({
       const hashes = papers.filter(paper => selectedPaperIds.has(paper.id)).map(paper => paper.id);
       return { label: `已选文献 · ${hashes.length} 篇论文`, hashes };
     }
-    if (selectedCategoryId && ![RECENT_CATEGORY_ID, TODO_CATEGORY_ID].includes(selectedCategoryId)) {
-      return { label: `当前分类 · ${currentCategoryName.textContent || "未分类"}`, categoryIds: [selectedCategoryId] };
-    }
     return { label: "整个文献库" };
   },
 });

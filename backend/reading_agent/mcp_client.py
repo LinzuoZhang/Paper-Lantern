@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 import sys
 
-from .state import AgentError
+from .state import AgentCancelled, AgentError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL_TOOLS = frozenset({"list_paper_summaries", "get_paper_summary", "search_paper_content", "get_paper_passages"})
+MODEL_TOOLS = frozenset({"list_paper_summaries", "get_paper_summary", "search_paper_content", "get_paper_passages",
+                         "get_paper_highlights", "get_paper_annotations"})
 
 
 class ResearchMCPClient:
@@ -66,7 +67,14 @@ class ResearchMCPClient:
     async def call(self, name, arguments):
         if name not in self.tools:
             raise AgentError(f"MCP 工具不可用：{name}")
-        result = await self.session.call_tool(name, arguments)
+        try:
+            result = await self.session.call_tool(name, arguments)
+        except AgentCancelled:
+            raise
+        except Exception as exc:
+            # Transport/protocol failures are tool observations too. The agent
+            # can adjust its request or try another tool on the next turn.
+            raise AgentError(str(exc)[:2000] or type(exc).__name__) from exc
         blocks = [block.text for block in result.content if block.type == "text"]
         if result.isError:
             raise AgentError("; ".join(blocks)[:2000] or "MCP 工具执行失败。")

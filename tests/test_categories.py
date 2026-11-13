@@ -88,6 +88,36 @@ class CategoryTests(LibraryFixture):
         self.assertEqual(metadata["categoryIds"], ["A", "B"])
         self.assertEqual(len(list(server.PAPER_STORAGE_DIR.iterdir())), 1)
 
+    def test_uncategorized_is_only_a_fallback_after_classifying(self):
+        paper = self.paper([])
+        updated = server.update_paper_categories(paper["id"], ["A"], "add_categories")
+        self.assertEqual(updated["categoryIds"], ["A"])
+        tree = server.read_library_tree()
+        fallback = next(node for node in tree["folders"] if node["id"] == "uncategorized")
+        self.assertEqual(fallback["papers"], [])
+        metadata = server.read_json(server.paper_dir_from_id(paper["id"]) / "metadata.json", {})
+        self.assertEqual(metadata["categoryIds"], ["A"])
+        self.assertNotIn("uncategorized", metadata["categoryMemberships"])
+        updated = server.update_paper_categories(paper["id"], ["A"], "remove_categories")
+        self.assertEqual(updated["categoryIds"], ["uncategorized"])
+        tree = server.read_library_tree()
+        fallback = next(node for node in tree["folders"] if node["id"] == "uncategorized")
+        self.assertEqual([item["id"] for item in fallback["papers"]], [paper["id"]])
+
+    def test_legacy_fallback_memberships_are_cleaned_on_load_and_sync(self):
+        paper = self.paper("A")
+        stale = server.load_library_db()
+        record = stale["papers"][paper["id"]]
+        for alias in ("uncategorized", "Uncategorized", "未分类"):
+            record["categoryMemberships"][alias] = {"present": True, "updatedAt": "2030-01-01T00:00:00+00:00"}
+        server.save_library_db(stale)
+        loaded = server.load_library_db()
+        for db in (loaded, cloud_sync.merge_dbs(loaded, stale), cloud_sync.merge_dbs(stale, loaded)):
+            with self.subTest(source=db):
+                record = db["papers"][paper["id"]]
+                self.assertEqual(record["categoryIds"], ["A"])
+                self.assertEqual(set(record["categoryMemberships"]), {"A"})
+
     def test_delete_parent_only_removes_its_memberships(self):
         server.create_category("A", "child")
         paper = self.paper(["A", "A/child", "B"])

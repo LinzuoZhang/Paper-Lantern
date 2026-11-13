@@ -1,16 +1,24 @@
+const UNCATEGORIZED_ALIASES = new Set(["uncategorized", "Uncategorized", "未分类"]);
+
+function sourceCategoryIds(paper) {
+  return Array.isArray(paper?.categoryIds) ? paper.categoryIds : [paper?.category || paper?.categoryId || "uncategorized"];
+}
+
 export function getCategoryIds(paper) {
-  const ids = Array.isArray(paper?.categoryIds) ? paper.categoryIds : [paper?.category || paper?.categoryId || "uncategorized"];
-  return [...new Set(ids.filter(Boolean))];
+  const ids = [...new Set(sourceCategoryIds(paper).filter((id) => id && !UNCATEGORIZED_ALIASES.has(id)))];
+  return ids.length ? ids : ["uncategorized"];
 }
 
 export function getCategoryLabels(paper) {
   const ids = getCategoryIds(paper);
+  const sourceIds = sourceCategoryIds(paper);
   const names = Array.isArray(paper?.categoryNames) ? paper.categoryNames : [];
-  return ids.length ? ids.map((id, index) => {
-    if (["uncategorized", "Uncategorized", "未分类"].includes(id)) return "未分类";
+  return ids.map((id) => {
+    if (id === "uncategorized") return "未分类";
     if (id.includes("/")) return id.split("/").join(" / ");
+    const index = sourceIds.indexOf(id);
     return names[index] || (index === 0 ? paper?.categoryName : "") || id;
-  }) : ["未分类"];
+  });
 }
 
 export function collectUniquePapers(node) {
@@ -27,7 +35,7 @@ export function collectUniquePapers(node) {
 }
 
 export function categorySearchText(paper) {
-  return [...getCategoryIds(paper), ...(paper.categoryNames || [paper.categoryName || ""])].join(" ");
+  return [...getCategoryIds(paper), ...getCategoryLabels(paper)].join(" ");
 }
 
 export function showCategoryManager({ tree, paper, anchor, onSave }) {
@@ -50,7 +58,7 @@ export function showCategoryManager({ tree, paper, anchor, onSave }) {
   const description = document.createElement("p");
   description.id = "categoryManagerDescription";
   description.className = "category-manager-description";
-  description.textContent = "选择文献所属的分类，可多选";
+  description.textContent = "选择文献所属的分类，可多选。选择分类后自动移出未分类；未选择任何分类时归入未分类。";
   dialog.setAttribute("aria-describedby", description.id);
   const searchField = document.createElement("div");
   searchField.className = "category-manager-search";

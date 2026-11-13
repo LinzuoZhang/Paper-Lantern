@@ -15,9 +15,18 @@ from backend.category_model import category_ids, set_record_categories
 from backend.mcp_markdown import validate_note_markdown
 from .capabilities import WRITE_CAPABILITIES, mcp_module
 from .store import JobConflict
+from .annotation_actions import ANNOTATION_TOOLS, prepare_annotation_change
 
 
 EXECUTION_LOCK = threading.RLock()
+
+
+class PlanValidationError(ValueError):
+    """A persisted preview failure that can be returned to the planning agent."""
+
+    def __init__(self, plan):
+        self.plan = plan
+        super().__init__(plan["failure"]["error"])
 
 
 def encode(value):
@@ -28,7 +37,18 @@ def digest(value):
     return hashlib.sha256(encode(value).encode("utf-8")).hexdigest()
 
 
+def reference_value(value):
+    # Older model responses encoded an entire reference as a string. Only
+    # recognize this exact form; never interpolate references inside content.
+    if isinstance(value, str):
+        match = re.fullmatch(r"\{ref:([A-Za-z0-9_-]{1,80}\.(?:categoryId|flagId|noteId|groupId|entryId))\}", value)
+        if match:
+            return {"ref": match.group(1)}
+    return value
+
+
 def resolve(value, outputs):
+    value = reference_value(value)
     if isinstance(value, dict):
         if set(value) == {"ref"}:
             if not isinstance(value["ref"], str):
@@ -126,16 +146,27 @@ class PlanStore:
 
 def snapshot(api):
     db = api.load_library_db()
-    metadata, notes, local, signatures = {}, {}, {}, {}
+    metadata, notes, local, signatures, highlights = {}, {}, {}, {}, {}
     for key, record in db["papers"].items():
         folder = api.paper_dir_from_record(record)
         metadata[key] = api.read_json(folder / "metadata.json", {})
         notes[key] = api.read_text_file(folder / api.NOTES_FILE) if (folder / api.NOTES_FILE).exists() else str(metadata[key].get("notes", ""))
         local[key] = api.paper_local_state(key, metadata[key])
         signatures[key] = {"metadata": metadata[key], "notes": notes[key], "local": local[key], "exists": folder.is_dir()}
+        path = folder / "highlights.json"
+        raw = path.read_bytes() if path.exists() else b"[]"
+        signatures[key]["highlights"] = hashlib.sha256(raw).hexdigest()
+        try:
+            highlights[key] = json.loads(raw)
+        except (ValueError, UnicodeError):
+            highlights[key] = None
+        pdf_path = folder / "paper.pdf"
+        if pdf_path.is_file():
+            stat = pdf_path.stat()
+            signatures[key]["pdf"] = [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino]
     flags = api.library_flag_definitions()
     revision = digest({"library": db, "items": signatures, "flags": flags})
-    return {"db": deepcopy(db), "metadata": metadata, "notes": notes, "local": local,
+    return {"db": deepcopy(db), "metadata": metadata, "notes": notes, "local": local, "highlights": highlights,
             "exists": {key: value["exists"] for key, value in signatures.items()},
             "flags": {flag["id"]: flag for flag in flags}}, revision
 
@@ -158,8 +189,11 @@ def simulate(api, module, state, name, arguments, key, plan_id):
     changes, output = [], {}
 
     def valid_categories(values):
-        if not isinstance(values, list) or any(not isinstance(value, str) or value not in categories for value in values):
-            raise ValueError("分类必须已存在，或由计划中先前的操作创建；请使用 categoryIds。")
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise ValueError('categoryIds 须为分类 ID 数组；新分类请使用对象引用，例如 [{"ref":"create_topic.categoryId"}]。')
+        missing = [value for value in values if value not in categories]
+        if missing:
+            raise ValueError("分类不存在：" + encode(missing) + '。请使用已有分类的确切 ID；新分类须先 create_category，再用 {"ref":"创建操作id.categoryId"} 引用。')
         return values
 
     def update_item(item):
@@ -316,6 +350,16 @@ def simulate(api, module, state, name, arguments, key, plan_id):
             current = set(item_view(state, item_id)["flags"])
             desired = current | set(args["flags"]) if args["operation"] == "add" else current - set(args["flags"])
             update_item({"id": item_id, "flags": sorted(desired)})
+    elif name in ANNOTATION_TOOLS:
+        args["id"] = args["id"].strip()
+        record = db["papers"].get(args["id"])
+        if not record or record.get("itemType", "paper") != "paper" or not state["exists"].get(args["id"]):
+            raise ValueError("目标不是可用的 PDF 论文。")
+        highlights = state["highlights"].get(args["id"])
+        if not isinstance(highlights, list) or any(not isinstance(item, dict) for item in highlights):
+            raise ValueError("论文高亮文件损坏，请先修复；本次未保存任何变更。")
+        output, before, after = prepare_annotation_change(api.paper_dir_from_record(record), highlights, name, args, plan_id, key)
+        changes = [{"id": args["id"], "title": record.get("title", args["id"]), "before": before, "after": after}]
     elif name == "create_note":
         title = args["title"].strip()
         if not 1 <= len(title) <= 200 or "categoryId" in args:
@@ -356,8 +400,15 @@ def preview_plan(api, plans, plan_id, job_id):
         module = mcp_module(); module.paper_server = api
         outputs, preview = {}, []
         for operation in data["proposal"]["operations"]:
-            args = resolve(operation["arguments"], outputs)
-            output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
+            try:
+                args = resolve(operation["arguments"], outputs)
+                output, changes = simulate(api, module, state, operation["tool"], args, operation["id"], data["id"])
+            except (ValueError, TypeError, OSError, RuntimeError) as error:
+                data.update(state="failed", failure={"stage": "preview", "operationId": operation["id"],
+                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": False,
+                            "parameterSchema": module.TOOLS[operation["tool"]][1]})
+                plans.save(data)
+                raise PlanValidationError(data) from error
             outputs[operation["id"]] = output
             preview.append(deepcopy({"id": operation["id"], "tool": operation["tool"], "label": WRITE_CAPABILITIES[operation["tool"]],
                             "reason": operation.get("reason", ""), "arguments": args, "changes": changes}))
@@ -368,6 +419,14 @@ def preview_plan(api, plans, plan_id, job_id):
 
 
 def apply_operation(api, module, name, args, plan_id, key):
+    if name in ANNOTATION_TOOLS:
+        args = {**args, "id": args["id"].strip()}
+        directory, highlights = module.read_article_highlights(args["id"])
+        output, _before, _after = prepare_annotation_change(directory, highlights, name, args, plan_id, key)
+        if output["changed"]:
+            api.write_json(directory / "highlights.json", highlights)
+            api.update_paper_sync_hash(directory)
+        return output
     if name == "create_category":
         return {"categoryId": api.create_category(args.get("parentId", ""), args["name"])}
     if name == "rename_category":
@@ -433,7 +492,9 @@ def approve_plan(api, plans, plan_id, job_id, expected_digest):
             raise JobConflict("该计划不再属于当前待确认的任务。")
         _state, revision = snapshot(api)
         if revision != data["revision"]:
-            data["state"] = "stale"; plans.save(data)
+            data.update(state="stale", failure={"stage": "revision", "error": "文献库已变化，原计划已失效；请核对当前状态并重新生成计划。",
+                                               "possiblePartialWrite": False})
+            plans.save(data)
             raise JobConflict("文献库已变化，原计划已失效；请重新生成计划并确认。")
         data["state"] = "executing"; plans.save(data)
         module = mcp_module(); module.paper_server = api
@@ -451,11 +512,14 @@ def approve_plan(api, plans, plan_id, job_id, expected_digest):
                 plans.save(data)
             except Exception as error:
                 receipt.update(status="failed", error=str(error), possiblePartialWrite=True)
-                data["state"] = "failed"; plans.save(data)
+                data.update(state="failed", failure={"stage": "execution", "operationId": operation["id"],
+                            "tool": operation["tool"], "error": str(error)[:2000], "possiblePartialWrite": True})
+                plans.save(data)
                 break
         else:
             data["state"] = "completed"; plans.save(data)
-    if any(result["status"] == "completed" and result["tool"] not in {"create_flag", "update_flag", "batch_update_flags"} for result in data["results"]):
+    if any(result["status"] == "completed" and result["tool"] not in {"create_flag", "update_flag", "batch_update_flags"}
+           and result["output"].get("changed", True) for result in data["results"]):
         try:
             api.maybe_auto_sync_library()
         except Exception as error:
@@ -472,6 +536,7 @@ def retry_plan(api, plans, plan_id, job_id):
         remaining = [deepcopy(operation) for operation in data["proposal"]["operations"] if operation["id"] not in outputs]
         for operation in remaining:
             def known_refs(value):
+                value = reference_value(value)
                 if isinstance(value, dict) and set(value) == {"ref"} and value["ref"].split(".")[0] in outputs:
                     return resolve(value, outputs)
                 if isinstance(value, dict):

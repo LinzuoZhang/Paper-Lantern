@@ -206,4 +206,88 @@ for (const editedIndex of [0, 2]) {
   assert.ok(reloadedMessages.slice(1).every(node => !node.querySelector('.discussion-reference-card')));
   assert.deepEqual(panel.getActiveReference(), reference);
 }
-console.log('Discussion edit regeneration tests passed (first question and follow-up).');
+// Agent mode is shared by reader/note, persisted per thread and locked while answering.
+for (const contextType of ['paper', 'note']) {
+  const ids = ['discussionForm', 'discussionInput', 'discussionMessages', 'discussionThreadList', 'discussionListView', 'discussionThreadView',
+    'discussionModeChat', 'discussionModeWork', 'sendDiscussionButton', 'addDiscussionPaperButton'];
+  const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
+  let request, finish, selectPaper, summaryCalls = 0;
+  const saved = [];
+  const panel = initDiscussionPanel({
+    root: { querySelector: selector => elements[selector.slice(1)] || null },
+    getItem: () => ({ id: 'current-item' }), getContextText: () => '当前内容', contextType,
+    saveItem: async value => saved.push(structuredClone(value)), onScrollLatest() {},
+    paperReferences: { pickPaper: (_, select) => { selectPaper = select; } },
+    apiFetch: async (url, options) => {
+      if (url === '/api/discussion/paper-summary') summaryCalls++;
+      if (url === '/api/discuss') {
+        request = JSON.parse(options.body);
+        return new Promise(resolve => { finish = () => resolve({ ok: true, headers: { get: () => 'application/json' } }); });
+      }
+      return { ok: true };
+    },
+    readJsonResponse: async () => ({ answer: 'Agent回答', title: '讨论标题' }),
+  });
+  assert.equal(elements.discussionModeChat.checked, true);
+  assert.equal(elements.discussionModeWork.checked, false);
+  assert.equal(elements.discussionListView.hidden, false);
+  assert.equal(elements.discussionThreadView.hidden, true);
+  elements.discussionModeWork.checked = true;
+  elements.discussionModeWork.fire('change');
+  assert.equal(panel.getThreads().length, 0, 'Choosing a mode before the first message must not require a new discussion');
+  assert.equal(elements.discussionModeChat.checked, false);
+  elements.addDiscussionPaperButton.fire('click');
+  await selectPaper({ id: 'related-paper', title: '相关论文' });
+  assert.equal(summaryCalls, 0, 'Agent must not require AI-generated summaries before reading papers');
+  elements.discussionInput.value = '比较方法';
+  const sending = elements.discussionForm.fire('submit');
+  for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+  assert.equal(elements.discussionModeChat.disabled, true);
+  assert.equal(elements.discussionModeWork.disabled, true);
+  assert.equal(elements.discussionThreadView.hidden, false);
+  assert.equal(request.mode, 'agent');
+  assert.equal(request.contextType, contextType);
+  assert.equal(request.itemId, 'current-item');
+  assert.equal(request.paperId, contextType === 'paper' ? 'current-item' : '');
+  assert.deepEqual(request.paperIds, ['related-paper']);
+  finish();
+  await sending;
+  assert.equal(elements.discussionModeWork.disabled, false);
+  const stored = saved.at(-1).discussion;
+  assert.equal(stored.threads[0].mode, 'agent');
+  panel.renderHistory(stored);
+  elements.discussionThreadList.children[0].fire('click');
+  assert.equal(elements.discussionModeWork.checked, true);
+  elements.discussionModeChat.checked = true;
+  elements.discussionModeChat.fire('change');
+  assert.equal(elements.discussionModeWork.checked, false);
+  assert.equal(panel.getThreads()[0].mode, 'normal');
+  panel.renderHistory({ threads: [{ id: 'legacy', messages: [{ role: 'user', content: '旧讨论' }] }] });
+  elements.discussionThreadList.children[0].fire('click');
+  assert.equal(elements.discussionModeChat.checked, true);
+}
+
+// Stopping an Agent request aborts its HTTP stream and restores the controls.
+{
+  const elements = Object.fromEntries(['discussionForm', 'discussionInput', 'discussionMessages',
+    'discussionModeChat', 'discussionModeWork', 'sendDiscussionButton'].map(id => [id, new Element()]));
+  let signal;
+  initDiscussionPanel({
+    root: { querySelector: selector => elements[selector.slice(1)] || null },
+    getItem: () => ({ id: 'current' }), getContextText: () => '正文', saveItem: async () => {}, onScrollLatest() {},
+    apiFetch: async (_, options) => new Promise((resolve, reject) => {
+      signal = options.signal;
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('Stopped'), { name: 'AbortError' })));
+    }), readJsonResponse: async () => ({}),
+  });
+  elements.discussionModeWork.checked = true; elements.discussionModeWork.fire('change');
+  elements.discussionInput.value = '检索论文';
+  const sending = elements.discussionForm.fire('submit');
+  for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+  elements.sendDiscussionButton.fire('click');
+  await sending;
+  assert.equal(signal.aborted, true);
+  assert.equal(elements.discussionModeWork.disabled, false);
+  assert.equal(elements.discussionInput.disabled, false);
+}
+console.log('Discussion mode, context, stop, persistence and edit regeneration tests passed.');

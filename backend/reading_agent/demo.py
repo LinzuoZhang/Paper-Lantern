@@ -97,6 +97,21 @@ class DemoModelServer:
                         "两者都使用同一模拟器和十个种子，没有真实机器人实验，不能据此推断真实场景泛化。"
                         "本次读取的是无分页文本缓存，无法提供 PDF 页码。"
                     )
+                if payload.get("stream"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.end_headers()
+                    deltas = ([{"tool_calls": [{"index": index, **call} for index, call in enumerate(message["tool_calls"])]}]
+                              if calls else [{"content": message["content"][start:start + 40]}
+                                             for start in range(0, len(message["content"]), 40)])
+                    for delta in deltas:
+                        data = {"choices": [{"index": 0, "delta": delta}]}
+                        self.wfile.write(("data: " + json.dumps(data, ensure_ascii=False) + "\n\n").encode("utf-8"))
+                        self.wfile.flush()
+                    data = {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls" if calls else "stop"}],
+                            "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}}
+                    self.wfile.write(("data: " + json.dumps(data) + "\n\ndata: [DONE]\n\n").encode("utf-8"))
+                    return
                 body = json.dumps({"choices": [{"message": message, "finish_reason": "tool_calls" if calls else "stop"}],
                                    "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}},
                                   ensure_ascii=False).encode("utf-8")

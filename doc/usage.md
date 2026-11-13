@@ -87,6 +87,17 @@ Paper Lantern 使用兼容 OpenAI Chat Completions 的接口，因此也可以�
 
 点击论文进入阅读器。PDF 显示在左侧，论文信息和阅读工具位于右侧。
 
+论文解析使用 LangGraph Agent。你只需提供论文并选择要生成的成果，Agent 自主选择阅读和拆解方式、检查结构及公式格式，校验失败时继续修正。完整解析、概览和单项重新生成共用此机制，界面显示实时进度，通过最终校验后才保存结果。
+
+首次使用解析功能，请在正式版 Python 3.11 或 3.12 环境安装依赖。可以与阅读 Agent 共用运行环境：
+
+```powershell
+py -3.12 -m venv .cache/reading-agent-venv
+.cache/reading-agent-venv/Scripts/python.exe -m pip install -r requirements-reading-agent.txt
+```
+
+也可以设置 `PAPER_LANTERN_AGENT_PYTHON` 指向已安装依赖的 Python。模型需支持原生 `tools/tool_calls`。完整解析和方法拆解使用“方法解析”模块；只刷新关键词使用“关键词解释”模块；只刷新三行摘要使用“论文概览”模块。每次任务使用所选模块的接口、Think 和个性化提示词，不再固定调用其他模块或复用通用关键词释义缓存。核心阅读和文献管理功能仍无需这些依赖。
+
 - 使用 AI 生成关键词、基本信息、三行摘要、方法概览、方法拆解和结论。
 - 点击相应区域的刷新或解析按钮，可重新生成内容。
 - 在讨论区围绕当前论文提问；不同讨论线程及其历史会自动保存。

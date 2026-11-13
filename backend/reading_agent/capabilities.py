@@ -12,6 +12,8 @@ READ_CAPABILITIES = {
     "get_paper_summary": "查看论文摘要",
     "search_paper_content": "搜索文献原文",
     "get_paper_passages": "读取论文原文片段",
+    "get_paper_highlights": "分页读取论文高亮及其批注",
+    "get_paper_annotations": "分页读取论文批注和翻译",
     "get_item": "读取文献或笔记详情",
     "list_flags": "查看标记和待办定义",
 }
@@ -30,6 +32,8 @@ WRITE_CAPABILITIES = {
     "batch_update_flags": "批量添加或移除标记",
     "create_note": "创建笔记",
     "write_note": "替换、追加或前置笔记内容",
+    "add_paper_highlight": "按页码和原文新增论文高亮",
+    "add_paper_annotation": "向论文高亮追加批注或翻译",
 }
 
 
