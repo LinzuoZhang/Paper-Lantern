@@ -1,9 +1,64 @@
 ﻿/* Research surfaces inherit the note editor and reader design system. */
-.library-page .research-launcher { position: fixed; right: 24px; bottom: 24px; z-index: 151; display: grid; place-items: center; width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 9px; border: 1px solid var(--note-line); border-radius: 8px; background: #fff; color: var(--note-secondary); box-shadow: 0 1px 4px rgb(36 39 43 / 5%); cursor: grab; user-select: none; touch-action: none; }
-.library-page .research-launcher:hover { background: var(--note-hover); color: var(--note-ink); }
-.library-page .research-launcher.is-dragging { cursor: grabbing; background: var(--note-active); }
-.research-launcher > svg { width: 19px; height: 19px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.research-launcher-dot { position: absolute; right: 2px; top: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--note-secondary); }
+
+.library-page .research-launcher {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 151;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+  min-height: 64px;
+  padding: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: #EAE4F7;
+  color: #7864A7;
+  box-shadow:
+    0 2px 8px rgb(120 100 167 / 14%),
+    0 1px 2px rgb(120 100 167 / 8%);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition:
+    background var(--note-duration) ease,
+    box-shadow var(--note-duration) ease;
+}
+
+.library-page .research-launcher:hover {
+  background: #DCD1F2;
+  color: #7864A7;
+}
+
+.library-page .research-launcher.is-dragging {
+  cursor: grabbing;
+  background: #C9B8EB;
+  color: #66518F;
+  box-shadow: 0 4px 14px rgb(120 100 167 / 20%);
+}
+
+.research-launcher > svg {
+  width: 32px;
+  height: 32px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.research-launcher-dot {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 2px #7864A7;
+}
+
 .library-page .research-launcher[hidden], .research-panel[hidden], .research-panel [hidden] { display: none !important; }
 
 body.library-page.research-docked-open { display: grid; grid-template-columns: minmax(0, 1fr) var(--research-panel-width, 420px); grid-template-rows: 100dvh; }

@@ -16,8 +16,8 @@ assert.match(researchProgressText({ summary: '核对两篇论文的实验条件'
 assert.match(researchProgressText({ readPaperCount: 3 }), /已读取的 3 篇文献/);
 assert.match(researchProgressText({ finalizing: true }), /核对引文并组织回答/);
 
-assert.deepEqual(clampPosition({ x: -100, y: 9999 }, 800, 700), { x: 16, y: 646 });
-assert.deepEqual(clampPosition({ x: 900, y: -10 }, 300, 400), { x: 246, y: 16 });
+assert.deepEqual(clampPosition({ x: -100, y: 9999 }, 800, 700), { x: 16, y: 636 });
+assert.deepEqual(clampPosition({ x: 900, y: -10 }, 300, 400), { x: 236, y: 16 });
 assert.equal(clampPanelWidth(-100), 360);
 assert.equal(clampPanelWidth(900), 600);
 assert.equal(clampPanelWidth(undefined), 420);
@@ -97,14 +97,14 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
 {
   const { elements: e, storage, listeners } = fixture();
   const button = e.researchLauncher;
-  assert.equal(button.style.left, '938px');
-  assert.equal(button.style.top, '838px');
+  assert.equal(button.style.left, '928px');
+  assert.equal(button.style.top, '828px');
   await button.fire('pointerdown', { button: 0, isPrimary: true, pointerId: 1, clientX: 940, clientY: 840 });
   await button.fire('pointermove', { pointerId: 1, clientX: 440, clientY: 340 });
   await button.fire('pointerup', { pointerId: 1 });
   await button.fire('click');
   assert.equal(e.researchPanel.hidden, true, 'Dragging must not open the panel');
-  assert.equal(button.style.left, '438px');
+  assert.equal(button.style.left, '428px');
   assert.ok(storage.has('paperLanternResearchPosition'));
   await new Promise(resolve => setTimeout(resolve, 1));
   await button.fire('click');
@@ -113,10 +113,10 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   await e.researchClose.fire('click');
   assert.equal(e.researchPanel.hidden, true);
   window.innerWidth = 320; window.innerHeight = 500; listeners.resize();
-  assert.equal(button.style.left, '266px');
-  assert.equal(button.style.top, '338px');
+  assert.equal(button.style.left, '256px');
+  assert.equal(button.style.top, '328px');
   await button.fire('keydown', { shiftKey: true, key: 'ArrowLeft' });
-  assert.equal(button.style.left, '246px');
+  assert.equal(button.style.left, '236px');
 }
 {
   const { elements: e, storage, agent } = fixture();

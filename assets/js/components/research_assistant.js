@@ -4,7 +4,7 @@ import { createExecutionView, executionModel } from "./agent_execution_view.js";
 
 const POSITION_KEY = "paperLanternResearchPosition";
 const LAYOUT_KEY = "paperLanternResearchLayout";
-const SIZE = 38;
+const SIZE = 48;
 const MARGIN = 16;
 
 export function clampPanelWidth(width) {
