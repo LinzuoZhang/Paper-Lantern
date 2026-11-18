@@ -1,4 +1,32 @@
 /* Paper reading layout; load after workspace.css and shared editor controls in note.css. */
+.paper-reader-page .analysis-progress {
+  width: 100%;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.paper-reader-page .analysis-progress-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.paper-reader-page .analysis-progress-budget { font-size: 11px; }
+.paper-reader-page .analysis-progress-status { margin: 8px 0; font-size: 13px; }
+.paper-reader-page .analysis-progress-history {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: 20px;
+}
+.paper-reader-page .analysis-progress-history li { padding: 6px 0; }
+.paper-reader-page .analysis-progress-history strong { color: var(--ink); font-weight: 500; }
+.paper-reader-page .analysis-progress-history p { margin: 3px 0; }
+.paper-reader-page .analysis-progress-next { font-size: 12px; }
+.paper-reader-page #threeLineSummary[hidden] { display: none; }
+
 body.paper-reader-page {
   --reader-pdf-surround: #f0f1ee;
   --reader-selection: rgb(71 118 168 / 24%);

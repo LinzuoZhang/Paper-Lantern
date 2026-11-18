@@ -164,6 +164,10 @@ curl.exe -F "pdf=@paper.pdf" http://127.0.0.1:8000/api/library/upload
 
 Agent 自主选择读取或搜索原文、分项生成和修订。程序独立校验字段类型、目标完整性、关键词与释义对应关系、方法结构、公式分隔符、花括号、多字符下标和块公式间距；失败会作为工具结果反馈，供 Agent 修正。只有通过最终校验才能返回成功结果，达到 24 轮模型调用、48 次工具调用或上下文上限则报错。原文按需读取，不再把整篇论文重复放入每次请求。
 
+Agent 可以通过 `report_progress` 汇报简短的公开工作摘要：`phase`（当前阶段）、`completed`（根据工具反馈已完成的工作）、`next`（接下来要做的事）。不返回隐藏推理或原始思考文本。每次模型请求还会注入最新的 `round`、`maxRounds`、`roundsRemaining`、`toolCallsRemaining` 和 `maxToolCalls`；`roundsRemaining` 指本轮结束后的剩余模型轮数，进度工具也计入工具调用次数。
+
+完整解析和单项刷新均使用 SSE。在请求发起时，阅读器清空对应区域的旧内容，显示当前状态、剩余轮数及最近六条 Agent 工作摘要；单项刷新保留其他区域。只有收到通过校验的最终结果才保存，失败时恢复对应区域已保存的内容。基本信息刷新也采用同一流式入口，只请求 `metadata`，保留关键词及已有总结。
+
 返回字段保持现有阅读器结构；未请求的类别为默认空值，客户端只应合并所请求类别的字段。非流式 `raw` 含 `engine: "langgraph"`、实际 `goals`、调用次数、已读字符区间、工具执行摘要和 `validated: true`，不包含模型隐藏推理。校验保证结构及所列格式规则，内容准确性仍取决于原文质量与模型分析。
 
 完整和方法任务使用 `summary` 模块；仅关键词使用 `keywords`；仅基本信息/三行摘要使用 `overview`。只提供自然语言目的时使用 `summary`，`/api/overview` 始终使用 `overview`。每次任务只使用该模块的模型、Think 与个性化提示词，不固定切换其他模块。需安装 `requirements-reading-agent.txt` 并使用支持原生工具调用的模型；可复用阅读 Agent 的独立 Python 环境和 `PAPER_LANTERN_AGENT_PYTHON`。
