@@ -50,7 +50,7 @@ python server.py
 
 `summarize_paper()` 和 `extract_paper_overview()` 仅将原文、最终目标及模块配置交给 `backend/paper_analysis.py`。LangGraph 的 `agent → tools → agent` 循环允许模型自主选择 `select_goals`（自然语言目的时）、`report_progress`、`read_paper`、`search_paper`、`update_result`、`validate_result` 和 `finish`，没有人为指定的分析步骤顺序。每轮请求注入当前预算且不累积过期快照；进度摘要与工作工具可在同一轮返回。`finish` 必须针对当前草稿重新校验，不复用修订前的校验结果。
 
-原文通过字符位置按需读取，搜索结果保留原文位置，明确标记返回范围。草稿只保存在本次运行状态中，进度 SSE 使用 `agent_progress`，通过最终校验后才发送 `complete`。刷新关键词、三行摘要或方法时，前端只请求相应目标并合并对应字段；方法最多保留 12 项，避免旧版的 5 项截断。
+原文通过字符位置按需读取，搜索结果保留原文位置，明确标记返回范围。草稿只保存在本次运行状态中，进度 SSE 使用 `agent_progress`。每次 `update_result` 后对受影响的目标分别校验，通过且有变化时发送 `section_complete`；独立分项校验不会被其他未完成或格式错误的类别阻塞。前端初始隐藏新论文的三个结果卡片，收到分项事件才显示对应卡片，进度面板只在方法拆解下方出现一次；后续失败保留已展示的合法部分。通过最终校验后发送 `complete` 并保存完整结果。单项刷新只请求相应目标并合并对应字段；方法最多保留 12 项，避免旧版的 5 项截断。
 
 主服务运行环境有 LangGraph 时直接运行，否则通过共用的 JSON-lines worker 桥接到阅读 Agent 的 Python 环境。模型配置通过标准输入传递。核心阅读和文献管理仍可在没有 Agent 依赖时启动。解析验证覆盖真实 LangGraph 修正循环、预算、目标范围、JSON/SSE 路由以及前端单项合并。
 

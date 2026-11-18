@@ -85,7 +85,8 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([step["tool"] for step in raw["trace"]],
                          ["read_paper", "update_result", "update_result", "finish"])
         self.assertTrue(raw["validated"])
-        self.assertTrue(all(event["stage"] == "agent_progress" for event in self.events))
+        sections = [e["summary"]["section"] for e in self.events if e["stage"] == "section_complete"]
+        self.assertEqual(sections, ["method", "keywords"])
 
     async def test_natural_language_goal_selects_only_requested_outputs(self):
         result, raw = await self.run_graph([
@@ -190,6 +191,23 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(raw["trace"][0]["ok"])
         self.assertFalse(any(e["summary"].get("source") == "agent" for e in self.events))
 
+    async def test_completed_sections_publish_independently_without_duplicates_or_invalid_drafts(self):
+        broken = copy.deepcopy(METHOD)
+        broken["methodSections"][0]["content"] = "未闭合公式 $x"
+        lines = {"threeLineSummary": {"challenges": "挑战", "method": "聚合上下文", "conclusion": "输入范围构成限制"}}
+        await self.run_graph([
+            calls(("read_paper", {"start": 0})),
+            calls(("update_result", {"patch": {**KEYWORDS, "methodOverview": METHOD["methodOverview"]}})),
+            calls(("update_result", {"patch": {**broken, **lines}})),
+            calls(("update_result", {"patch": METHOD})),
+            calls(("update_result", {"patch": KEYWORDS}), ("finish", {})),
+        ], ["method", "keywords", "threeLine"])
+        sections = [e["summary"] for e in self.events if e["stage"] == "section_complete"]
+        self.assertEqual([s["section"] for s in sections], ["keywords", "threeLine", "method"])
+        self.assertEqual(sections[0]["result"], KEYWORDS)
+        self.assertEqual(sections[-1]["result"], METHOD)
+        self.assertNotIn("未闭合公式", str(sections))
+
 
 class ServerRoutingTests(unittest.TestCase):
     def test_stdlib_runtime_uses_agent_worker_and_forwards_progress(self):
@@ -266,7 +284,8 @@ class HTTPTests(unittest.TestCase):
                 if stream:
                     events = [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
                     self.assertEqual(events[-1]["stage"], "complete")
-                    self.assertTrue(all(e["stage"] == "agent_progress" for e in events[:-1]))
+                    self.assertTrue(all(e["stage"] in {"agent_progress", "section_complete"} for e in events[:-1]))
+                    self.assertEqual(next(e["summary"]["result"] for e in events if e["stage"] == "section_complete"), KEYWORDS)
                     result = events[-1]["summary"]
                 else:
                     data = json.loads(text)
@@ -324,7 +343,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertTrue(requests[0]["tools"])
         observation = next(m for m in reversed(requests[1]["messages"]) if m["role"] == "tool")
         self.assertEqual(PAPER, json.loads(observation["content"])["text"])
-        self.assertIn('"roundsRemaining": 22', requests[1]["messages"][-1]["content"])
+        self.assertIn(f'"roundsRemaining": {MAX_ROUNDS - 2}', requests[1]["messages"][-1]["content"])
 
 
 if __name__ == "__main__":

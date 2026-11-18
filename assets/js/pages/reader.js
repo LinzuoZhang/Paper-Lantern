@@ -44,7 +44,11 @@ const conclusion = document.querySelector("#conclusion");
 const keywords = document.querySelector("#keywords");
 const methodSections = document.querySelector("#methodSections");
 const threeLineSummary = document.querySelector("#threeLineSummary");
-const threeLineProgress = document.querySelector("#threeLineProgress");
+const analysisProgress = document.querySelector("#analysisProgress");
+const analysisProgressCard = document.querySelector("#analysisProgressCard");
+const analysisSectionCards = Object.fromEntries(["keywords", "threeLine", "method"].map(
+  section => [section, document.querySelector(`[data-analysis-section="${section}"]`)],
+));
 const basicInfoProgress = document.querySelector("#basicInfoProgress");
 let methodFormulaOverflowFrame = 0;
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
@@ -416,6 +420,7 @@ async function openLibraryPaper(paperId) {
   setStatus("正在加载 PDF...");
   showPdfLoading();
   let pdfOpened = false;
+  let analysisStarted = false;
 
   try {
     const file = await fetchPaperPdf(currentPaper);
@@ -442,6 +447,8 @@ async function openLibraryPaper(paperId) {
     }
 
     if (extractedText.trim().length < 80) {
+      clearAnalysisProgress();
+      renderSummary(paperToSummary(currentPaper));
       setStatus("Not enough text was extracted. This PDF may be scanned; paste text manually and retry.", true);
       return;
     }
@@ -451,12 +458,16 @@ async function openLibraryPaper(paperId) {
     }
 
     if (!currentPaper.threeLineSummary?.method) {
+      analysisStarted = true;
       await summarizeText(extractedText);
     }
   } catch (error) {
     console.error(error);
     if (!pdfOpened) showPdfLoadError(error.message || "PDF 加载失败。");
-    else renderSummary(paperToSummary(currentPaper));
+    else if (!analysisStarted) {
+      clearAnalysisProgress();
+      renderSummary(paperToSummary(currentPaper));
+    }
     setStatus(error.message || "Failed to read PDF.", true);
   } finally {
     setBusy(false);
@@ -1838,11 +1849,18 @@ async function extractPdfText(file) {
 async function summarizeText(text, { goals, goal = "", section = "all" } = {}) {
   const paperId = currentPaper?.id || "";
   const progress = setSummarySectionLoading(section);
+  const displayed = {};
   try {
     const summary = await fetchFullSummary(text, goals, goal, (event) => {
       if (currentPaper?.id !== paperId) return;
       progress.update(event);
-      setStatus(event.detail || "正在解析论文…");
+      queueWithAiScrollBottomButtonUpdate();
+    }, (event) => {
+      if (currentPaper?.id !== paperId || (section !== "all" && event.section !== section)) return;
+      if (!["keywords", "threeLine", "method", "metadata"].includes(event.section)
+          || !event.result || typeof event.result !== "object" || Array.isArray(event.result)) return;
+      displayed[event.section] = event.result;
+      renderAnalysisResult(event.section, event.result);
       queueWithAiScrollBottomButtonUpdate();
     });
     if (currentPaper?.id !== paperId) return null;
@@ -1861,7 +1879,7 @@ async function summarizeText(text, { goals, goal = "", section = "all" } = {}) {
   } catch (error) {
     if (currentPaper?.id !== paperId) return null;
     progress.finish();
-    renderAnalysisResult(section, paperToSummary(currentPaper));
+    renderAnalysisResult(section, { ...paperToSummary(currentPaper), ...Object.assign({}, ...Object.values(displayed)) });
     throw error;
   }
 }
@@ -1914,7 +1932,6 @@ async function regenerateSummarySection(section) {
   } catch (error) {
     if (currentPaper?.id !== paperId) return;
     console.error(error);
-    renderAnalysisResult(section, paperToSummary(currentPaper));
     setStatus(error.message || "Regeneration failed.", true);
   } finally {
     if (button) {
@@ -1932,25 +1949,26 @@ function getSummarySectionRefreshButton(section) {
 }
 
 function setSummarySectionLoading(section) {
-  const targets = [];
-  if (section === "all" || section === "keywords") targets.push(keywords);
+  if (section === "all" || section === "keywords") keywords.replaceChildren();
+  for (const key of ["keywords", "threeLine", "method"]) {
+    if (section === "all") analysisSectionCards[key].hidden = true;
+  }
   if (section === "all" || section === "threeLine") {
     challenges.textContent = "";
     method.textContent = "";
     conclusion.textContent = "";
     threeLineSummary.hidden = true;
-    threeLineProgress.hidden = false;
-    targets.push(threeLineProgress);
   }
-  if (section === "all" || section === "method") targets.push(methodSections);
+  if (section === "all" || section === "method") methodSections.replaceChildren();
   if (section === "all" || section === "metadata") {
     renderBasicInfoLoading();
-    basicInfoProgress.hidden = false;
-    targets.push(basicInfoProgress);
   }
-  const views = targets.map(target => createPaperAnalysisProgress(target));
+  const target = section === "metadata" ? basicInfoProgress : analysisProgress;
+  if (section === "metadata") basicInfoProgress.hidden = false;
+  else analysisProgressCard.hidden = false;
+  const view = createPaperAnalysisProgress(target);
   return {
-    update(event) { views.forEach(view => view.update(event)); },
+    update(event) { view.update(event); },
     finish() { clearAnalysisProgress(section); },
   };
 }
@@ -1958,8 +1976,10 @@ function setSummarySectionLoading(section) {
 function clearAnalysisProgress(section = "all") {
   if (section === "all" || section === "threeLine") {
     threeLineSummary.hidden = false;
-    threeLineProgress.hidden = true;
-    threeLineProgress.replaceChildren();
+  }
+  if (section !== "metadata") {
+    analysisProgressCard.hidden = true;
+    analysisProgress.replaceChildren();
   }
   if (section === "all" || section === "metadata") {
     basicInfoProgress.hidden = true;
@@ -1973,8 +1993,10 @@ function renderAnalysisResult(section, summary) {
     renderBasicInfo(summary.basicInfo);
     return;
   }
+  updateAnalysisSectionVisibility(summary, section);
   if (section === "keywords") renderKeywords(summary.keywords || [], summary.keywordExplanations || {});
   if (section === "threeLine") {
+    threeLineSummary.hidden = false;
     renderSummaryLine(challenges, summary.threeLineSummary?.challenges);
     renderSummaryLine(method, summary.threeLineSummary?.method);
     renderSummaryLine(conclusion, summary.threeLineSummary?.conclusion);
@@ -1988,7 +2010,7 @@ function renderAnalysisResult(section, summary) {
   }
 }
 
-async function fetchFullSummary(text, goals, goal = "", onProgress = () => {}) {
+async function fetchFullSummary(text, goals, goal = "", onProgress = () => {}, onSection = () => {}) {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2015,6 +2037,7 @@ async function fetchFullSummary(text, goals, goal = "", onProgress = () => {}) {
     const event = JSON.parse(data);
     if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
     if (event.stage === "agent_progress" && !summary) onProgress(event.summary || {});
+    if (event.stage === "section_complete" && !summary) onSection(event.summary || {});
     if (event.stage === "complete") summary = event.summary;
   }
   try {
@@ -4159,11 +4182,23 @@ function buildApiBaseCandidates() {
   return [...new Set(candidates)];
 }
 
+function updateAnalysisSectionVisibility(summary, section = "all") {
+  const ready = {
+    keywords: Boolean(summary?.keywords?.length),
+    threeLine: ["challenges", "method", "conclusion"].every(key => Boolean(summary?.threeLineSummary?.[key])),
+    method: Boolean(summary?.methodSections?.length || summary?.methodOverview || summary?.methodConclusion),
+  };
+  for (const [key, visible] of Object.entries(ready)) {
+    if (section === "all" || section === key) analysisSectionCards[key].hidden = !visible;
+  }
+}
+
 function renderSummaryLine(node, value) {
   node.replaceChildren(...formatInlineTechnicalText(value || "No response"));
 }
 
 function renderSummary(summary) {
+  updateAnalysisSectionVisibility(summary);
   if (!summary) {
     challenges.textContent = "Waiting";
     method.textContent = "Waiting";
@@ -4911,13 +4946,7 @@ async function applyCandidateBasicInfo(candidate) {
 }
 
 function renderSummaryLoading(message = "Loading...") {
-  renderKeywordsLoading(message);
-
-  challenges.textContent = "Loading...";
-  method.textContent = "Loading...";
-  conclusion.textContent = "Loading...";
-
-  renderMethodLoading(message);
+  setSummarySectionLoading("all").update({ detail: message });
   queueWithAiScrollBottomButtonUpdate();
 }
 

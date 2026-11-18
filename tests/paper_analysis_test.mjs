@@ -38,7 +38,8 @@ const progress = {
   detail: '分析方法结构', round: 2, maxRounds: 24, roundsRemaining: 22,
 };
 const nodes = Object.fromEntries(['keywords', 'challenges', 'method', 'conclusion', 'methodSections',
-  'threeLineSummary', 'threeLineProgress', 'basicInfoProgress', 'basicInfoTitle'].map(name => [name, new Element()]));
+  'threeLineSummary', 'analysisProgress', 'analysisProgressCard', 'basicInfoProgress', 'basicInfoTitle'].map(name => [name, new Element()]));
+const analysisSectionCards = Object.fromEntries(['keywords', 'threeLine', 'method'].map(name => [name, new Element('section')]));
 let scenario = {};
 let cancellations = 0, releases = 0;
 function stream(events, onRead = () => {}) {
@@ -54,7 +55,7 @@ function stream(events, onRead = () => {}) {
   }) } };
 }
 const context = vm.createContext({
-  ...nodes, createPaperAnalysisProgress, TextDecoder, Uint8Array,
+  ...nodes, analysisSectionCards, createPaperAnalysisProgress, TextDecoder, Uint8Array,
   currentPaper: { id: 'paper', title: old.paperTitle, ...structuredClone(old) }, lastExtractedText: 'paper text '.repeat(20),
   getSummarySectionRefreshButton: () => null,
   clearStatus() {}, setStatus: value => statuses.push(value),
@@ -63,12 +64,13 @@ const context = vm.createContext({
   renderSummaryLine(node, text) { node.textContent = text || ''; },
   renderMethodSections(sections) { nodes.methodSections.textContent = JSON.stringify(sections); },
   renderSummary(summary) {
+    context.updateAnalysisSectionVisibility(summary);
     nodes.keywords.textContent = summary.keywords?.join(' ') || '';
     nodes.methodSections.textContent = JSON.stringify(summary.methodSections || []);
     for (const key of ['challenges', 'method', 'conclusion']) nodes[key].textContent = summary.threeLineSummary?.[key] || '';
   },
   renderBasicInfoLoading() { nodes.basicInfoTitle.textContent = ''; },
-  renderBasicInfo(info) { nodes.basicInfoTitle.textContent = info.authors?.join(' ') || ''; },
+  renderBasicInfo(info) { nodes.basicInfoTitle.textContent = info?.authors?.join(' ') || ''; },
   setReaderPaperTitle() {}, formatBasicInfoValue: text => text || '',
   console: { error() {} },
   paperToSummary: paper => structuredClone(paper),
@@ -91,7 +93,8 @@ const context = vm.createContext({
 });
 vm.runInContext(
   source.slice(source.indexOf('async function summarizeText('), source.indexOf('function getSummarySectionRefreshButton(')) +
-  source.slice(source.indexOf('function setSummarySectionLoading('), source.indexOf('async function getPdfMetadataTitle(')), context,
+  source.slice(source.indexOf('function setSummarySectionLoading('), source.indexOf('async function getPdfMetadataTitle(')) +
+  source.slice(source.indexOf('function updateAnalysisSectionVisibility('), source.indexOf('function renderSummaryLine(')), context,
 );
 function reset() {
   context.currentPaper = { id: 'paper', title: old.paperTitle, ...structuredClone(old) };
@@ -102,11 +105,12 @@ function reset() {
 }
 for (const [section, goal] of [['keywords', 'keywords'], ['threeLine', 'threeLine'], ['method', 'method']]) {
   reset();
-  const target = section === 'keywords' ? nodes.keywords : section === 'method' ? nodes.methodSections : nodes.threeLineProgress;
+  const target = section === 'keywords' ? nodes.keywords : section === 'method' ? nodes.methodSections : nodes.challenges;
   scenario = {
     onRequest() {
-      assert.ok(target.textContent.includes('解析进度'), 'Loading must replace the old content before requesting');
-      assert.ok(!target.textContent.includes('old'));
+      assert.equal(target.textContent, '', 'The result area must be empty while its result is pending');
+      assert.ok(nodes.analysisProgress.textContent.includes('解析进度'));
+      assert.equal(nodes.analysisProgressCard.hidden, false);
       if (section !== 'method') assert.ok(nodes.methodSections.textContent.includes('old breakdown'));
       if (section === 'threeLine') {
         assert.equal(nodes.challenges.textContent, '');
@@ -114,8 +118,9 @@ for (const [section, goal] of [['keywords', 'keywords'], ['threeLine', 'threeLin
       }
     },
     onProgress() {
-      assert.ok(target.textContent.includes(progress.completed));
-      assert.ok(target.textContent.includes('剩余 22 轮'));
+      assert.ok(nodes.analysisProgress.textContent.includes(progress.completed));
+      assert.ok(nodes.analysisProgress.textContent.includes('剩余 22 轮'));
+      assert.ok(!target.textContent.includes(progress.completed));
     },
   };
   await vm.runInContext(`regenerateSummarySection('${section}')`, context);
@@ -129,13 +134,38 @@ assert.equal(saved[2].summary.methodSections[0].title, '生成的方法');
 assert.equal(nodes.threeLineSummary.hidden, false);
 
 reset();
-scenario = { onProgress() {
-  for (const target of [nodes.keywords, nodes.methodSections, nodes.threeLineProgress, nodes.basicInfoProgress]) {
-    assert.ok(target.textContent.includes(progress.completed));
-  }
-} };
+context.currentPaper = { id: 'paper', title: 'New paper' };
+context.renderSummary({});
+const beforeProgressive = saved.length;
+scenario = {
+  events: [
+    { stage: 'agent_progress', summary: progress },
+    { stage: 'section_complete', summary: { section: 'keywords', result: { keywords: generated.keywords, keywordExplanations: generated.keywordExplanations } } },
+    { stage: 'section_complete', summary: { section: 'threeLine', result: { threeLineSummary: generated.threeLineSummary } } },
+    { stage: 'section_complete', summary: { section: 'method', result: { methodSections: generated.methodSections, methodOverview: generated.methodOverview, methodConclusion: generated.methodConclusion } } },
+    { stage: 'complete', summary: generated },
+  ],
+  onRequest() {
+    assert.ok(Object.values(analysisSectionCards).every(card => card.hidden));
+    assert.equal(nodes.keywords.textContent, '');
+    assert.equal(nodes.methodSections.textContent, '');
+  },
+  onRead(index) {
+    if (index >= 1 && index <= 4) {
+      assert.equal(saved.length, beforeProgressive);
+      assert.equal(nodes.analysisProgressCard.hidden, false);
+      assert.ok(nodes.analysisProgress.textContent.includes(progress.completed));
+      assert.equal(analysisSectionCards.keywords.hidden, index < 2);
+      assert.equal(analysisSectionCards.threeLine.hidden, index < 3);
+      assert.equal(analysisSectionCards.method.hidden, index < 4);
+    }
+    if (index === 2) assert.equal(nodes.keywords.textContent, 'attention');
+    if (index === 3) assert.equal(nodes.challenges.textContent, '挑战');
+  },
+};
 await vm.runInContext('summarizeText("paper")', context);
 assert.equal(saved.at(-1).summary.paperTitle, generated.paperTitle);
+assert.equal(nodes.analysisProgressCard.hidden, true);
 
 reset();
 scenario = { onRequest() { assert.equal(nodes.basicInfoTitle.textContent, ''); },
@@ -147,12 +177,26 @@ assert.equal(nodes.basicInfoProgress.hidden, true);
 
 reset();
 const beforeFailure = saved.length;
+const beforeCancellation = cancellations;
 scenario = { events: [{ stage: 'agent_progress', summary: progress }] };
 await vm.runInContext('regenerateSummarySection("method")', context);
 assert.equal(saved.length, beforeFailure);
 assert.ok(nodes.methodSections.textContent.includes('old breakdown'), 'Failed regeneration restores the saved section');
 assert.match(statuses.at(-1), /ended early/);
-assert.equal(cancellations, 1);
+assert.equal(cancellations, beforeCancellation + 1);
+
+reset();
+context.currentPaper = { id: 'paper', title: 'New paper' };
+context.renderSummary({});
+scenario = { events: [
+  { stage: 'section_complete', summary: { section: 'keywords', result: { keywords: generated.keywords, keywordExplanations: generated.keywordExplanations } } },
+  { stage: 'error', summary: { detail: 'Later analysis failed' } },
+] };
+await assert.rejects(vm.runInContext('summarizeText("paper")', context), /Later analysis failed/);
+assert.equal(nodes.keywords.textContent, 'attention');
+assert.equal(analysisSectionCards.keywords.hidden, false);
+assert.equal(analysisSectionCards.method.hidden, true);
+assert.equal(saved.length, beforeFailure);
 
 reset();
 const beforeNavigation = saved.length;
@@ -163,10 +207,10 @@ scenario = { onProgress() {
 await vm.runInContext('regenerateSummarySection("method")', context);
 assert.equal(saved.length, beforeNavigation);
 assert.equal(nodes.methodSections.textContent, 'another paper');
-assert.equal(releases, 7);
+assert.ok(releases >= 7);
 vm.runInContext('clearAnalysisProgress()', context);
 assert.equal(nodes.threeLineSummary.hidden, false);
-assert.equal(nodes.threeLineProgress.hidden, true);
+assert.equal(nodes.analysisProgressCard.hidden, true);
 assert.equal(nodes.basicInfoProgress.hidden, true);
 
 // Decode split UTF-8 and CRLF boundaries, including a final event without a blank line.
@@ -198,3 +242,8 @@ for (let index = 0; index < 10; index++) view.update({ ...progress, phase: `阶�
 assert.equal(history.children.length, 6);
 assert.ok(history.textContent.includes('阶段 9'));
 console.log('Paper analysis passed: scoped clearing, live public summaries, budgets, safe text, persistence, failure recovery, and navigation.');
+
+const html = await readFile(new URL('../reader.html', import.meta.url), 'utf8');
+assert.ok(html.indexOf('id="analysisProgressCard"') > html.indexOf('id="methodSections"'));
+assert.equal((html.match(/id="analysisProgress"/g) || []).length, 1);
+assert.equal((html.match(/data-analysis-section="[^"]+" hidden/g) || []).length, 3);

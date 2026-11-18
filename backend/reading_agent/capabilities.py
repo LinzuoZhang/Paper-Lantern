@@ -15,6 +15,7 @@ READ_CAPABILITIES = {
     "get_paper_highlights": "分页读取论文高亮及其批注",
     "get_paper_annotations": "分页读取论文批注和翻译",
     "get_item": "读取文献或笔记详情",
+    "get_note_passages": "分页读取独立笔记的完整正文，用于日报汇总与趋势分析",
     "list_flags": "查看标记和待办定义",
 }
 WRITE_CAPABILITIES = {

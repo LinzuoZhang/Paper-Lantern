@@ -7,7 +7,7 @@ from .context import json_size
 
 
 READ_CAPS = {"library_overview": 5, "search_library": 30, "get_paper_passages": 5, "search_paper_content": 5,
-             "get_paper_highlights": 5, "get_paper_annotations": 5}
+             "get_paper_highlights": 5, "get_paper_annotations": 5, "get_note_passages": 5}
 
 
 def brief(value, max_string=4000):
@@ -55,7 +55,30 @@ def read_definition(definition):
     if name == "list_paper_summaries":
         schema["properties"]["hashes"].update(minItems=1, maxItems=12)
         schema["required"] = list(dict.fromkeys(schema.get("required", []) + ["hashes"]))
+    if name == "get_note_passages":
+        # Opaque file digests are transport state, not model-generated inputs.
+        schema["properties"].pop("sourceVersion", None)
+        function["description"] = ("Read standalone note Markdown without truncation. Use id, offset and limit only; "
+            "the application manages source versions automatically. Start at offset=0 and continue with the returned nextOffset "
+            "until null. Find IDs with search_library(itemType=note), completing all list pages. "
+            "Use these passages to answer note summaries and research-trend questions directly, without PDF research.")
     return tool
+
+
+def note_read_arguments(arguments, facts):
+    """Bind continued note reads to the version actually returned by MCP."""
+    args = read_arguments("get_note_passages", arguments)
+    # Older checkpoints/providers may still send a guessed/empty version.
+    args.pop("sourceVersion", None)
+    args.setdefault("offset", 0)
+    if type(args["offset"]) is int and args["offset"] > 0:
+        previous = next((fact["result"] for fact in reversed(facts)
+            if fact["tool"] == "get_note_passages" and not fact.get("stale") and "cachedFrom" not in fact
+            and fact.get("result", {}).get("id") == args.get("id")), None)
+        if previous is None:
+            raise ValueError("请先使用该笔记的 id 和 offset=0 读取第一页，再按返回的 nextOffset 继续；版本由程序自动管理。")
+        args["sourceVersion"] = previous["sourceVersion"]
+    return args
 
 
 def cached_read(facts, name, args):
@@ -103,13 +126,13 @@ def observation_view(fact):
     fields = ("matches",) if fact["tool"] == "search_library" else ("papers",) if fact["tool"] == "list_paper_summaries" else ("recentItems",) if fact["tool"] == "library_overview" else ()
     for field in fields:
         if isinstance(data.get(field), list):
-            data[field] = [{key: item[key] for key in ("id", "hash", "title", "itemType", "categoryIds", "abstract", "threeLineSummary", "hasSummary") if key in item}
+            data[field] = [{key: item[key] for key in ("id", "hash", "title", "itemType", "categoryIds", "uploadedAt", "abstract", "threeLineSummary", "hasSummary") if key in item}
                            for item in data[field]]
     return brief(value, 1200)
 
 
 def task_memory(facts):
-    items, categories, queries, schemas = {}, {}, {}, {}
+    items, categories, queries, schemas, note_reads = {}, {}, {}, {}, {}
     for index, fact in enumerate(facts):
         data = fact.get("result")
         if not isinstance(data, dict) or "cachedFrom" in fact or fact.get("stale"):
@@ -123,19 +146,30 @@ def task_memory(facts):
                 if tool.get("effect") == "write" and tool.get("parameters"):
                     schemas[tool["name"]] = {"name": tool["name"], "parameters": tool["parameters"]}
         rows = (data.get("matches", []) if name == "search_library" else data.get("papers", []) if name == "list_paper_summaries"
-                else [data] if name == "get_paper_summary" else [data["item"]] if name == "get_item" and data.get("item") else [])
+                else [data] if name in {"get_paper_summary", "get_note_passages"} else [data["item"]] if name == "get_item" and data.get("item") else [])
         for row in rows:
             key = row.get("hash") or row.get("id")
             if not key:
                 continue
             item = items.setdefault(key, {"id": key})
-            item.update({field: row[field] for field in ("title", "categoryIds", "itemType") if field in row})
+            item.update({field: row[field] for field in ("title", "categoryIds", "itemType", "uploadedAt") if field in row})
             if name in {"list_paper_summaries", "get_paper_summary"}:
                 item["summaryRead"] = True
                 item["hasSummary"] = row.get("hasSummary", False)
                 item["summaryPreview"] = "\n".join(str(row.get(field) or "") if field == "abstract" else json.dumps(row.get(field) or {}, ensure_ascii=False)
                                                     for field in ("abstract", "threeLineSummary"))
                 item["summaryObservation"] = index
+        if name == "get_note_passages":
+            key = data["id"]
+            if key not in note_reads or note_reads[key]["sourceVersion"] != data["sourceVersion"]:
+                note_reads[key] = {"id": key, "title": data.get("title", ""), "uploadedAt": data.get("uploadedAt", ""),
+                                   "sourceVersion": data["sourceVersion"], "pages": {}, "observations": [], "preview": ""}
+            note = note_reads[key]
+            note["totalPassages"] = data["totalPassages"]
+            note["pages"][data["offset"]] = len(data["passages"])
+            note["observations"].append(index)
+            if not note["preview"]:
+                note["preview"] = "\n".join(passage["text"] for passage in data["passages"])[:600]
         if name == "search_library":
             args = read_arguments(name, fact.get("arguments", {}))
             query = {key: value for key, value in args.items() if key not in {"offset", "limit"}}
@@ -151,9 +185,19 @@ def task_memory(facts):
                 covered = max(covered, offset + page["count"])
         searches.append({"arguments": coverage["arguments"], "totalMatches": coverage["totalMatches"], "loadedCount": covered,
                          "complete": covered >= coverage["totalMatches"], "nextOffset": covered if covered < coverage["totalMatches"] else None})
+    notes = []
+    for note in note_reads.values():
+        covered = 0
+        for offset, count in sorted(note["pages"].items()):
+            if offset <= covered:
+                covered = max(covered, offset + count)
+        notes.append({key: value for key, value in note.items() if key != "pages"})
+        notes[-1].update(loadedPassages=covered, complete=covered >= note["totalPassages"],
+                         nextOffset=covered if covered < note["totalPassages"] else None)
     memory = {"items": deepcopy(list(items.values())), "categories": list(categories.values()), "searches": searches,
               "itemCount": len(items), "summaryReadCount": sum(bool(item.get("summaryRead")) for item in items.values()),
-              "writeSchemas": list(schemas.values()), "omittedItemCount": 0, "omittedCategoryCount": 0}
+              "noteReads": deepcopy(notes), "noteReadCount": sum(note["complete"] for note in notes),
+              "writeSchemas": list(schemas.values()), "omittedItemCount": 0, "omittedCategoryCount": 0, "omittedNoteReadCount": 0}
     for preview_limit in (600, 200, 60, 0):
         for item in memory["items"]:
             if "summaryPreview" in item:
@@ -161,9 +205,13 @@ def task_memory(facts):
                 item["summaryPreview"] = brief(full, preview_limit) if preview_limit else "[可按 summaryObservation 回看]"
             if "title" in item:
                 item["title"] = brief(item["title"], 250)
+        for note, full in zip(memory["noteReads"], notes):
+            note["title"] = brief(full["title"], 250)
+            note["preview"] = brief(full["preview"], preview_limit) if preview_limit else "[可按 observations 回看]"
         if json_size(memory) <= 36_000:
             break
-    while json_size(memory) > 40_000 and (memory["items"] or memory["categories"]):
-        field, omitted = ("items", "omittedItemCount") if len(memory["items"]) >= len(memory["categories"]) else ("categories", "omittedCategoryCount")
+    while json_size(memory) > 40_000 and (memory["items"] or memory["categories"] or memory["noteReads"]):
+        field, omitted = max((("items", "omittedItemCount"), ("categories", "omittedCategoryCount"),
+                              ("noteReads", "omittedNoteReadCount")), key=lambda pair: len(memory[pair[0]]))
         memory[field].pop(); memory[omitted] += 1
     return memory

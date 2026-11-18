@@ -26,6 +26,7 @@
 .paper-reader-page .analysis-progress-history p { margin: 3px 0; }
 .paper-reader-page .analysis-progress-next { font-size: 12px; }
 .paper-reader-page #threeLineSummary[hidden] { display: none; }
+.paper-reader-page :is([data-analysis-section], #analysisProgressCard)[hidden] { display: none; }
 
 body.paper-reader-page {
   --reader-pdf-surround: #f0f1ee;

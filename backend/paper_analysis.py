@@ -236,6 +236,7 @@ class AnalysisState(TypedDict):
     done: bool
     trace: list
     goals: list
+    published_sections: dict
 
 
 def remaining_budget(rounds, calls):
@@ -279,6 +280,7 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
         messages, result, ranges = list(state["messages"]), deepcopy(state["result"]), list(state["read_ranges"])
         trace, calls, done = list(state["trace"]), state["calls"], False
         targets = list(state["goals"])
+        published = deepcopy(state["published_sections"])
         requested = state["reply"].get("tool_calls") or []
         if not requested:
             messages.append({"role": "user", "content": "请使用工具读取原文、提交结果并调用 finish。文字回答不能替代结构化交付。"})
@@ -358,7 +360,19 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
                     if errors:
                         raise ValueError("；".join(errors[:20]))
                     result.update(deepcopy(patch))
-                    observation = {"updated": list(patch), "notice": "这是草稿，尚未作为最终结果保存。"}
+                    completed = []
+                    for target in targets:
+                        fields = GOAL_FIELDS[target]
+                        if not set(fields).intersection(patch):
+                            continue
+                        section = {field: result[field] for field in fields if field in result}
+                        if validate_result(section, [target]) or published.get(target) == section:
+                            continue
+                        published[target] = deepcopy(section)
+                        completed.append(target)
+                        emit({"stage": "section_complete", "summary": {"section": target, "result": deepcopy(section)}})
+                    observation = {"updated": list(patch), "completedSections": completed,
+                                   "notice": "通过分项校验的成果已展示；整次任务通过最终校验后才保存。"}
                 else:
                     errors = validate_result(result, targets)
                     if not targets:
@@ -376,7 +390,7 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(observation, ensure_ascii=False)})
         return {"messages": messages, "result": result, "read_ranges": ranges,
-                "trace": trace, "calls": calls, "done": done, "goals": targets}
+                "trace": trace, "calls": calls, "done": done, "goals": targets, "published_sections": published}
 
     graph = StateGraph(AnalysisState)
     graph.add_node("agent", agent)
@@ -387,7 +401,8 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
                                 {"done": END, "continue": "agent"})
     try:
         final = await graph.compile().ainvoke({"messages": messages, "result": {}, "reply": {}, "rounds": 0,
-            "calls": 0, "read_ranges": [], "done": False, "trace": [], "goals": goals}, {"recursion_limit": MAX_ROUNDS * 2 + 2})
+            "calls": 0, "read_ranges": [], "done": False, "trace": [], "goals": goals,
+            "published_sections": {}}, {"recursion_limit": MAX_ROUNDS * 2 + 2})
     except GraphRecursionError as exc:
         raise ValueError("论文解析达到图执行轮数上限，未通过校验的结果不会提交。请缩小目标后重试。") from exc
     # Return only requested fields plus the stable UI defaults. No draft escapes.

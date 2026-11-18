@@ -4,13 +4,14 @@ import asyncio
 from copy import deepcopy
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from datetime import datetime
 import json
 from typing import TypedDict
 
 from .capabilities import READ_CAPABILITIES, WRITE_CAPABILITIES
 from .context import json_size
 from .graph import ReadingAgent
-from .library_context import brief, cached_read, observation_view, read_arguments, read_definition, result_page, task_memory
+from .library_context import brief, cached_read, note_read_arguments, observation_view, read_arguments, read_definition, result_page, task_memory
 from .mcp_client import PROJECT_ROOT, ResearchMCPClient
 from .plans import PlanStore
 from .state import AgentCancelled, AgentError
@@ -24,7 +25,7 @@ PROPOSE = {"type": "function", "function": {"name": "propose_library_plan", "des
     "parameters": {"type": "object", "properties": {"summary": {"type": "string"}, "operations": {"type": "array", "minItems": 1, "maxItems": 100,
         "items": {"type": "object", "properties": {"id": {"type": "string"}, "tool": {"type": "string"}, "arguments": {"type": "object"}, "reason": {"type": "string"}},
                   "required": ["id", "tool", "arguments"], "additionalProperties": False}}}, "required": ["summary", "operations"], "additionalProperties": False}}}
-RESEARCH = {"type": "function", "function": {"name": "research_library", "description": "Delegate literature reviews, scientific comparisons and finding related papers to the source-verified reading agent. Uses previous conversation. Call alone; its verified report is the final answer. On failure, use the returned error to adjust the task or inspect available library data before retrying.",
+RESEARCH = {"type": "function", "function": {"name": "research_library", "description": "Delegate PDF literature reviews, scientific comparisons and finding related PDF papers to the source-verified reading agent. Excludes standalone notes. For summaries or trend analysis based on notes, discover search_library and get_note_passages, read the notes and answer directly. Inspect the requested collection's itemType before delegating. Uses previous conversation. Call alone; its verified report is the final answer. On failure, use the returned error to adjust the task or inspect available library data before retrying.",
     "parameters": {"type": "object", "properties": {"task": {"type": "string"}}, "required": ["task"], "additionalProperties": False}}}
 READ_PLAN = {"type": "function", "function": {"name": "get_task_plan", "description": "Read a prior plan in this conversation to revise it. Operations are paginated. Does not execute it.",
     "parameters": {"type": "object", "properties": {"planId": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}, "required": ["planId"], "additionalProperties": False}}}
@@ -35,6 +36,7 @@ READ_RESULTS = {"type": "function", "function": {"name": "get_task_result", "des
 PLANNING_VERSION = 2
 MAX_ROUNDS = 24
 MAX_TOOLS = 80
+MAX_NOTE_ROUNDS = 40
 FINAL_ROUNDS = 4
 MAX_PLAN_REPAIRS = 3
 REPAIR_ROUNDS = 6
@@ -120,23 +122,34 @@ class LibraryAgent:
 
     async def agent(self, state):
         self.check()
-        round_limit = MAX_ROUNDS + state.get("plan_repairs", 0) * REPAIR_ROUNDS
+        memory = task_memory(state["facts"])
+        reading_notes = any(fact["tool"] == "get_note_passages" for fact in state["facts"])
+        # Some providers issue one tool per reply even when parallel reads are
+        # suggested. A 31-note collection must not exhaust 24 model turns just
+        # because the provider reads serially. Keep the existing tool/time caps.
+        note_rounds = min(MAX_NOTE_ROUNDS, sum(item.get("itemType") == "note" for item in memory["items"])) if reading_notes else 0
+        round_limit = MAX_ROUNDS + note_rounds + state.get("plan_repairs", 0) * REPAIR_ROUNDS
         tool_limit = MAX_TOOLS + state.get("plan_repairs", 0) * REPAIR_TOOLS
         if state["rounds"] >= round_limit or state["tool_calls"] >= tool_limit:
-            raise AgentError("资料已保留，但模型未在计划整理阶段提交方案。可继续追问要求根据已有资料提出计划；未执行未确认操作。")
-        memory = task_memory(state["facts"])
+            raise AgentError("资料已保留，但本轮分析预算已用尽。可继续追问要求根据已有资料完成回答或提出计划；未执行未确认操作。")
         stalled = len(state["facts"]) >= 4 and all("cachedFrom" in fact or "error" in fact for fact in state["facts"][-4:])
         stalled_complete = stalled and memory["itemCount"] > 0 and all(query["complete"] for query in memory["searches"])
         finalizing = (state.get("finalizing", False) or stalled_complete or state["rounds"] >= round_limit - FINAL_ROUNDS
                       or state["tool_calls"] >= tool_limit - 4 * FINAL_ROUNDS)
         if finalizing and not state.get("finalizing"):
-            self.emit("planning_finalization_started", summary="正在汇总已读取的文献与分类信息，整理具体操作计划。")
+            self.emit("planning_finalization_started", summary="正在汇总已读取的资料，整理回答或具体操作计划。")
         prompt = (PROJECT_ROOT / "prompts/agent/library.txt").read_text(encoding="utf-8")
-        context = {"task": self.options.task,
+        context = {"task": self.options.task, "currentTime": datetime.now().astimezone().isoformat(),
                    "history": brief(list(self.options.conversation)[-4:], 2500), "capabilities": state["catalog"],
                    "workspace": memory, "taskPhase": "finalizing" if finalizing else "collecting",
                    "remainingModelCalls": round_limit - state["rounds"], "observations": [],
                    "planFailure": state.get("plan_failure", {})}
+        if reading_notes:
+            reads = {item["id"]: item for item in memory["noteReads"]}
+            context["noteReading"] = {"completeCount": memory["noteReadCount"], "canReadMore": not finalizing, "pending": [
+                {"id": item["id"], "title": item.get("title", ""), "offset": reads.get(item["id"], {}).get("nextOffset", 0)}
+                for item in memory["items"] if item.get("itemType") == "note" and not reads.get(item["id"], {}).get("complete")],
+                "instruction": "正文未完成的笔记按 offset 继续，版本由程序管理。若任务要求覆盖这些笔记且还有预算，请继续读取并列出趋势依据，不要反复发现工具或猜版本。"}
         if stalled and not finalizing:
             context["collectionNotice"] = "最近的请求没有取得新资料。请按 workspace 的 nextOffset 继续未完成的分页，或根据已有资料及时提交方案。"
         context["observationIndex"] = [{"index": index, "tool": fact["tool"], "arguments": brief(fact.get("arguments", {}), 200),
@@ -156,7 +169,7 @@ class LibraryAgent:
             raise AgentError("任务资料过大，请将任务分批处理；未执行未确认操作。")
         self.emit("model_started", call=state["rounds"] + 1, contextChars=json_size({"messages": messages, "tools": tools}),
                   summary=("正在核对失败原因和当前文献库状态，修正操作计划。" if state.get("plan_failure") else
-                           "正在根据已读取的文献与分类信息整理计划。" if finalizing else "正在理解任务、选择工具并检查文献库资料。"))
+                           "正在根据已读取的资料整理回答或计划。" if finalizing else "正在理解任务、选择工具并检查文献库资料。"))
         reply = await stream_model_reply(self.model, messages, tools, self.emit, self.check)
         reply.pop("reasoning_content", None)
         if reply.get("content") and reply.get("tool_calls"):
@@ -185,8 +198,10 @@ class LibraryAgent:
                     data = await self.client.call("agent_capabilities", {"names": names})
                     for tool in data["tools"]:
                         if tool["name"] in READ_CAPABILITIES:
-                            adapted = read_definition({"type": "function", "function": {"name": tool["name"], "parameters": tool["parameters"]}})
+                            adapted = read_definition({"type": "function", "function": {"name": tool["name"],
+                                "description": tool.get("description", ""), "parameters": tool["parameters"]}})
                             tool["parameters"] = adapted["function"]["parameters"]
+                            tool["description"] = adapted["function"].get("description", "")
                     selected = list(dict.fromkeys(selected + [item for item in names if item in READ_CAPABILITIES]))[-8:]
                 elif name == "get_task_plan":
                     plan = self.plans.get(args.get("planId"), self.job_id, self.options.library_dir)
@@ -218,7 +233,7 @@ class LibraryAgent:
                     update["research_task"] = args["task"].strip()
                     data = {"delegated": True}
                 elif name in selected and name in READ_CAPABILITIES:
-                    args = read_arguments(name, args)
+                    args = note_read_arguments(args, facts) if name == "get_note_passages" else read_arguments(name, args)
                     cached = cached_read(facts, name, args)
                     if cached is not None:
                         facts.append({"tool": name, "arguments": args, "cachedFrom": cached,
@@ -237,6 +252,12 @@ class LibraryAgent:
                 raise
             except Exception as error:
                 message = str(error)[:1500] or type(error).__name__
+                if name == "get_note_passages" and "Note content changed" in message:
+                    # A changed file invalidates all pages of that note, so the
+                    # next model turn can restart instead of repeating a stale read.
+                    facts = [dict(fact, stale=True) if fact["tool"] == name
+                             and fact.get("result", {}).get("id") == args.get("id") else fact for fact in facts]
+                    message += " 请用同一 id 和 offset=0 重新读取；旧分页已失效，程序会自动取得新版本。"
                 facts.append({"tool": name, "arguments": args, "error": message})
                 self.emit("tool_rejected", name=name, error=message)
             self.check()
@@ -321,7 +342,8 @@ class LibraryAgent:
             builder.add_conditional_edges("research", lambda state: "end" if state.get("output") else "agent", {"end": END, "agent": "agent"})
             builder.add_edge("finish", END)
             graph = builder.compile(checkpointer=saver)
-            config = {"configurable": {"thread_id": self.turn_id}, "recursion_limit": 100}
+            config = {"configurable": {"thread_id": self.turn_id},
+                      "recursion_limit": 2 * (MAX_ROUNDS + MAX_NOTE_ROUNDS + MAX_PLAN_REPAIRS * REPAIR_ROUNDS) + 10}
             saved = await graph.aget_state(config)
             if (saved.values and saved.values.get("planning_version", 0) < PLANNING_VERSION
                     and not saved.values.get("plan_id") and not saved.values.get("output")

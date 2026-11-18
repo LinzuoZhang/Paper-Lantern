@@ -25,10 +25,11 @@ const context = vm.createContext({
   window: { katex: { render: (formula, node, options) => { node.formula = formula; node.innerHTML = katex.renderToString(formula, options); } } },
   getDiscussionMarkdownRenderer: () => markdown,
   challenges, method, conclusion, keywords: new Element(), methodSections: new Element(),
+  analysisSectionCards: { keywords: new Element(), threeLine: new Element(), method: new Element() },
   renderKeywords() {}, renderMethodSections() {}, queueWithAiScrollBottomButtonUpdate() {},
 });
 vm.runInContext(
-  source.slice(source.indexOf('function renderSummaryLine('), source.indexOf('function renderKeywords(')) +
+  source.slice(source.indexOf('function updateAnalysisSectionVisibility('), source.indexOf('function renderKeywords(')) +
   source.slice(source.indexOf('function formatInlineTechnicalText('), source.indexOf('function setBusy(')), context,
 );
 context.summary = { threeLineSummary: {

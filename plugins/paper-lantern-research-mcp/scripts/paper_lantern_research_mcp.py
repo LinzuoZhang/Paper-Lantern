@@ -45,7 +45,7 @@ JsonObject = dict[str, Any]
 READ_ONLY_TOOLS = frozenset({
     "library_overview", "search_library", "list_papers", "list_paper_summaries",
     "get_paper_summary", "get_paper_full_text", "search_paper_content", "get_paper_passages",
-    "agent_capabilities", "get_item", "list_flags",
+    "agent_capabilities", "get_item", "get_note_passages", "list_flags",
     "get_paper_highlights", "get_paper_annotations",
 })
 
@@ -242,6 +242,29 @@ def tool_get_item(args: JsonObject) -> JsonObject:
     if not paper:
         raise FileNotFoundError("Item not found.")
     return tool_text({"item": paper, "paperLink": markdown_link(format_paper_link_label(paper), item_id)})
+
+
+@paper_server.library_locked
+def tool_get_note_passages(args: JsonObject) -> JsonObject:
+    item_id = args["id"].strip()
+    db = read_db()
+    record = db["papers"].get(item_id)
+    if not record or record.get("itemType", "paper") != "note":
+        raise ValueError("Active standalone note not found. Use search_library with itemType=note to find its id.")
+    directory = paper_server.paper_dir_from_record(record)
+    if not directory.is_dir():
+        raise FileNotFoundError("Note directory not found.")
+    metadata = paper_server.read_json(directory / "metadata.json", {})
+    pages, origin, warnings = read_source(directory, metadata, "notes", paper_server.EXTRACTED_TEXT_FILE, paper_server.NOTES_FILE)
+    version, passages = build_passages(item_id, "notes", pages, origin)
+    if "sourceVersion" in args and args["sourceVersion"].strip() != version:
+        raise ValueError("Note content changed; restart pagination with the current sourceVersion.")
+    offset, limit = args.get("offset", 0), args.get("limit", 5)
+    end = offset + limit
+    return tool_text({**item_summary(record, db), "paperLink": markdown_link(record["title"], item_id),
+                      "source": "notes", "sourceVersion": version, "totalPassages": len(passages),
+                      "offset": offset, "nextOffset": end if end < len(passages) else None,
+                      "passages": passages[offset:end], "warnings": warnings})
 
 
 def select_papers(db: JsonObject, hashes: list[str] | None = None) -> list[JsonObject]:
@@ -1100,6 +1123,20 @@ TOOLS: dict[str, tuple[str, JsonObject, Callable[[JsonObject], JsonObject]]] = {
             "required": ["hash"], "additionalProperties": False,
         },
         tool_get_paper_passages,
+    ),
+    "get_note_passages": (
+        "Read standalone note Markdown in bounded, overlapping passages of at most 1200 characters, without truncation. "
+        "Find note IDs with search_library(itemType=note), including all nextOffset pages. "
+        "Use this tool for daily-note summaries and research-trend analysis based on notes; research_library only reads PDFs. "
+        "Continue each note using nextOffset and sourceVersion until nextOffset=null. "
+        "uploadedAt is the import/creation time, not necessarily the date of the research recorded in the note. "
+        "Reads notes.md with legacy metadata.notes fallback; never migrates, calls AI, or writes files.",
+        {"type": "object", "properties": {
+            "id": ID_SCHEMA, "offset": CONTENT_OFFSET_SCHEMA,
+            "limit": {"type": "integer", "minimum": 1, "maximum": 5, "default": 5},
+            "sourceVersion": {"type": "string", "minLength": 1},
+        }, "required": ["id"], "additionalProperties": False},
+        tool_get_note_passages,
     ),
     "ask_paper": (
         "Ask about one article by hash using Paper Lantern's configured discuss AI module and its article text/summary. Optional history supports follow-up questions. Returns answer and contextTruncated (context limited to MAX_PAPER_CHARS). Does not save discussion or consult other articles; no HTTP server required.",
