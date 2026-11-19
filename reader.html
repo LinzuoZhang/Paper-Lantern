@@ -232,7 +232,7 @@
           <div id="withAiPanel" class="reader-tab-panel active" role="tabpanel" aria-labelledby="withAiTab">
           <div class="summary-scroll">
             <div class="ai-summary-panel">
-                <section class="summary-card collapsible-card" data-collapsible-card>
+                <section class="summary-card collapsible-card" data-collapsible-card data-analysis-section="keywords" hidden>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="keywords">
                       <span class="collapse-icon" aria-hidden="true"></span>
@@ -248,7 +248,7 @@
                   <div id="keywords" class="keywords"></div>
                 </section>
 
-                <section class="summary-card collapsible-card" data-collapsible-card>
+                <section class="summary-card collapsible-card" data-collapsible-card data-analysis-section="threeLine" hidden>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="threeLineSummary">
                       <span class="collapse-icon" aria-hidden="true"></span>
@@ -277,7 +277,7 @@
                   </dl>
                 </section>
 
-                <section class="summary-card method-card collapsible-card" data-collapsible-card>
+                <section class="summary-card method-card collapsible-card" data-collapsible-card data-analysis-section="method" hidden>
                   <div class="summary-card-header">
                     <button class="summary-card-toggle" type="button" aria-expanded="true" aria-controls="methodSections">
                       <span class="collapse-icon" aria-hidden="true"></span>
@@ -297,6 +297,9 @@
                     </button>
                   </div>
                   <div id="methodSections" class="method-sections"></div>
+                </section>
+                <section id="analysisProgressCard" class="summary-card" aria-label="论文解析进度" hidden>
+                  <div id="analysisProgress"></div>
                 </section>
             </div>
 
@@ -423,6 +426,7 @@
                 </button>
               </div>
               <p id="basicInfoStatus" class="status" role="status"></p>
+              <div id="basicInfoProgress" hidden></div>
               <dl id="basicInfoList" class="basic-info-list">
                 <div class="basic-info-field basic-info-field-full">
                   <dt>标题</dt>

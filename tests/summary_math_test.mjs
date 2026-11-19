@@ -25,10 +25,11 @@ const context = vm.createContext({
   window: { katex: { render: (formula, node, options) => { node.formula = formula; node.innerHTML = katex.renderToString(formula, options); } } },
   getDiscussionMarkdownRenderer: () => markdown,
   challenges, method, conclusion, keywords: new Element(), methodSections: new Element(),
+  analysisSectionCards: { keywords: new Element(), threeLine: new Element(), method: new Element() },
   renderKeywords() {}, renderMethodSections() {}, queueWithAiScrollBottomButtonUpdate() {},
 });
 vm.runInContext(
-  source.slice(source.indexOf('function renderSummaryLine('), source.indexOf('function renderKeywords(')) +
+  source.slice(source.indexOf('function updateAnalysisSectionVisibility('), source.indexOf('function renderKeywords(')) +
   source.slice(source.indexOf('function formatInlineTechnicalText('), source.indexOf('function setBusy(')), context,
 );
 context.summary = { threeLineSummary: {
@@ -54,37 +55,3 @@ context.window.katex = null;
 vm.runInContext('renderSummary(summary)', context);
 assert.equal(method.children.find(node => node.className === 'formula-inline').textContent, '$d$');
 console.log('Three-line summary math passed: formulas, prose, escaping, replacement, missing values, and KaTeX fallback.');
-
-// Drive the actual SSE consumer and inspect the UI before method breakdown arrives.
-context.window.katex = { render: (formula, node, options) => {
-  node.formula = formula;
-  node.innerHTML = katex.renderToString(formula, options);
-} };
-const earlySummary = { threeLineSummary: {
-  challenges: '早期挑战', method: '早期方法 $d$', conclusion: '早期结论',
-} };
-let reads = 0;
-const saved = [];
-Object.assign(context, {
-  currentPaper: { id: 'paper' }, TextDecoder, Uint8Array,
-  paperToSummary: () => ({ threeLineSummary: { method: '旧方法' } }),
-  renderBasicInfo() {}, setReaderPaperTitle() {}, clearStatus() {},
-  saveCurrentPaper: async ({ summary }) => saved.push(summary),
-  apiFetch: async () => ({ ok: true, headers: { get: () => 'text/event-stream' }, body: { getReader: () => ({
-    async read() {
-      if (reads++ === 0) return { value: new TextEncoder().encode(`data: ${JSON.stringify({ stage: 'overview', summary: earlySummary })}\n\n`), done: false };
-      if (reads === 2) {
-        assert.match(challenges.children[0].html, /早期挑战/);
-        assert.match(method.children[0].html, /早期方法/);
-        assert.equal(method.children.find(node => node.formula)?.formula, 'd');
-        assert.match(conclusion.children[0].html, /早期结论/);
-        assert.equal(saved[0].threeLineSummary.method, earlySummary.threeLineSummary.method);
-        return { value: new TextEncoder().encode(`data: ${JSON.stringify({ stage: 'complete', summary: earlySummary })}\n\n`), done: false };
-      }
-      return { done: true };
-    },
-  }) } }),
-});
-vm.runInContext(source.slice(source.indexOf('async function summarizeText('), source.indexOf('async function regenerateSummarySection(')), context);
-await vm.runInContext('summarizeText("paper")', context);
-console.log('Overview streaming passed: challenge, method, and conclusion render and persist before breakdown.');

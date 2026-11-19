@@ -4,6 +4,7 @@ import { initNotesPanel } from "../components/notes_panel.js";
 import { initSettingsModal } from "../components/settings_modal.js";
 import { initLibrarySidebar } from "../components/library_sidebar.js";
 import { initDiscussionPanel } from "../components/discussion_panel.js";
+import { createPaperAnalysisProgress } from "../components/paper_analysis_progress.js";
 import { recordPaperViewed } from "../lib/recent_papers.js";
 import { getCategoryLabels } from "../components/category_manager.js";
 import { findAutoHighlightRange, normalizeHighlightQuote } from "../lib/auto_highlight.js";
@@ -42,6 +43,13 @@ const method = document.querySelector("#method");
 const conclusion = document.querySelector("#conclusion");
 const keywords = document.querySelector("#keywords");
 const methodSections = document.querySelector("#methodSections");
+const threeLineSummary = document.querySelector("#threeLineSummary");
+const analysisProgress = document.querySelector("#analysisProgress");
+const analysisProgressCard = document.querySelector("#analysisProgressCard");
+const analysisSectionCards = Object.fromEntries(["keywords", "threeLine", "method"].map(
+  section => [section, document.querySelector(`[data-analysis-section="${section}"]`)],
+));
+const basicInfoProgress = document.querySelector("#basicInfoProgress");
 let methodFormulaOverflowFrame = 0;
 const copyThreeLineButton = document.querySelector("#copyThreeLineButton");
 const copyMethodButton = document.querySelector("#copyMethodButton");
@@ -399,6 +407,7 @@ async function openLibraryPaper(paperId) {
   savedHighlights = normalizeHighlights(Array.isArray(currentPaper.highlights) ? currentPaper.highlights : []);
   discussionPanel.renderHistory(currentPaper.discussion || []);
   notesPanel.render(currentPaper.notes || "");
+  clearAnalysisProgress();
   renderSummary(paperToSummary(currentPaper));
   renderBasicInfo(currentPaper.basicInfo, currentPaper);
   renderDoi(currentPaper.doi);
@@ -411,6 +420,7 @@ async function openLibraryPaper(paperId) {
   setStatus("正在加载 PDF...");
   showPdfLoading();
   let pdfOpened = false;
+  let analysisStarted = false;
 
   try {
     const file = await fetchPaperPdf(currentPaper);
@@ -437,6 +447,8 @@ async function openLibraryPaper(paperId) {
     }
 
     if (extractedText.trim().length < 80) {
+      clearAnalysisProgress();
+      renderSummary(paperToSummary(currentPaper));
       setStatus("Not enough text was extracted. This PDF may be scanned; paste text manually and retry.", true);
       return;
     }
@@ -446,12 +458,16 @@ async function openLibraryPaper(paperId) {
     }
 
     if (!currentPaper.threeLineSummary?.method) {
+      analysisStarted = true;
       await summarizeText(extractedText);
     }
   } catch (error) {
     console.error(error);
     if (!pdfOpened) showPdfLoadError(error.message || "PDF 加载失败。");
-    else renderSummary(paperToSummary(currentPaper));
+    else if (!analysisStarted) {
+      clearAnalysisProgress();
+      renderSummary(paperToSummary(currentPaper));
+    }
     setStatus(error.message || "Failed to read PDF.", true);
   } finally {
     setBusy(false);
@@ -577,6 +593,7 @@ regenerateThreeLineButton?.addEventListener("click", () => regenerateSummarySect
 regenerateMethodButton?.addEventListener("click", () => regenerateSummarySection("method"));
 
 basicInfoButton?.addEventListener("click", async () => {
+  const paperId = currentPaper?.id;
   const text = lastExtractedText.trim();
   if (text.length < 80) {
     setBasicInfoStatus("请先打开并解析一篇论文。", true);
@@ -589,8 +606,10 @@ basicInfoButton?.addEventListener("click", async () => {
   renderBasicInfoLoading();
   try {
     await refreshOverviewInfo(text);
+    if (currentPaper?.id !== paperId) return;
     setBasicInfoStatus("");
   } catch (error) {
+    if (currentPaper?.id !== paperId) return;
     console.error(error);
     renderBasicInfo(currentPaper?.basicInfo);
     setBasicInfoStatus(error.message || "基本信息整理失败。", true);
@@ -1827,89 +1846,42 @@ async function extractPdfText(file) {
   };
 }
 
-async function summarizeText(text) {
+async function summarizeText(text, { goals, goal = "", section = "all" } = {}) {
   const paperId = currentPaper?.id || "";
-  const response = await apiFetch("/api/summarize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId, paperText: text, stream: true }),
-  });
-  if (!response.ok) {
-    const data = await readJsonResponse(response);
-    throw new Error(data.detail || data.error || "Summary failed.");
-  }
-  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
-    throw new Error("Summary stream is unavailable.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let completed = false;
-  let summary = paperToSummary(currentPaper);
-
-  async function applyEvent(event) {
-    if (currentPaper?.id !== paperId) return;
-    if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
-    if (event.stage === "agent_progress") {
-      setStatus(event.summary?.detail || "正在解析论文…");
-      return;
+  const progress = setSummarySectionLoading(section);
+  const displayed = {};
+  try {
+    const summary = await fetchFullSummary(text, goals, goal, (event) => {
+      if (currentPaper?.id !== paperId) return;
+      progress.update(event);
+      queueWithAiScrollBottomButtonUpdate();
+    }, (event) => {
+      if (currentPaper?.id !== paperId || (section !== "all" && event.section !== section)) return;
+      if (!["keywords", "threeLine", "method", "metadata"].includes(event.section)
+          || !event.result || typeof event.result !== "object" || Array.isArray(event.result)) return;
+      displayed[event.section] = event.result;
+      renderAnalysisResult(event.section, event.result);
+      queueWithAiScrollBottomButtonUpdate();
+    });
+    if (currentPaper?.id !== paperId) return null;
+    progress.finish();
+    renderAnalysisResult(section, summary);
+    if (section === "all") {
+      await saveCurrentPaper({ summary });
+      if (currentPaper?.id !== paperId) return null;
+      if (summary.paperTitle) {
+        setReaderPaperTitle(summary.paperTitle);
+        if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(summary.paperTitle);
+      }
     }
-    let persist = true;
-    if (event.stage === "overview") {
-      summary = {
-        ...summary,
-        paperTitle: event.summary.paperTitle || summary.paperTitle,
-        basicInfo: event.summary.basicInfo || {},
-        keywords: event.summary.keywords || [],
-        threeLineSummary: {
-          ...summary.threeLineSummary,
-          challenges: event.summary.threeLineSummary?.challenges || "",
-          method: event.summary.threeLineSummary?.method || "",
-          conclusion: event.summary.threeLineSummary?.conclusion || "",
-        },
-      };
-      renderBasicInfo(summary.basicInfo);
-      renderKeywords(summary.keywords);
-      renderSummaryLine(challenges, summary.threeLineSummary.challenges);
-      renderSummaryLine(method, summary.threeLineSummary.method);
-      renderSummaryLine(conclusion, summary.threeLineSummary.conclusion);
-    } else if (event.stage === "keywords") {
-      summary = { ...summary, keywords: event.summary.keywords || [], keywordExplanations: event.summary.keywordExplanations || {} };
-      renderKeywords(summary.keywords, summary.keywordExplanations);
-    } else if (event.stage === "method_progress") {
-      summary = { ...summary, methodSections: event.summary.methodSections || [] };
-      renderMethodSections(summary.methodSections);
-      persist = Boolean(event.summary.complete);
-    } else if (event.stage === "complete") {
-      summary = event.summary;
-      renderSummary(summary);
-      renderBasicInfo(summary.basicInfo);
-      completed = true;
-    } else {
-      return;
-    }
-    if (persist) await saveCurrentPaper({ summary });
-    if (currentPaper?.id === paperId && summary.paperTitle) {
-      setReaderPaperTitle(summary.paperTitle);
-      if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(summary.paperTitle);
-    }
+    clearStatus();
+    return summary;
+  } catch (error) {
+    if (currentPaper?.id !== paperId) return null;
+    progress.finish();
+    renderAnalysisResult(section, { ...paperToSummary(currentPaper), ...Object.assign({}, ...Object.values(displayed)) });
+    throw error;
   }
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, "\n");
-    let boundary;
-    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const data = block.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
-      if (data) await applyEvent(JSON.parse(data));
-    }
-    if (done) break;
-  }
-  if (!completed && currentPaper?.id === paperId) throw new Error("Summary stream ended early.");
-  if (currentPaper?.id === paperId) clearStatus();
 }
 
 async function regenerateSummarySection(section) {
@@ -1926,20 +1898,12 @@ async function regenerateSummarySection(section) {
     button.classList.add("spinning");
   }
   clearStatus();
-  if (section === "method") {
-    // Keep the existing Method Breakdown visible while it regenerates; only
-    // show progress in the status line instead of inside the content area.
-    setStatus("正在重新生成方法解析...");
-  } else {
-    setSummarySectionLoading(section);
-  }
   try {
     if (section === "keywords") {
-      const overviewInfo = await fetchFullSummary(text, ["keywords"], "生成关键词及其释义，并检查格式。");
-      if (currentPaper?.id !== paperId) return;
+      const overviewInfo = await summarizeText(text, { goals: ["keywords"], section, goal: "生成关键词及其释义，并检查格式。" });
+      if (!overviewInfo || currentPaper?.id !== paperId) return;
       const keywordsValue = overviewInfo.keywords || [];
       const keywordExplanations = overviewInfo.keywordExplanations || {};
-      renderKeywords(keywordsValue, keywordExplanations);
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), keywords: keywordsValue, keywordExplanations } });
       clearStatus();
       return;
@@ -1947,13 +1911,10 @@ async function regenerateSummarySection(section) {
 
     const goals = section === "threeLine" ? ["threeLine"] : ["method"];
     const goal = section === "threeLine" ? "生成三行摘要，并检查格式。" : "拆解论文方法，解释各部分如何衔接，并检查格式。";
-    const summary = await fetchFullSummary(text, goals, goal);
-    if (currentPaper?.id !== paperId) return;
+    const summary = await summarizeText(text, { goals, goal, section });
+    if (!summary || currentPaper?.id !== paperId) return;
     if (section === "threeLine") {
       const threeLineSummary = summary.threeLineSummary || {};
-      renderSummaryLine(challenges, threeLineSummary.challenges);
-      renderSummaryLine(method, threeLineSummary.method);
-      renderSummaryLine(conclusion, threeLineSummary.conclusion);
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), threeLineSummary } });
       clearStatus();
       return;
@@ -1965,17 +1926,12 @@ async function regenerateSummarySection(section) {
         methodSections: summary.methodSections || [],
         methodConclusion: summary.methodConclusion || "",
       };
-      renderMethodSections(methodUpdate.methodSections, {
-        fallbackText: summary.threeLineSummary?.method || "",
-        overview: methodUpdate.methodOverview,
-        conclusion: methodUpdate.methodConclusion,
-      });
       await saveCurrentPaper({ summary: { ...paperToSummary(currentPaper), ...methodUpdate } });
       clearStatus();
     }
   } catch (error) {
+    if (currentPaper?.id !== paperId) return;
     console.error(error);
-    renderSummary(paperToSummary(currentPaper));
     setStatus(error.message || "Regeneration failed.", true);
   } finally {
     if (button) {
@@ -1993,48 +1949,133 @@ function getSummarySectionRefreshButton(section) {
 }
 
 function setSummarySectionLoading(section) {
-  if (section === "keywords") {
-    renderKeywordsLoading("重新生成关键词中...");
-    return;
+  if (section === "all" || section === "keywords") keywords.replaceChildren();
+  for (const key of ["keywords", "threeLine", "method"]) {
+    if (section === "all") analysisSectionCards[key].hidden = true;
   }
-  if (section === "threeLine") {
-    challenges.textContent = "Loading...";
-    method.textContent = "Loading...";
-    conclusion.textContent = "Loading...";
+  if (section === "all" || section === "threeLine") {
+    challenges.textContent = "";
+    method.textContent = "";
+    conclusion.textContent = "";
+    threeLineSummary.hidden = true;
+  }
+  if (section === "all" || section === "method") methodSections.replaceChildren();
+  if (section === "all" || section === "metadata") {
+    renderBasicInfoLoading();
+  }
+  const target = section === "metadata" ? basicInfoProgress : analysisProgress;
+  if (section === "metadata") basicInfoProgress.hidden = false;
+  else analysisProgressCard.hidden = false;
+  const view = createPaperAnalysisProgress(target);
+  return {
+    update(event) { view.update(event); },
+    finish() { clearAnalysisProgress(section); },
+  };
+}
+
+function clearAnalysisProgress(section = "all") {
+  if (section === "all" || section === "threeLine") {
+    threeLineSummary.hidden = false;
+  }
+  if (section !== "metadata") {
+    analysisProgressCard.hidden = true;
+    analysisProgress.replaceChildren();
+  }
+  if (section === "all" || section === "metadata") {
+    basicInfoProgress.hidden = true;
+    basicInfoProgress.replaceChildren();
   }
 }
 
-async function fetchFullSummary(text, goals, goal = "") {
+function renderAnalysisResult(section, summary) {
+  if (section === "all") {
+    renderSummary(summary);
+    renderBasicInfo(summary.basicInfo);
+    return;
+  }
+  updateAnalysisSectionVisibility(summary, section);
+  if (section === "keywords") renderKeywords(summary.keywords || [], summary.keywordExplanations || {});
+  if (section === "threeLine") {
+    threeLineSummary.hidden = false;
+    renderSummaryLine(challenges, summary.threeLineSummary?.challenges);
+    renderSummaryLine(method, summary.threeLineSummary?.method);
+    renderSummaryLine(conclusion, summary.threeLineSummary?.conclusion);
+  }
+  if (section === "method") renderMethodSections(summary.methodSections || [], {
+    overview: summary.methodOverview || "", conclusion: summary.methodConclusion || "",
+  });
+  if (section === "metadata") {
+    renderBasicInfo(summary.basicInfo);
+    if (basicInfoTitle) basicInfoTitle.textContent = formatBasicInfoValue(summary.paperTitle || currentPaper?.title);
+  }
+}
+
+async function fetchFullSummary(text, goals, goal = "", onProgress = () => {}, onSection = () => {}) {
   const response = await apiFetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text, goals, goal }),
+    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text, goals, goal, stream: true }),
   });
-  const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.detail || data.error || "Summary failed.");
-  return data.summary || {};
+  if (!response.ok) {
+    const data = await readJsonResponse(response);
+    throw new Error(data.detail || data.error || "Summary failed.");
+  }
+  // Keep compatibility with providers/backends that return a complete JSON response.
+  if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+    const data = await readJsonResponse(response);
+    if (!data.summary) throw new Error("Summary response is unavailable.");
+    return data.summary;
+  }
+  if (!response.body) throw new Error("Summary stream is unavailable.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let summary = null;
+  function applyBlock(block) {
+    const data = block.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n");
+    if (!data) return;
+    const event = JSON.parse(data);
+    if (event.stage === "error") throw new Error(event.summary?.detail || "Summary failed.");
+    if (event.stage === "agent_progress" && !summary) onProgress(event.summary || {});
+    if (event.stage === "section_complete" && !summary) onSection(event.summary || {});
+    if (event.stage === "complete") summary = event.summary;
+  }
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      // Normalize after concatenation so CRLF split across chunks remains valid.
+      buffer = buffer.replace(/\r\n/g, "\n");
+      let boundary;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        applyBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) applyBlock(buffer);
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) throw new Error("Summary stream ended early.");
+    return summary;
+  } finally {
+    if (!summary) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 async function fetchOverviewInfo(text) {
-  const response = await apiFetch("/api/overview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ paperId: currentPaper?.id || "", paperText: text }),
-  });
-  const data = await readJsonResponse(response);
-  if (!response.ok) throw new Error(data.detail || data.error || "Overview extraction failed.");
-  return data.overviewInfo || {};
+  return summarizeText(text, { goals: ["metadata"], section: "metadata", goal: "提取论文标题和基本信息，并检查格式。" });
 }
 
 async function refreshOverviewInfo(text) {
+  const paperId = currentPaper?.id;
   const overviewInfo = await fetchOverviewInfo(text);
-
-  renderKeywords(overviewInfo.keywords || [], overviewInfo.keywordExplanations || {});
-  renderBasicInfo(overviewInfo.basicInfo);
-  await saveCurrentPaper({ overviewInfo });
-  if (overviewInfo.paperTitle) {
-    setReaderPaperTitle(overviewInfo.paperTitle);
-  }
+  if (!overviewInfo || currentPaper?.id !== paperId) return;
+  await saveCurrentPaper({ summary: {
+    ...paperToSummary(currentPaper),
+    paperTitle: overviewInfo.paperTitle || currentPaper.title,
+    basicInfo: overviewInfo.basicInfo || {},
+  } });
+  if (currentPaper?.id === paperId && overviewInfo.paperTitle) setReaderPaperTitle(overviewInfo.paperTitle);
 }
 
 async function getPdfMetadataTitle(pdf) {
@@ -4141,11 +4182,23 @@ function buildApiBaseCandidates() {
   return [...new Set(candidates)];
 }
 
+function updateAnalysisSectionVisibility(summary, section = "all") {
+  const ready = {
+    keywords: Boolean(summary?.keywords?.length),
+    threeLine: ["challenges", "method", "conclusion"].every(key => Boolean(summary?.threeLineSummary?.[key])),
+    method: Boolean(summary?.methodSections?.length || summary?.methodOverview || summary?.methodConclusion),
+  };
+  for (const [key, visible] of Object.entries(ready)) {
+    if (section === "all" || section === key) analysisSectionCards[key].hidden = !visible;
+  }
+}
+
 function renderSummaryLine(node, value) {
   node.replaceChildren(...formatInlineTechnicalText(value || "No response"));
 }
 
 function renderSummary(summary) {
+  updateAnalysisSectionVisibility(summary);
   if (!summary) {
     challenges.textContent = "Waiting";
     method.textContent = "Waiting";
@@ -4893,13 +4946,7 @@ async function applyCandidateBasicInfo(candidate) {
 }
 
 function renderSummaryLoading(message = "Loading...") {
-  renderKeywordsLoading(message);
-
-  challenges.textContent = "Loading...";
-  method.textContent = "Loading...";
-  conclusion.textContent = "Loading...";
-
-  renderMethodLoading(message);
+  setSummarySectionLoading("all").update({ detail: message });
   queueWithAiScrollBottomButtonUpdate();
 }
 

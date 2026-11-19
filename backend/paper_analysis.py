@@ -14,7 +14,7 @@ from .reading_agent.state import AgentError
 
 GOALS = ("metadata", "keywords", "threeLine", "method")
 OVERVIEW_GOALS = ("metadata", "keywords", "threeLine")
-MAX_ROUNDS = 24
+MAX_ROUNDS = 64
 MAX_TOOL_CALLS = 48
 READ_CHARS = 24_000
 MAX_CONTEXT_CHARS = 240_000
@@ -87,6 +87,10 @@ def tool(name, description, properties, required=()):
 
 def analysis_tools(select_goals=False):
     definitions = [
+        tool("report_progress", "向用户简短说明当前阶段、基于工具反馈已完成的工作以及下一步。只汇报工作摘要，不输出内部推理；可与工作工具在同一轮调用。", {
+            "phase": {"type": "string", "maxLength": 60},
+            "completed": {"type": "string", "maxLength": 400},
+            "next": {"type": "string", "maxLength": 240}}, ("phase", "completed", "next")),
         tool("read_paper", "按字符位置读取论文原文，返回起止位置和是否还有后文。", {
             "start": {"type": "integer", "minimum": 0},
             "length": {"type": "integer", "minimum": 1, "maximum": READ_CHARS}}, ("start",)),
@@ -232,11 +236,20 @@ class AnalysisState(TypedDict):
     done: bool
     trace: list
     goals: list
+    published_sections: dict
+
+
+def remaining_budget(rounds, calls):
+    """Round counts refer to completed/current calls; remaining excludes this call."""
+    return {"round": rounds, "maxRounds": MAX_ROUNDS,
+            "roundsRemaining": max(0, MAX_ROUNDS - rounds),
+            "toolCallsRemaining": max(0, MAX_TOOL_CALLS - calls), "maxToolCalls": MAX_TOOL_CALLS}
 
 
 async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None):
     # Import lazily: opening the web app still works without the optional runtime.
     from langgraph.graph import END, START, StateGraph
+    from langgraph.errors import GraphRecursionError
 
     goal = validate_goal(goal)
     infer_goals = goals is None and bool(goal)
@@ -250,29 +263,38 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
                     "notice": "先按需读取原文。goals 是最终交付目标，不是执行顺序。"}, ensure_ascii=False)}]
 
     async def agent(state):
-        if state["rounds"] >= MAX_ROUNDS or state["calls"] >= MAX_TOOL_CALLS:
-            raise ValueError("论文解析达到调用上限，未通过校验的结果不会提交。请缩小目标后重试。")
-        if len(json.dumps(state["messages"], ensure_ascii=False)) > MAX_CONTEXT_CHARS:
+        budget = remaining_budget(state["rounds"] + 1, state["calls"])
+        notice = {"role": "system", "content": "服务端实时运行预算：" + json.dumps(budget, ensure_ascii=False)
+            + "。round 为本轮序号，roundsRemaining 为本轮结束后剩余的模型轮数。"
+              "每次模型回复（包括进度汇报）占用一轮；工具调用另计。请据此安排阅读、生成、修正和最终提交。"
+              "剩余轮数不超过 3 轮时优先补全缺失字段并完成校验，不重复阅读；不要为了进度汇报单独增加轮次。"}
+        # Only the current budget is sent; stale snapshots do not accumulate.
+        request_messages = state["messages"] + [notice]
+        if len(json.dumps(request_messages, ensure_ascii=False)) > MAX_CONTEXT_CHARS:
             raise ValueError("论文解析上下文超过预算，请缩小目标后重试。")
-        emit({"stage": "agent_progress", "summary": {"detail": "正在分析论文并选择下一步…", "round": state["rounds"] + 1}})
-        reply = await model.complete(state["messages"], analysis_tools(infer_goals and not state["goals"]))
+        emit({"stage": "agent_progress", "summary": {"detail": "正在分析论文并选择下一步…", "source": "runtime", **budget}})
+        reply = await model.complete(request_messages, analysis_tools(infer_goals and not state["goals"]))
         return {"messages": state["messages"] + [reply], "reply": reply, "rounds": state["rounds"] + 1}
 
     def execute(state):
         messages, result, ranges = list(state["messages"]), deepcopy(state["result"]), list(state["read_ranges"])
         trace, calls, done = list(state["trace"]), state["calls"], False
         targets = list(state["goals"])
+        published = deepcopy(state["published_sections"])
         requested = state["reply"].get("tool_calls") or []
         if not requested:
             messages.append({"role": "user", "content": "请使用工具读取原文、提交结果并调用 finish。文字回答不能替代结构化交付。"})
         for call in requested:
             calls += 1
             name = call["function"]["name"]
-            emit({"stage": "agent_progress", "summary": {"detail": {
+            budget = remaining_budget(state["rounds"], calls)
+            if name != "report_progress":
+                emit({"stage": "agent_progress", "summary": {"detail": {
                 "read_paper": "正在读取论文原文…", "search_paper": "正在定位论文内容…",
                 "update_result": "正在整理分析结果…", "validate_result": "正在校验结构与公式格式…",
                 "select_goals": "正在确定最终交付内容…",
-                "finish": "正在检查最终结果…"}.get(name, "正在处理工具请求…"), "tool": name}})
+                "finish": "正在检查最终结果…"}.get(name, "正在处理工具请求…"), "tool": name,
+                "source": "runtime", **budget}})
             try:
                 if done:
                     raise ValueError("任务已完成，后续工具未执行。")
@@ -282,10 +304,20 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
                 if not isinstance(args, dict):
                     raise ValueError("工具参数必须是对象。")
                 allowed = {"read_paper": {"start", "length"}, "search_paper": {"query"},
-                           "update_result": {"patch"}, "validate_result": set(), "finish": set(), "select_goals": {"goals"}}
+                           "update_result": {"patch"}, "validate_result": set(), "finish": set(),
+                           "select_goals": {"goals"}, "report_progress": {"phase", "completed", "next"}}
                 if name not in allowed or set(args) - allowed[name]:
                     raise ValueError("工具或参数不在允许范围内。")
-                if name == "select_goals":
+                if name == "report_progress":
+                    limits = {"phase": 60, "completed": 400, "next": 240}
+                    if any(not isinstance(args.get(key), str) or not args[key].strip() or len(args[key]) > limit
+                           for key, limit in limits.items()):
+                        raise ValueError("进度必须包含非空的 phase（最多60字）、completed（最多400字）和 next（最多240字）。")
+                    progress = {key: args[key].strip() for key in limits}
+                    emit({"stage": "agent_progress", "summary": {
+                        **progress, "detail": progress["phase"], "source": "agent", **budget}})
+                    observation = {"reported": True}
+                elif name == "select_goals":
                     if not infer_goals or targets:
                         raise ValueError("最终交付范围已确定，不能修改。")
                     if not isinstance(args.get("goals"), list):
@@ -328,7 +360,19 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
                     if errors:
                         raise ValueError("；".join(errors[:20]))
                     result.update(deepcopy(patch))
-                    observation = {"updated": list(patch), "notice": "这是草稿，尚未作为最终结果保存。"}
+                    completed = []
+                    for target in targets:
+                        fields = GOAL_FIELDS[target]
+                        if not set(fields).intersection(patch):
+                            continue
+                        section = {field: result[field] for field in fields if field in result}
+                        if validate_result(section, [target]) or published.get(target) == section:
+                            continue
+                        published[target] = deepcopy(section)
+                        completed.append(target)
+                        emit({"stage": "section_complete", "summary": {"section": target, "result": deepcopy(section)}})
+                    observation = {"updated": list(patch), "completedSections": completed,
+                                   "notice": "通过分项校验的成果已展示；整次任务通过最终校验后才保存。"}
                 else:
                     errors = validate_result(result, targets)
                     if not targets:
@@ -346,7 +390,7 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(observation, ensure_ascii=False)})
         return {"messages": messages, "result": result, "read_ranges": ranges,
-                "trace": trace, "calls": calls, "done": done, "goals": targets}
+                "trace": trace, "calls": calls, "done": done, "goals": targets, "published_sections": published}
 
     graph = StateGraph(AnalysisState)
     graph.add_node("agent", agent)
@@ -355,8 +399,12 @@ async def analyze_paper(paper_text, goals, goal, model, emit=lambda event: None)
     graph.add_edge("agent", "tools")
     graph.add_conditional_edges("tools", lambda state: "done" if state["done"] else "continue",
                                 {"done": END, "continue": "agent"})
-    final = await graph.compile().ainvoke({"messages": messages, "result": {}, "reply": {}, "rounds": 0,
-        "calls": 0, "read_ranges": [], "done": False, "trace": [], "goals": goals}, {"recursion_limit": MAX_ROUNDS * 2 + 2})
+    try:
+        final = await graph.compile().ainvoke({"messages": messages, "result": {}, "reply": {}, "rounds": 0,
+            "calls": 0, "read_ranges": [], "done": False, "trace": [], "goals": goals,
+            "published_sections": {}}, {"recursion_limit": MAX_ROUNDS * 2 + 2})
+    except GraphRecursionError as exc:
+        raise ValueError("论文解析达到图执行轮数上限，未通过校验的结果不会提交。请缩小目标后重试。") from exc
     # Return only requested fields plus the stable UI defaults. No draft escapes.
     result = empty_result()
     result.update(final["result"])
@@ -382,6 +430,8 @@ def run_analysis(paper_text, goals, goal, connection, custom_prompt, on_stage=No
             for event in events:
                 if "result" in event:
                     result = (event["result"], event["raw"])
+                elif event.get("heartbeat"):
+                    continue
                 elif on_stage:
                     on_stage(event.get("stage", "agent_progress"), event.get("summary", {"detail": event.get("status", "正在解析论文…")}))
         finally:
