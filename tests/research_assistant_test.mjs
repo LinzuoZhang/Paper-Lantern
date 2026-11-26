@@ -420,7 +420,7 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   listeners.beforeunload();
 }
 
-// Plan previews expose one confirmation action and bind approval to the exact
+// Natural-language plans expose one confirmation action and bind approval to the exact
 // immutable digest. Revisions remain available through the conversation input.
 {
   const id = '4'.repeat(32), planId = '3'.repeat(32);
@@ -452,7 +452,9 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   assert.equal(e.researchPlan.dataset.state, 'approval');
   assert.equal(e.researchAnswer.hidden, true);
   assert.equal(e.researchResultActions.hidden, true);
-  assert.equal(e.researchPlan.querySelector('.execution-group').tagName, 'details');
+  assert.equal(e.researchPlan.querySelector('details'), null);
+  assert.equal(e.researchPlan.querySelector('.execution-plan-text').textContent, plan.proposal.summary);
+  assert.equal(e.researchPlan.querySelector('.execution-controls'), null);
   assert.equal(calls.filter(call => call.url.endsWith('/plan/approve')).length, 0);
   assert.equal(e.researchTask.disabled, false, 'Users can revise a plan with a follow-up');
   let controls = e.researchPlan.querySelector('.research-plan-buttons');
@@ -475,7 +477,9 @@ function fixture(stored, apiFetch, durable = false, config = {}) {
   assert.equal(e.researchReport.hidden, true);
   assert.equal(e.researchResultActions.hidden, true);
   assert.equal(e.researchSave.hidden, true);
-  assert.equal(e.researchPlan.querySelector('.execution-operation').dataset.state, 'success');
+  assert.equal(e.researchPlan.querySelector('.execution-result-text').textContent, '已创建分类。');
+  assert.equal(e.researchPlan.querySelector('.execution-plan-text').hidden, true);
+  assert.equal(e.researchPlan.querySelector('details'), null);
   await e.researchNew.fire('click');
   assert.equal(e.researchPlan.hidden, true);
   listeners.beforeunload();
