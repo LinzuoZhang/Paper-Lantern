@@ -126,7 +126,7 @@ class ConfiguredModel:
                         continue
                     delta = choice.get("delta", {})
                     size += len(json.dumps(delta, ensure_ascii=False))
-                    if size > 160_000:
+                    if size > 1_000_000:
                         raise AgentError("模型单轮输出超过上下文预算。")
                     for field, target in (("content", content), ("reasoning_content", reasoning)):
                         text = delta.get(field)
@@ -203,7 +203,7 @@ class ConfiguredModel:
             reply["tool_calls"] = calls
         if not isinstance(reply["content"], str) or not isinstance(reply.get("reasoning_content", ""), str):
             raise AgentError("模型返回了非文本内容。")
-        if len(json.dumps(reply, ensure_ascii=False)) > 80_000:
+        if len(json.dumps(reply, ensure_ascii=False)) > 1_000_000:
             raise AgentError("模型单轮输出超过上下文预算。")
         return reply
 

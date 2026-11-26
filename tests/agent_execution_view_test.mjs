@@ -49,41 +49,67 @@ class Element {
 }
 globalThis.document = { createElement: tag => Object.assign(new Element(), { tagName: tag }) };
 const host = new Element(), view = createExecutionView(host);
-view.update(plan);
-assert.equal(host.querySelectorAll('.execution-group').length, 3);
-assert.equal(host.querySelectorAll('.execution-operation').length, 4);
-assert.ok(host.querySelectorAll('.execution-group').every(group => !group.open));
-assert.equal(host.querySelector('.execution-diff').querySelectorAll('td')[1].textContent, plan.preview[0].changes[0].after.categoryIds[0], 'Long paths remain intact');
-const group = host.querySelector('.execution-group'), row = host.querySelector('.execution-operation');
-group.querySelector('summary').click(); group.open = true;
-row.querySelector('summary').click(); row.open = true;
-const raw = row.querySelector('.execution-raw'); raw.querySelector('summary').click(); raw.open = true;
-view.update({ ...plan, state: 'executing', results: [{ id: 'a', status: 'completed' }, { id: 'b', status: 'running' }] });
-assert.equal(host.querySelector('.execution-operation'), row, 'Reuse rows during streamed updates');
-assert.equal(row.open, true);
-assert.equal(row.querySelector('.execution-raw'), raw);
-assert.equal(raw.open, true, 'Keep raw disclosures open during receipt updates');
+let approvals = 0;
+const actions = [{ label: '确认操作', run: () => { approvals++; } }];
+view.update(plan, { actions });
+assert.equal(host.querySelector('.execution-plan-text').textContent, '整理文献');
+assert.equal(host.querySelector('.execution-plan-text').hidden, false);
+assert.equal(host.querySelectorAll('details').length, 0);
+assert.equal(host.querySelectorAll('pre').length, 0);
+assert.equal(host.querySelector('.execution-outcome').children.length, 0, 'Do not imply execution before confirmation');
+assert.equal(host.querySelectorAll('button').length, 1);
+host.querySelector('button').click();
+assert.equal(approvals, 1);
+view.update(plan, { busy: true, actions });
+assert.equal(host.querySelector('button').disabled, true);
+assert.match(host.querySelector('.execution-result-text').textContent, /正在执行已确认/);
+assert.equal(host.querySelector('.execution-plan-text').hidden, true);
 view.update(partial);
-const failed = host.querySelectorAll('.execution-operation')[1];
-assert.equal(failed.open, true);
-assert.equal(failed.dataset.state, 'failed');
-host.querySelector('.execution-controls').children[1].click();
-assert.ok(host.querySelectorAll('details').every(detail => !detail.open));
-view.update(partial);
-assert.equal(failed.open, false, 'Respect deliberate collapse after surfacing a failure');
-host.querySelector('.execution-controls').children[0].click();
-assert.ok(host.querySelectorAll('details').every(detail => detail.open));
+assert.match(host.querySelector('.execution-result-text').textContent, /部分完成：1 项已完成，1 项失败，2 项未执行/);
+assert.match(host.querySelector('.execution-error').textContent, /Write failed/);
+assert.match(host.querySelector('.execution-warning').textContent, /可能已产生部分修改/);
+assert.equal(host.querySelectorAll('details').length, 0);
 const complete = { ...plan, state: 'completed', results: operations.map(op => ({ id: op.id, status: 'completed' })) };
 view.update(complete);
-assert.equal(group.open, true, 'Manual expansion survives completion');
-const many = { id: 'many', state: 'completed', proposal: { operations: Array.from({ length: 150 }, (_, i) => ({ id: `${i}`, tool: 'unknown_tool', arguments: { i } })) },
-  results: Array.from({ length: 150 }, (_, i) => ({ id: `${i}`, status: 'completed', output: { i } })) };
-view.update(many);
-assert.equal(host.querySelectorAll('.execution-group').length, 1);
-assert.equal(host.querySelectorAll('.execution-operation').length, 150);
-assert.ok(host.querySelectorAll('details').every(detail => !detail.open));
+assert.match(host.querySelector('.execution-result-text').textContent, /^已替换文献分类/);
+assert.equal(host.querySelector('.execution-plan-text').hidden, true, 'Completed results must not retain the proposal in future tense');
+assert.ok(host.querySelectorAll('.execution-result-text').every(result => !/共完成|已完成 \d+ 项/.test(result.textContent)));
+assert.equal(host.querySelectorAll('button').length, 0);
+assert.equal(host.querySelector('.execution-error'), undefined, 'Clear old failures when the plan changes');
 assert.equal(host.dataset.state, 'success');
+view.update({ ...plan, state: 'completed' });
+assert.match(host.querySelector('.execution-result-text').textContent, /暂时无法确认/);
+view.update({ ...plan, state: 'failed', failure: { stage: 'preview', error: '分类不存在' } });
+assert.match(host.querySelector('.execution-result-text').textContent, /未执行任何修改/);
+view.update({ ...complete, syncError: 'Offline' });
+assert.match(host.querySelector('.execution-warning').textContent, /修改已保存，但同步未完成：Offline/);
+view.update({ id: 'old', state: 'completed', legacyResult: { report: '已将两篇文献归入专题。' } });
+assert.equal(host.querySelector('.execution-result-text').textContent, '已将两篇文献归入专题。');
+view.update({ id: 'superseded', state: 'superseded', proposal: { summary: '旧方案' }, legacyResult: { kind: 'plan', report: '旧方案' } });
+assert.equal(host.querySelector('.execution-result-text').textContent, '此计划已由新方案替代。');
+view.update({ ...complete, results: [{ id: 'a', status: 'completed' }, { id: 'b', status: 'unrecognized' }] });
+assert.match(host.querySelector('.execution-result-text').textContent, /1 项结果待核对/);
+view.update({ id: 'category', state: 'completed', proposal: { summary: '创建专题', operations: [{ id: 'cat', tool: 'create_category', arguments: { name: '专题' } }] },
+  results: [{ id: 'cat', status: 'completed', output: { categoryId: '专题' } }] });
+assert.equal(host.querySelector('.execution-result-text').textContent, '已创建分类：“专题”。');
+const notePlan = { id: 'monthly-note', state: 'completed', proposal: { summary: '总结将包含五个章节。', operations: [
+  { id: 'note', tool: 'create_note', arguments: { title: '十月研究总结', categoryIds: [{ ref: 'category.categoryId' }] } },
+] }, preview: [{ id: 'note', tool: 'create_note', arguments: { title: '十月研究总结', categoryIds: ['日报文献/2026年10月'] },
+  changes: [{ before: null, after: { title: '十月研究总结', categoryIds: ['日报文献/2026年10月'] } }] }],
+  results: [{ id: 'note', tool: 'create_note', status: 'completed', output: { noteId: 'saved-note-id' } }] };
+view.update(notePlan);
+assert.equal(host.querySelector('.execution-result-text').textContent, '已新建独立笔记《十月研究总结》，保存到“日报文献/2026年10月”。');
+assert.equal(host.querySelector('.execution-plan-text').hidden, true);
+assert.equal(host.querySelector('.execution-result-link').href, './note.html?id=saved-note-id');
+assert.equal(host.querySelector('.execution-result-link').attributes['aria-label'], '打开笔记《十月研究总结》');
+view.update({ ...notePlan, state: 'failed', failure: { stage: 'execution', error: '保存失败' },
+  results: [{ id: 'note', tool: 'create_note', status: 'failed', error: '保存失败' }] });
+assert.equal(host.querySelector('.execution-result-link'), undefined, 'A failed write must not expose a fabricated saved note');
+assert.ok(host.querySelectorAll('.execution-result-text').every(result => !result.textContent.includes('已新建')));
+view.update({ ...notePlan, results: [{ id: 'note', tool: 'create_note', status: 'completed', output: {} }] });
+assert.equal(host.querySelector('.execution-result-link'), undefined, 'Only link to a note ID present in an execution receipt');
 // A failed load may temporarily replace the host with an error message.
-host.replaceChildren(); view.update(many);
-assert.equal(host.querySelectorAll('.execution-operation').length, 150);
-console.log('Agent execution view passed: receipt statistics, ordered groups, structured changes, legacy fallbacks and stable disclosures.');
+host.replaceChildren(); view.update(plan, { actions });
+assert.equal(host.querySelector('.execution-plan-text').textContent, '整理文献');
+assert.equal(host.querySelectorAll('details').length, 0);
+console.log('Agent execution view passed: readable plans, confirmation, receipt-backed results and failure explanations.');

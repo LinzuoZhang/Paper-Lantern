@@ -1,6 +1,6 @@
 import { createDiscussionHistory, generateDiscussionTitle, makeDiscussionTitle, showDiscussionConfirm } from "./discussion_history.js";
 import { initDiscussionComposer, createDiscussionPaperPicker } from "./discussion_composer.js";
-import { createExecutionView, executionModel } from "./agent_execution_view.js";
+import { createExecutionView } from "./agent_execution_view.js";
 
 const POSITION_KEY = "paperLanternResearchPosition";
 const LAYOUT_KEY = "paperLanternResearchLayout";
@@ -92,8 +92,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
   const save = find("researchSave");
   const note = find("researchNote");
   const planHost = find("researchPlan");
-  const planSummary = find("researchPlanSummary");
-  const planView = planHost ? createExecutionView(planHost, { onCopyError: () => showStatus("复制失败，可选中原始记录复制。", true) }) : null;
+  const planView = planHost ? createExecutionView(planHost) : null;
   const historicalPlans = new Map();
   const historicalViews = new Map();
   let planKey = "", planVersion = 0, currentPlan = null, planBusy = false;
@@ -523,7 +522,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     if (answer) answer.hidden = true;
     if (actions) actions.hidden = true;
     if (planHost) planHost.hidden = true;
-    if (planSummary) planSummary.hidden = true;
     panel.setAttribute("aria-busy", "true");
     showStatus("正在准备研究任务…");
     try {
@@ -601,7 +599,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       if (turn.result?.planId) {
         const record = historicalPlans.get(`${job?.id}:${turn.result.planId}`) || {
           id: turn.result.planId, state: turn.status === "awaiting_approval" ? "superseded" : turn.status,
-          proposal: { summary: "历史操作计划" }, results: turn.result.execution || [], legacyResult: turn.result,
+          proposal: { summary: turn.result.kind === "plan" ? turn.result.report : "" }, results: turn.result.execution || [], legacyResult: turn.result,
         };
         const key = `${job?.id}:${turn.result.planId}`;
         let entry = historicalViews.get(key);
@@ -677,7 +675,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       if (answer) answer.hidden = true;
     }
     if (job.status === "completed") status.hidden = true;
-    else if (job.status === "awaiting_approval") showStatus("计划尚未执行。请查看具体变更后确认，或继续追问调整方案。");
+    else if (job.status === "awaiting_approval") showStatus("计划尚未执行。请阅读操作计划后确认，或继续追问调整方案。");
     else if (job.status === "failed" || job.status === "interrupted") showStatus(job.error || "任务中断，可从检查点继续。", true);
     else if (job.status === "cancelled") showStatus("研究已停止，已完成的查阅记录已保留。");
     else if (job.status === "cancelling") showStatus("正在停止研究并保留进度…");
@@ -776,7 +774,6 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       streamingReport = false; reportStream = "";
       planVersion++; planKey = ""; currentPlan = null;
       if (planHost) planHost.hidden = true;
-      if (planSummary) planSummary.hidden = true;
       progressSummary = "";
       report.hidden = copy.hidden = true; welcome.hidden = jobs.size > 0; status.hidden = true;
       if (actions) actions.hidden = true;
@@ -856,26 +853,20 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
     const scrollTop = content.scrollTop;
     planView.update(plan, { busy: planBusy, actions });
     historicalPlans.set(`${job?.id}:${plan.id}`, plan);
-    if (planSummary) {
-      const model = executionModel(plan);
-      planSummary.hidden = !model.counts.success || planBusy || model.status === "running";
-      planSummary.textContent = `已完成 ${model.counts.success} 项操作${model.counts.failed ? `，${model.counts.failed} 项失败` : ""}。${model.counts.failed ? "请查看失败步骤并核对当前文献库状态。" : ""}`;
-    }
-    // Plan updates do not move the reading position, even when a failure opens details.
+    // Keep the reading position stable as execution results arrive.
     content.scrollTop = scrollTop;
     updateScrollUi();
   }
   async function loadJobPlan(value) {
     if (!planHost) return;
     const id = value.result?.planId;
-    if (!id) { planKey = ""; planVersion++; currentPlan = null; planHost.hidden = true; if (planSummary) planSummary.hidden = true; return; }
+    if (!id) { planKey = ""; planVersion++; currentPlan = null; planHost.hidden = true; return; }
     const key = `${value.id}:${id}:${value.status}:${JSON.stringify(value.result?.execution || [])}`;
     if (key === planKey) return;
     planKey = key; const version = ++planVersion;
-    if (currentPlan?.id !== id) planHost.textContent = "正在准备操作预览…";
+    if (currentPlan?.id !== id) planHost.textContent = "正在准备操作计划…";
     currentPlan = null; planHost.hidden = false;
-    if (planSummary) planSummary.hidden = true;
-    if (!planHost.children.length) planHost.textContent = "正在准备操作预览…";
+    if (!planHost.children.length) planHost.textContent = "正在准备操作计划…";
     try {
       const data = await request("/plan/preview", { jobId: value.id, planId: id });
       if (version !== planVersion || job?.id !== value.id) return;
@@ -886,7 +877,7 @@ export function initResearchAssistant({ apiFetch, readJsonResponse, getScope = (
       }
     } catch (error) {
       if (version !== planVersion) return;
-      planHost.textContent = `计划尚未执行，预览失败：${error.message} 可继续追问调整计划。`;
+      planHost.textContent = `暂时无法读取操作计划和执行结果：${error.message} 请稍后重试。`;
     }
   }
   async function actOnPlan(action) {
